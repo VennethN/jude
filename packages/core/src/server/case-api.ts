@@ -353,7 +353,7 @@ async function postMessage(
     (value) => value.trim().split(';')[0] === 'application/x-ndjson',
   );
   return acceptsStream
-    ? answerStream(request.signal, (publish, signal, progress) => sharedAnswer(cacheKey, (emit, workSignal) => generate(emit, workSignal, progress), publish, signal))
+    ? answerStream(request.signal, (publish, signal, progress) => sharedAnswer(cacheKey, generate, publish, signal, progress))
     : sharedAnswer(cacheKey, generate, undefined, request.signal);
 }
 async function liveQuota(db: Database, org: string, w: Workspace) {
