@@ -89,11 +89,12 @@
     if (!files.length || busy) return;
     busy = true;
     ready = [];
-    failed = [];
     for (const file of files) {
       activeFile = file.name;
       const requestKey = requestKeys.get(file) || crypto.randomUUID();
       requestKeys.set(file, requestKey);
+      // Retrying one file must not dismiss failures belonging to other files.
+      failed = failed.filter((item) => item.key !== requestKey);
       try {
         if (file.size > 25 * 1024 * 1024)
           throw new Error(id ? 'Batas per berkas adalah 25 MB.' : 'The limit is 25 MB per file.');
