@@ -30,3 +30,12 @@ test-results/
 .impeccable/live/
 .impeccable/hook.cache.json
 apps/voice/dist/
+
+# Impeccable installs the per-platform executable and Codex hooks on each machine.
+.agents/skills/impeccable/
+.codex/hooks.json
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.ruff_cache/
