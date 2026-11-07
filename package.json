@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node scripts/start.mjs --dev",
     "build": "pnpm --filter @jude/web build",
+    "build:amplify": "pnpm build && node infra/scripts/package-amplify.mjs",
     "start": "node scripts/start.mjs",
     "check": "pnpm --filter @jude/web check",
     "test": "vitest run",
