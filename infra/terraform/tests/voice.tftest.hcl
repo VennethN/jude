@@ -28,14 +28,15 @@ mock_provider "aws" {
 run "github_deploy_trust_is_main_only" {
   command = apply
   variables {
-    enable_application = true
-    enable_voice_host  = true
-    github_repository  = "VennethN/jude"
+    enable_application         = true
+    enable_voice_host          = true
+    github_repository          = "VennethN/jude"
+    github_oidc_subject_prefix = "repo:VennethN@77603243/jude@1448955559"
   }
   assert {
     condition = jsondecode(aws_iam_role.github_deploy[0].assume_role_policy).Statement[0].Condition.StringEquals == {
       "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
-      "token.actions.githubusercontent.com:sub" = "repo:VennethN/jude:ref:refs/heads/main"
+      "token.actions.githubusercontent.com:sub" = "repo:VennethN@77603243/jude@1448955559:ref:refs/heads/main"
     }
     error_message = "Deployment must accept GitHub OIDC only for this repository's main branch and AWS audience."
   }
