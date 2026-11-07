@@ -60,6 +60,12 @@ All paths use the `/api` prefix. Case mutations are scoped under `/cases/{caseId
 
 Send an `Idempotency-Key` when a creation or question might be retried. Errors use `{error: {code, message, retryable}}`. A stale board returns HTTP 409. A quota error returns HTTP 402 with the quota, measured usage and limit.
 
+## Deletion and restoration
+
+Deleting a document or a finished hearing releases its storage allowance immediately. During the configured grace period, the originals and their relationships remain recoverable. Reads hide the removed sources. Findings and historical chat messages keep labelled citation snapshots. Restoring a source checks the current storage allowance and brings back its references, board positions and links, alongside edits made in the interim. Case restoration also checks the organisation’s active case, board and storage limits.
+
+The background service checks expired records on startup and at least hourly. It removes expired case data, derived records, retained microphone segments and originals in bounded batches. Each object key enters a durable deletion queue before its database owner is removed. Failed local or S3 deletes use backoff. Database backups and any independently configured S3 object versions follow the deployment’s backup lifecycle.
+
 ## Analysis worker
 
 Start `runAnalysisWorker()` from the service process and keep its returned stop function for shutdown. The database transaction that persists a private, final statement with phase `queued` also registers the analysis job. Two worker lanes lease pending jobs, renew their leases during work and recover queued statements after a restart. Database failures retry with backoff. The transcript remains available when analysis cannot produce a grounded finding.

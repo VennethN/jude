@@ -143,6 +143,12 @@ function parseWorkspace(raw: unknown) {
     return maps.get(id) ?? invalid('reference');
   };
   const optionalRef = (v: unknown) => (v ? ref(v) : undefined);
+  const lostIds = new Map<string, string>();
+  const unavailableRef = (raw: unknown) => {
+    const id = archiveId(raw);
+    if (!lostIds.has(id)) lostIds.set(id, randomUUID());
+    return lostIds.get(id)!;
+  };
   const assignId = (v: unknown) => {
     const id = archiveId(v);
     if (maps.has(id)) invalid('id');
@@ -169,6 +175,7 @@ function parseWorkspace(raw: unknown) {
     number: number(r.number, 'number', 1, 100000),
     title: bilingual(r.title, 'title'),
     date: date(r.date),
+    language: r.language ? choice(r.language, ['id', 'en'], 'language') : undefined,
     mode: r.mode === 'live' ? 'recorded' : choice(r.mode, ['scheduled', 'imported', 'recorded'], 'mode'),
     time: rowText(r.time, 'time', 10),
     duration: r.duration === undefined ? undefined : number(r.duration, 'duration', 0, 7 * 86400),
@@ -232,6 +239,19 @@ function parseWorkspace(raw: unknown) {
     note: rowText(r.note, 'note', 12000),
     isNew: false,
     legal: ids(r.legal),
+    unavailableSources:
+      r.unavailableSources === undefined
+        ? undefined
+        : list(r.unavailableSources, 'unavailableSources', 500).map((raw) => {
+            const source = object(raw);
+            return {
+              passageId: unavailableRef(source.passageId),
+              documentTitle: string(source.documentTitle, 'documentTitle', 400),
+              page: number(source.page, 'page', 1, 10000),
+              relation: choice(source.relation, relations, 'relation'),
+              match: rowText(source.match, 'match'),
+            };
+          }),
     sources: list(r.sources, 'sources', 50).map((source) => {
       const s = object(source);
       return {
@@ -329,19 +349,32 @@ function parseWorkspace(raw: unknown) {
             typeof m.text === 'string' ? string(m.text, 'text', 40000) : bilingual(m.text, 'text', 40000);
         const citations = list(m.citations ?? [], 'citations', 60).map((raw) => {
           const c = object(raw);
-          return {
-            kind: choice(c.kind, ['statement', 'passage', 'finding', 'document', 'hearing'], 'kind'),
-            id: ref(c.id),
-          };
+          const kind = choice(c.kind, ['statement', 'passage', 'finding', 'document', 'hearing'], 'kind');
+          return c.unavailable === true
+            ? {
+                kind,
+                id: unavailableRef(c.id),
+                unavailable: true as const,
+                snapshot: rowText(c.snapshot, 'snapshot', 600),
+              }
+            : { kind, id: ref(c.id) };
         });
-        if (citations.some((c) => !hasCitation(w, c))) invalid('citations');
-        const contexts = contextsOf(
-          w,
-          list(m.contexts ?? [], 'contexts', 12).map((raw) => {
-            const c = object(raw);
-            return { ...c, id: optionalRef(c.id) };
-          }),
-        );
+        if (citations.some((c) => !c.unavailable && !hasCitation(w, c))) invalid('citations');
+        const contexts = list(m.contexts ?? [], 'contexts', 6).map((raw) => {
+          const c = object(raw);
+          if (c.unavailable === true)
+            return {
+              kind: choice(
+                c.kind,
+                ['hearing', 'finding', 'document', 'passage', 'statement', 'connection', 'board'],
+                'kind',
+              ),
+              id: unavailableRef(c.id),
+              unavailable: true as const,
+              snapshot: rowText(c.snapshot, 'snapshot', 600),
+            };
+          return contextsOf(w, [{ ...c, id: optionalRef(c.id) }])[0];
+        });
         return {
           id: randomUUID(),
           role: choice(m.role, ['user', 'assistant'], 'role'),

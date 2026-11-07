@@ -1,4 +1,6 @@
 import { transcriptionAvailable } from './voice-capabilities';
+import { removeSourceIn, restoreSourceIn, retentionMs } from './retention';
+import { retainedMarker } from './retained-evidence';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CoreRequest } from './request';
 import type { ContextRef, SessionInfo, Thread, Workspace } from '../domain';
@@ -56,7 +58,6 @@ const groups = [
   'legal',
   'replies',
 ] as const;
-const grace = () => Math.max(1, Number(process.env.JUDE_DELETE_GRACE_DAYS) || 30) * 86400000;
 export function caseHits(w: Workspace, query: string) {
   const term = query.toLocaleLowerCase().trim();
   if (term.length < 2) return [];
@@ -183,41 +184,60 @@ async function caseState(
   action: 'delete' | 'restore' | 'archive' | 'unarchive',
 ) {
   await orgLock(db, org);
-  const [c] = await db.query<{ archived: number; deleted_at: number | string | null; synthetic: number }>(
-    'SELECT archived,deleted_at,synthetic FROM cases WHERE id=$1 AND org_id=$2' + db.forUpdate,
-    [id, org],
-  );
-  if (!c || (c.deleted_at && (action !== 'restore' || Number(c.deleted_at) + grace() < Date.now())))
+  const [c] = await db.query<{
+    record: string;
+    archived: number;
+    deleted_at: number | string | null;
+    synthetic: number;
+  }>('SELECT record,archived,deleted_at,synthetic FROM cases WHERE id=$1 AND org_id=$2' + db.forUpdate, [
+    id,
+    org,
+  ]);
+  if (!c || (c.deleted_at && (action !== 'restore' || Number(c.deleted_at) + retentionMs() < Date.now())))
     missing();
   if (
     ((action === 'unarchive' && c.archived) || (action === 'restore' && c.deleted_at && !c.archived)) &&
     !c.synthetic
   )
     await checkQuota(db, org, 'cases', 1);
+  if (action === 'restore' && c.deleted_at) {
+    const [stored] = await db.query<{ size: string | number; boards: string | number }>(
+      "SELECT (SELECT COUNT(*) FROM case_entities WHERE case_id=$1 AND kind='boards') AS boards," +
+        "COALESCE(SUM(n),0) AS size FROM (SELECT a.byte_length AS n FROM attachments a WHERE a.case_id=$1 AND a.kind IN ('original','audio') " +
+        "AND NOT EXISTS (SELECT 1 FROM case_trash x WHERE x.case_id=a.case_id AND x.id=a.entity_id AND x.kind=CASE WHEN a.kind='audio' THEN 'hearings' ELSE 'documents' END) " +
+        "UNION ALL SELECT t.bytes AS n FROM voice_turns t WHERE t.case_id=$1 AND t.object_key IS NOT NULL AND NOT EXISTS (SELECT 1 FROM case_trash x WHERE x.case_id=t.case_id AND x.id=t.hearing_id AND x.kind='hearings')) AS items",
+      [id],
+    );
+    if (Number(stored.size)) await checkQuota(db, org, 'storage', Number(stored.size) / 1e9);
+    if (Number(stored.boards)) await checkQuota(db, org, 'boards', Number(stored.boards));
+  }
   if (action === 'delete')
     await db.query('UPDATE cases SET deleted_at=$1,version=version+1 WHERE id=$2', [Date.now(), id]);
   else if (action === 'restore')
     await db.query('UPDATE cases SET deleted_at=NULL,version=version+1 WHERE id=$1', [id]);
-  else
-    await db.query('UPDATE cases SET archived=$1,version=version+1 WHERE id=$2', [
-      Number(action === 'archive'),
+  else if (Boolean(c.archived) !== (action === 'archive')) {
+    const record = JSON.parse(c.record);
+    if (action === 'archive') record.archivedAt = new Date().toISOString();
+    else delete record.archivedAt;
+    record.archived = action === 'archive';
+    record.updated = new Date().toISOString();
+    await db.query('UPDATE cases SET archived=$1,record=$2,updated_at=$3,version=version+1 WHERE id=$4', [
+      Number(record.archived),
+      JSON.stringify(record),
+      Date.now(),
       id,
     ]);
+  }
   return { ok: true };
 }
 const trashable = ['threads', 'boards', 'connections', 'documents', 'hearings'] as const;
 type TrashKind = (typeof trashable)[number];
 async function removeItem(db: Database, org: string, caseId: string, kind: TrashKind, id: string) {
+  if (kind === 'documents' || kind === 'hearings') return removeSourceIn(db, org, caseId, kind, id);
   const removed = await changeIn(db, org, caseId, (w) => {
     const items = w[kind] as { id: string }[];
     const index = items.findIndex((v) => v.id === id);
     if (index < 0) missing();
-    if (
-      (kind === 'documents' && w.passages.some((p) => p.docId === id)) ||
-      (kind === 'hearings' && w.statements.some((s) => s.hearingId === id))
-    ) {
-      conflict('The case contains source material linked to this item.');
-    }
     return items.splice(index, 1)[0];
   });
   await db.query(
@@ -227,11 +247,14 @@ async function removeItem(db: Database, org: string, caseId: string, kind: Trash
   return { ok: true, id };
 }
 async function restoreItem(db: Database, org: string, caseId: string, kind: TrashKind, id: string) {
+  await orgLock(db, org);
   const [item] = await db.query<{ body: string }>(
     'SELECT body FROM case_trash WHERE case_id=$1 AND kind=$2 AND id=$3 AND deleted_at>=$4',
-    [caseId, kind, id, Date.now() - grace()],
+    [caseId, kind, id, Date.now() - retentionMs()],
   );
   if (!item) missing();
+  if ((kind === 'documents' || kind === 'hearings') && item.body === retainedMarker)
+    return restoreSourceIn(db, org, caseId, kind, id);
   if (kind === 'boards') await checkQuota(db, org, 'boards', 1);
   const data = JSON.parse(item.body);
   await changeIn(db, org, caseId, (w) => {
@@ -312,7 +335,10 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
     method = event.request.method,
     key = event.request.headers.get('idempotency-key');
   if (path.length > 3) missing();
-  const managing = (resource === 'members' && method !== 'GET') || (!resource && method === 'DELETE');
+  const managing =
+    (resource === 'members' && method !== 'GET') ||
+    (!resource && method === 'DELETE') ||
+    (resource === 'restore' && method === 'POST');
   await authorizeCase(
     session,
     caseId,
@@ -384,8 +410,9 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
   if (!resource && method === 'PATCH') return mutateWorkspace(org, caseId, (w) => patchCase(w, f));
   if (resource === 'threads' && id && act === 'messages' && method === 'POST')
     return postMessage(session, caseId, id, f, key);
-  const startingHearing = resource === 'hearings' && method === 'POST' && (f.flow === 'live' || act === 'start');
-  const voiceReady = startingHearing && !session.user.guest && await transcriptionAvailable();
+  const startingHearing =
+    resource === 'hearings' && method === 'POST' && (f.flow === 'live' || act === 'start');
+  const voiceReady = startingHearing && !session.user.guest && (await transcriptionAvailable());
   return transaction((db) =>
     idempotent(db, org, caseId + '/' + path.join('/') + '/' + method, key, async () => {
       if (resource === 'boards' && !id && method === 'POST') await checkQuota(db, org, 'boards', 1);
@@ -424,7 +451,7 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
           if (method === 'POST' && !id) return addHearing(w, f, session.user.id);
           if (method === 'POST' && act === 'start') return startHearing(w, id, f, session.user.id);
           if (method === 'POST' && act === 'end') {
-            const hearing = required(w.hearings, h => h.id === id);
+            const hearing = required(w.hearings, (h) => h.id === id);
             if (w.caseRecord.label !== 'synthetic' && hearing.recordingPermission?.by !== session.user.id)
               throw new ApiError(403, 'forbidden', 'Only the recording lawyer may end this hearing.');
             return endHearing(w, id);

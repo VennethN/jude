@@ -48,6 +48,7 @@ export interface CaseRecord {
   court: string;
   updated: string;
   archived?: boolean;
+  archivedAt?: string;
   nextHearing?: { date: string; time: string; title: L10n };
 }
 
@@ -164,6 +165,7 @@ export interface Finding {
   /** The phrase in the testimony that the finding is about. */
   said?: string;
   sources: FindingSource[];
+  unavailableSources?: (FindingSource & { documentTitle: string; page: number })[];
   legal?: string[];
   reviewed: boolean;
   note: string;
@@ -199,13 +201,13 @@ export type InspectTarget =
   | { kind: "legal"; id: string }
   | { kind: "reply"; id: string };
 
-export type Citation = { kind: "passage" | "statement" | "finding" | "document" | "hearing"; id: string };
+export type Citation = { kind: "passage" | "statement" | "finding" | "document" | "hearing"; id: string; unavailable?: true; snapshot?: string };
 
 /** What a question is asked with: the whole case, a page, or a piece of the record. */
 export type ContextRef =
   | { kind: "case" }
   | { kind: "documents" }
-  | { kind: "hearing" | "finding" | "document" | "passage" | "statement" | "connection" | "board"; id: string };
+  | { kind: "hearing" | "finding" | "document" | "passage" | "statement" | "connection" | "board"; id: string; unavailable?: true; snapshot?: string };
 
 export interface ChatMessage {
   id: string;

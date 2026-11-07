@@ -14,7 +14,7 @@ export async function recoverStatements(db: Database) {
   await db.query(
     'INSERT INTO analysis_jobs(case_id,statement_id,available_at) SELECT c.id,e.id,$1 FROM cases c JOIN case_entities e ON e.case_id=c.id WHERE ' +
       eligible +
-      " AND e.kind='statements' AND e.body LIKE $2 AND NOT EXISTS (SELECT 1 FROM analysis_jobs j WHERE j.case_id=c.id AND j.statement_id=e.id) ON CONFLICT(case_id,statement_id) DO NOTHING",
+      " AND e.kind='statements' AND e.body LIKE $2 AND NOT EXISTS (SELECT 1 FROM case_trash t WHERE t.case_id=c.id AND t.kind='hearings' AND e.body LIKE '%\"hearingId\":\"' || t.id || '\"%') AND NOT EXISTS (SELECT 1 FROM analysis_jobs j WHERE j.case_id=c.id AND j.statement_id=e.id) ON CONFLICT(case_id,statement_id) DO NOTHING",
     [Date.now(), '%"phase":"queued"%'],
   );
 }

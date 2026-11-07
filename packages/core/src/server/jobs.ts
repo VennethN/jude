@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readWorkspace, mutateWorkspace, workspaceIn } from './cases';
 import { transaction } from './db';
 import { queueStatementIn, recoverStatements } from './queue';
+import { purgeExpired } from './retention';
 
 interface Job {
   case_id: string;
@@ -90,8 +91,24 @@ export function runAnalysisWorker() {
   if (stopWorker) return stopWorker;
   let stopped = false,
     active = false,
-    lastRecovery = 0;
+    lastRecovery = 0,
+    lastPurge = 0,
+    purging = false;
+  const maintainRetention = async () => {
+    if (purging || stopped || Date.now() - lastPurge < 60 * 60_000) return;
+    purging = true;
+    try {
+      const result = await purgeExpired();
+      // Drain any backlog in bounded batches; idle installations check hourly.
+      if (result.cases < 32 && result.records < 64 && result.objects < 64) lastPurge = Date.now();
+    } catch {
+      // The next check resumes from the durable object queue.
+    } finally {
+      purging = false;
+    }
+  };
   const tick = async () => {
+    void maintainRetention();
     if (stopped || active) return;
     active = true;
     try {

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { CaseRecord, CaseSummary, Thread, Workspace } from '../domain';
 import { needsReview } from '../domain';
 import { queueStatementIn } from './queue';
+import { preserveHidden, retainedMarker, withoutRemoved, type RemovedSource } from './retained-evidence';
 import * as seed from './seed';
 import { transaction, type Database } from './db';
 import { ApiError, bilingual, missing, string, type Fields } from './validation';
@@ -176,14 +177,20 @@ export async function orgLock(db: Database, orgId: string) {
   const rows = await db.query('SELECT id FROM organizations WHERE id=$1' + db.forUpdate, [orgId]);
   if (!rows.length) missing();
 }
-export async function workspaceIn(db: Database, orgId: string, caseId: string, write = false) {
+async function storedWorkspace(
+  db: Database,
+  orgId: string,
+  caseId: string,
+  write = false,
+  allowArchived = false,
+) {
   const [row] = await db.query<CaseRow>(
     'SELECT id,record,version,archived FROM cases WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL' +
       (write ? db.forUpdate : db.forUpdate ? ' FOR SHARE' : ''),
     [caseId, orgId],
   );
   if (!row) missing();
-  if (write && row.archived)
+  if (write && row.archived && !allowArchived)
     throw new ApiError(409, 'case_archived', 'Restore the archived case before editing it.');
   const w = emptyWorkspace(JSON.parse(row.record) as CaseRecord);
   w.caseRecord.archived = Boolean(row.archived);
@@ -195,17 +202,45 @@ export async function workspaceIn(db: Database, orgId: string, caseId: string, w
   for (const entry of data) (w[entry.kind] as { id: string }[]).push(JSON.parse(entry.body));
   return w;
 }
+async function removedSources(db: Database, caseId: string) {
+  return db.query<RemovedSource>(
+    "SELECT kind,id FROM case_trash WHERE case_id=$1 AND body=$2 AND kind IN ('documents','hearings')",
+    [caseId, retainedMarker],
+  );
+}
+
+export async function workspaceIn(db: Database, orgId: string, caseId: string, write = false) {
+  const raw = await storedWorkspace(db, orgId, caseId, write);
+  const removed = await removedSources(db, caseId);
+  return removed.length ? withoutRemoved(raw, removed) : raw;
+}
+
+export async function purgeSourcesIn(db: Database, orgId: string, caseId: string, removed: RemovedSource[]) {
+  const raw = await storedWorkspace(db, orgId, caseId, true, true);
+  const pruned = withoutRemoved(raw, removed);
+  await saveEntries(db, caseId, entries(raw), pruned);
+  await db.query(
+    "DELETE FROM analysis_jobs WHERE case_id=$1 AND NOT EXISTS (SELECT 1 FROM case_entities e WHERE e.case_id=analysis_jobs.case_id AND e.kind='statements' AND e.id=analysis_jobs.statement_id)",
+    [caseId],
+  );
+}
+
 export async function changeIn<T>(
   db: Database,
   orgId: string,
   caseId: string,
   edit: (workspace: Workspace) => T,
 ) {
-  const workspace = await workspaceIn(db, orgId, caseId, true);
-  const before = entries(workspace);
+  const raw = await storedWorkspace(db, orgId, caseId, true);
+  const removed = await removedSources(db, caseId);
+  const initial = removed.length ? withoutRemoved(raw, removed) : undefined;
+  const workspace = initial ? structuredClone(initial) : raw;
+  const before = entries(raw);
   const previousRecord = JSON.stringify(workspace.caseRecord);
   const result = edit(workspace);
-  const after = entries(workspace);
+  const stored = initial ? structuredClone(workspace) : workspace;
+  if (initial) preserveHidden(raw, initial, stored);
+  const after = entries(stored);
   if (
     before.size === after.size &&
     [...after].every(
@@ -222,7 +257,7 @@ export async function changeIn<T>(
     Date.now(),
     caseId,
   ]);
-  await saveEntries(db, caseId, before, workspace);
+  await saveEntries(db, caseId, before, stored);
   return result;
 }
 export const readWorkspace = (orgId: string, caseId: string) =>
@@ -271,16 +306,14 @@ export async function listCases(db: Database, orgId: string, userId: string, ter
     summaries.push({
       ...w.caseRecord,
       counts: {
-        hearings: w.hearings.length,
+        hearings: w.hearings.filter((h) => h.mode !== 'scheduled').length,
         documents: w.documents.length,
         needsLook: w.findings.filter(needsReview).length,
       },
       live: w.hearings.find((h) => h.mode === 'live') ?? null,
     });
   }
-  return summaries.sort(
-    (a, b) => Number(Boolean(b.live)) - Number(Boolean(a.live)) || b.updated.localeCompare(a.updated),
-  );
+  return summaries.sort((a, b) => b.updated.localeCompare(a.updated) || a.title.localeCompare(b.title));
 }
 
 export async function idempotent<T>(

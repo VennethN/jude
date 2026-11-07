@@ -87,6 +87,10 @@ class CaseEntities:
         return [json.loads(r["body"]) for r in rows]
 
     def get(self, kind, entity_id):
+        if kind in ("documents", "hearings") and self.tx.one(
+            "SELECT id FROM case_trash WHERE case_id=? AND kind=? AND id=?", (self.id, kind, entity_id)
+        ):
+            return None
         row = self.tx.one(
             "SELECT body FROM case_entities WHERE case_id=? AND kind=? AND id=?", (self.id, kind, entity_id)
         )
@@ -166,9 +170,9 @@ def _quota(tx, org, seconds=0, size=0, *, live=False):
         stored = tx.one(
             "SELECT COALESCE(SUM(n),0) AS n FROM ("
             "SELECT a.byte_length AS n FROM attachments a JOIN cases c ON c.id=a.case_id "
-            "WHERE c.org_id=? AND c.deleted_at IS NULL AND a.kind IN ('original','audio') UNION ALL "
+            "WHERE c.org_id=? AND c.deleted_at IS NULL AND a.kind IN ('original','audio') AND NOT EXISTS (SELECT 1 FROM case_trash x WHERE x.case_id=a.case_id AND x.id=a.entity_id AND x.kind=CASE WHEN a.kind='audio' THEN 'hearings' ELSE 'documents' END) UNION ALL "
             "SELECT t.bytes AS n FROM voice_turns t JOIN cases c ON c.id=t.case_id "
-            "WHERE c.org_id=? AND c.deleted_at IS NULL AND t.object_key IS NOT NULL) AS retained",
+            "WHERE c.org_id=? AND c.deleted_at IS NULL AND t.object_key IS NOT NULL AND NOT EXISTS (SELECT 1 FROM case_trash x WHERE x.case_id=t.case_id AND x.id=t.hearing_id AND x.kind='hearings')) AS retained",
             (org, org),
         )["n"]
         if stored + size > limits["storage"] * 1_000_000_000:
@@ -614,7 +618,7 @@ class Repository:
             rows = tx.all(
                 "SELECT j.case_id,j.hearing_id,c.org_id,e.body FROM voice_diarization_jobs j JOIN cases c ON c.id=j.case_id "
                 "JOIN case_entities e ON e.case_id=j.case_id AND e.kind='hearings' AND e.id=j.hearing_id "
-                "WHERE c.archived=0 AND c.synthetic=0 AND c.deleted_at IS NULL AND j.available_at<=? AND j.lease_until<=? "
+                "WHERE c.archived=0 AND c.synthetic=0 AND c.deleted_at IS NULL AND j.available_at<=? AND j.lease_until<=? AND NOT EXISTS (SELECT 1 FROM case_trash x WHERE x.case_id=j.case_id AND x.id=j.hearing_id AND x.kind='hearings') "
                 "ORDER BY j.available_at,j.hearing_id LIMIT 20"
                 + (" FOR UPDATE OF j SKIP LOCKED" if tx.postgres else ""),
                 (now, now),

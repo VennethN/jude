@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 type RequestEvent = Parameters<typeof endpoint>[0];
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
@@ -17,6 +17,7 @@ import { sessionFromToken } from '../packages/core/src/server/auth';
 import { transaction } from '../packages/core/src/server/db';
 import { mutateWorkspace } from '../packages/core/src/server/cases';
 import { runAnalysisWorker } from '../packages/core/src/server/jobs';
+import { purgeExpired, retentionMs } from '../packages/core/src/server/retention';
 import { getOriginal, putOriginal } from '../packages/core/src/server/providers/storage';
 import { meter } from '../packages/core/src/server/billing';
 import { storeFile } from '../packages/core/src/server/documents';
@@ -389,6 +390,145 @@ describe('case API', () => {
     );
     expect(await getOriginal(turns[0].object_key!)).toEqual(Buffer.from(pcm));
     expect(turns[1].object_key).toBeNull();
+  });
+  test('source removal preserves review history, archive snapshots, board edits and overlapping Undo', async () => {
+    const a = browser(),
+      me = await a.ok<SessionInfo>('auth/demo', 'POST'),
+      base = 'cases/' + me.demo!.caseId;
+    const docPath = base + '/documents/d1';
+    const board = await a.ok<Board>(base + '/boards', 'POST', { name: 'Preparation' });
+    const boardPath = base + '/boards/' + board.id;
+    const card = {
+      key: 'passage:d1p4',
+      kind: 'passage',
+      id: 'd1p4',
+      x: 10,
+      y: 20,
+      note: 'Keep this position',
+    };
+    await a.ok(boardPath, 'PUT', { version: board.version, cards: [card] });
+    const deleted = await a.ok<{ citedFindings: number }>(docPath, 'DELETE');
+    expect(deleted.citedFindings).toBeGreaterThan(0);
+    let state = await a.ok<Workspace>(base + '/workspace');
+    expect(state.passages.some((p) => p.docId === 'd1')).toBe(false);
+    expect((await a.request(docPath + '/original')).status).toBe(404);
+    expect(state.boards.find((b) => b.id === board.id)!.cards).toHaveLength(0);
+    const lost = state.findings.find((f) => f.unavailableSources?.some((s) => s.passageId === 'd1p4'))!;
+    expect(lost).toBeDefined();
+    const patched = await a.ok<typeof lost>(base + '/findings/' + lost.id, 'PATCH', {
+      note: 'Checked the missing exhibit',
+    });
+    expect(patched.sources.some((s) => s.passageId === 'd1p4')).toBe(false);
+    expect(
+      state.threads
+        .flatMap((t) => t.messages.flatMap((m) => m.citations ?? []))
+        .some((c) => c.unavailable && c.snapshot),
+    ).toBe(true);
+    await a.ok(boardPath, 'PUT', {
+      version: state.boards.find((b) => b.id === board.id)!.version,
+      cards: [],
+      name: 'Updated preparation',
+    });
+    const zip = await a.request(base + '/export'),
+      form = new FormData();
+    form.set('file', new File([await zip.arrayBuffer()], 'removed.jude'));
+    const clone = await a.ok<CaseRecord>('cases/import', 'POST', form);
+    const copy = await a.ok<Workspace>('cases/' + clone.id + '/workspace');
+    expect(copy.findings.some((f) => f.unavailableSources?.length)).toBe(true);
+    expect(
+      copy.threads
+        .flatMap((t) => t.messages.flatMap((m) => m.citations ?? []))
+        .some((c) => c.unavailable && c.snapshot),
+    ).toBe(true);
+    await a.ok(base + '/hearings/h2', 'DELETE');
+    expect((await a.ok<Workspace>(base + '/workspace')).statements.some((s) => s.hearingId === 'h2')).toBe(
+      false,
+    );
+    await a.ok(docPath + '/restore', 'POST');
+    await a.ok(base + '/hearings/h2/restore', 'POST');
+    state = await a.ok<Workspace>(base + '/workspace');
+    expect(state.findings.find((f) => f.id === lost.id)).toMatchObject({
+      note: 'Checked the missing exhibit',
+    });
+    expect(state.findings.find((f) => f.id === lost.id)!.sources.some((s) => s.passageId === 'd1p4')).toBe(
+      true,
+    );
+    expect(state.boards.find((b) => b.id === board.id)!.cards[0]).toMatchObject(card);
+    expect(state.boards.find((b) => b.id === board.id)!.name).toBe('Updated preparation');
+  });
+  test('deletion releases storage immediately and the retention worker purges originals and case data', async () => {
+    const a = browser(),
+      me = await a.ok<SessionInfo>('auth/demo', 'POST');
+    const c = await a.ok<CaseRecord>('cases', 'POST', { title: 'Retention' }),
+      base = 'cases/' + c.id;
+    const file = new FormData(),
+      content = 'Original hearing note for retention.';
+    file.set('file', new File([content], 'proof.txt', { type: 'text/plain' }));
+    const doc = await a.ok<CaseDocument>(base + '/documents', 'POST', file, 'proof-file');
+    const docPath = base + '/documents/' + doc.id,
+      key = [me.organization.id, c.id, doc.id, 'original'].join('/');
+    const usage = async () =>
+      (await a.ok<{ usage: { storage: { used: number } } }>('billing')).usage.storage.used;
+    expect(await usage()).toBe(content.length / 1e9);
+    await a.ok(docPath, 'DELETE');
+    expect(await usage()).toBe(0);
+    await a.ok(docPath + '/restore', 'POST');
+    expect(await usage()).toBe(content.length / 1e9);
+    await a.ok(docPath, 'DELETE');
+    await transaction((db) =>
+      db.query('UPDATE case_trash SET deleted_at=$1 WHERE case_id=$2 AND id=$3', [
+        Date.now() - retentionMs() - 1000,
+        c.id,
+        doc.id,
+      ]),
+    );
+    await purgeExpired();
+    await expect(getOriginal(key)).rejects.toThrow();
+    expect((await a.request(docPath + '/restore', 'POST')).status).toBe(404);
+    expect(
+      await transaction((db) =>
+        db.query('SELECT id FROM case_entities WHERE case_id=$1 AND id=$2', [c.id, doc.id]),
+      ),
+    ).toHaveLength(0);
+    const replacement = await a.ok<CaseDocument>(base + '/documents', 'POST', file);
+    const replacementKey = [me.organization.id, c.id, replacement.id, 'original'].join('/');
+    await a.ok(base, 'DELETE');
+    await a.ok(base + '/restore', 'POST');
+    expect(await getOriginal(replacementKey)).toEqual(Buffer.from(content));
+    await a.ok(base, 'DELETE');
+    await transaction((db) =>
+      db.query('UPDATE cases SET deleted_at=$1 WHERE id=$2', [Date.now() - retentionMs() - 1000, c.id]),
+    );
+    await purgeExpired();
+    await expect(getOriginal(replacementKey)).rejects.toThrow();
+    expect(await transaction((db) => db.query('SELECT id FROM cases WHERE id=$1', [c.id]))).toHaveLength(0);
+    expect((await a.request(base + '/restore', 'POST')).status).toBe(404);
+    const queuedKey = 'retention-test/' + randomUUID();
+    const directoryAtKey = join(temporary, 'originals', queuedKey);
+    await mkdir(directoryAtKey, { recursive: true });
+    await transaction((db) =>
+      db.query('INSERT INTO purge_objects(object_key,available_at) VALUES($1,0)', [queuedKey]),
+    );
+    await purgeExpired();
+    expect(
+      (
+        await transaction((db) =>
+          db.query<{ attempts: number }>('SELECT attempts FROM purge_objects WHERE object_key=$1', [
+            queuedKey,
+          ]),
+        )
+      )[0].attempts,
+    ).toBe(1);
+    await rm(directoryAtKey, { recursive: true, force: true });
+    await transaction((db) =>
+      db.query('UPDATE purge_objects SET available_at=0 WHERE object_key=$1', [queuedKey]),
+    );
+    await purgeExpired();
+    expect(
+      await transaction((db) =>
+        db.query('SELECT object_key FROM purge_objects WHERE object_key=$1', [queuedKey]),
+      ),
+    ).toHaveLength(0);
   });
   test('indexes the filed PDF and DOCX without remote services', async () => {
     const a = browser();

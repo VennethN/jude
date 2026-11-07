@@ -27,7 +27,7 @@ export async function billing(db: Database, orgId: string) {
     "SELECT 'boards' AS quota, COUNT(*) AS used FROM cases c JOIN case_entities e ON e.case_id=c.id WHERE c.org_id=$1 AND c.deleted_at IS NULL AND e.kind='boards' " +
       "UNION ALL SELECT 'cases',COUNT(*) FROM cases WHERE org_id=$1 AND archived=0 AND deleted_at IS NULL AND synthetic=0 " +
       "UNION ALL SELECT 'seats',COUNT(*) FROM memberships WHERE org_id=$1 " +
-      "UNION ALL SELECT 'storage',COALESCE(SUM(stored_bytes),0) FROM (SELECT a.byte_length AS stored_bytes FROM attachments a JOIN cases c ON c.id=a.case_id WHERE c.org_id=$1 AND c.deleted_at IS NULL AND a.kind IN ('original','audio') UNION ALL SELECT t.bytes AS stored_bytes FROM voice_turns t JOIN cases c ON c.id=t.case_id WHERE c.org_id=$1 AND c.deleted_at IS NULL AND t.object_key IS NOT NULL) AS kept " +
+      "UNION ALL SELECT 'storage',COALESCE(SUM(stored_bytes),0) FROM (SELECT a.byte_length AS stored_bytes FROM attachments a JOIN cases c ON c.id=a.case_id WHERE c.org_id=$1 AND c.deleted_at IS NULL AND a.kind IN ('original','audio') AND NOT EXISTS (SELECT 1 FROM case_trash x WHERE x.case_id=a.case_id AND x.id=a.entity_id AND x.kind=CASE WHEN a.kind='audio' THEN 'hearings' ELSE 'documents' END) UNION ALL SELECT t.bytes AS stored_bytes FROM voice_turns t JOIN cases c ON c.id=t.case_id WHERE c.org_id=$1 AND c.deleted_at IS NULL AND t.object_key IS NOT NULL AND NOT EXISTS (SELECT 1 FROM case_trash x WHERE x.case_id=t.case_id AND x.id=t.hearing_id AND x.kind='hearings')) AS kept " +
       'UNION ALL SELECT quota,amount FROM usage_counts WHERE org_id=$1 AND period=$2',
     [orgId, period()],
   );
