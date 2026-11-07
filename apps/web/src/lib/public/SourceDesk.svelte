@@ -1,43 +1,56 @@
 <script lang="ts">
-	import type { Language } from '@jude/core/plans';
-	import Icon from './Icon.svelte';
-	let { lang }: { lang: Language } = $props();
-	let isId = $derived(lang === 'id');
-	const items = [
-		{ name: ['BAP saksi', 'Witness statement'], title: 'Berita Acara Pemeriksaan Saksi', person: 'Rina Hartati', where: ['Halaman 4', 'Page 4'], prefix: 'Pada hari Sabtu tanggal 14 Maret 2026 saya tiba di gudang ', mark: 'sedikit setelah pukul 20.00 WIB', suffix: ' untuk menggantikan rekan saya, Sdr. Yusuf, yang berjaga sore.', href: '/demo/documents/d1?p=d1p4', icon: 'file' },
-		{ name: ['Log akses', 'Access log'], title: 'Laporan Log Akses Gerbang', person: 'Gerbang Timur · Gudang B', where: ['Halaman 7', 'Page 7'], prefix: 'Kartu akses atas nama R. Hartati tercatat masuk di Gerbang Timur pada 14/03/2026 pukul ', mark: '20:07:41', suffix: '.', href: '/demo/documents/d3?p=d3p2', icon: 'book' },
-		{ name: ['Transkrip', 'Transcript'], title: 'Pemeriksaan Saksi Rina Hartati', person: 'Rina Hartati', where: ['Sidang 2', 'Hearing 2'], prefix: 'Saya sampai di gudang jam ', mark: 'setengah sepuluh malam', suffix: ', Pak.', href: '/demo/hearings/h2?s=s208', icon: 'mic' }
-	] as const;
+	import type { Lang } from '@jude/core/domain';
+	import { onMount } from 'svelte';
+	import { ArrowUpRight } from '@lucide/svelte';
+	import { around, sources, type LandingRecord } from './landing/landing-record';
+	let {lang,record}: {lang:Lang;record:LandingRecord} = $props();
 	let selected = $state(0);
-	let item = $derived(items[selected]);
-	let l = $derived(isId ? 0 : 1);
+	let source = $derived(sources[selected]);
+	let passage = $derived(around(record[source.key],source.mark));
+	let ready = $state(false);
+	onMount(() => { ready = true; });
+
+	function move(event: KeyboardEvent, index: number) {
+		const keys = ['ArrowLeft','ArrowRight','Home','End'];
+		if (!keys.includes(event.key)) return;
+		event.preventDefault();
+		const last = sources.length - 1;
+		selected = event.key === 'Home' ? 0 : event.key === 'End' ? last : (index + (event.key === 'ArrowRight' ? 1 : -1) + sources.length) % sources.length;
+		const group = (event.currentTarget as HTMLButtonElement).parentElement;
+		group?.querySelectorAll('button')[selected]?.focus({ preventScroll: true });
+	}
 </script>
-<div class="desk">
-	<div class="desk-tabs" aria-label={isId ? 'Pilih sumber' : 'Select source'}>
-		{#each items as option,i}<button type="button" class:chosen={selected === i} aria-pressed={selected === i} onclick={() => selected = i}><Icon name={option.icon} size={17}/>{option.name[l]}</button>{/each}
+
+<div class="desk-picker">
+	{#if ready}
+	<div class="desk-tabs" role="group" aria-label={lang === 'id' ? 'Pilih sumber' : 'Choose a source'}>
+		{#each sources as source, index (source.key)}
+			<button type="button" aria-pressed={selected === index} onclick={() => selected = index} onkeydown={event => move(event,index)}>{source.name[lang]}</button>
+		{/each}
 	</div>
-	<div class="reading" aria-live="polite">
-		<header><span>{isId ? 'Contoh sintetis' : 'Synthetic example'}</span><span>{item.where[l]}</span></header>
-		<div class="reading-main">
-			<h3 lang="id">{item.title}</h3><p class="source-person">{item.person}</p>
-			<blockquote class:testimony={selected === 2} lang="id">{item.prefix}<mark>{item.mark}</mark>{item.suffix}</blockquote>
-		</div>
-		<a href={item.href}>{isId ? 'Buka sumber dalam perkara' : 'Open source in case'}<Icon name="forward" size={15}/></a>
+	{:else}
+	<nav class="direct-sources" aria-label={lang === 'id' ? 'Buka sumber' : 'Open a source'}>
+		{#each sources as item (item.key)}<a href={item.href}>{item.name[lang]}</a>{/each}
+	</nav>
+	{/if}
+	<div class="reading excerpt" aria-live="polite" aria-atomic="true">
+		<blockquote lang="id" class:testimony={source.key === 'testimony'}>{passage[0]}<mark>{passage[1]}</mark>{passage[2]}</blockquote>
+		<a href={source.href}>{lang === 'id' ? 'Buka sumber dalam perkara' : 'Open source in case'} <ArrowUpRight size={15} aria-hidden="true"/></a>
 	</div>
 </div>
+
 <style>
-	.desk { min-width:0; }
-	.desk-tabs { display:flex; flex-wrap:wrap; gap:3px; margin:0 0 -1px; }
-	.desk-tabs button { min-height:46px; display:inline-flex; gap:7px; align-items:center; border:1px solid #c6cbbd; border-bottom:0; border-radius:5px 5px 0 0; padding:8px clamp(8px,1.6vw,22px); background:#eae9df; color:#465a47; font:500 .79rem/1.25 var(--pub-body); cursor:pointer; }
-	.desk-tabs .chosen { color:#fbf7e9; background:#355b47; border-color:#355b47; }
-	.reading { background:#f8f3e5 url('/public/ivory-paper.webp') center/620px; border:1px solid #b9bba8; border-left:9px solid #355b47; padding:clamp(17px,2.4vw,32px); box-shadow:0 4px 9px #14281f13; }
-	header { display:flex; justify-content:space-between; gap:8px; padding-bottom:12px; border-bottom:1px solid #c7c9b8; color:#5c6758; font:.75rem/1.4 var(--pub-record); }
-	.reading-main { min-height:205px; padding:20px 0; }
-	.reading h3 { font:500 1.04rem/1.43 var(--pub-record); letter-spacing:0; }
-	.source-person { margin-top:4px!important; color:#596253; font:.76rem/1.45 var(--pub-record); }
-	blockquote { margin-top:23px!important; color:#253729; font:1.06rem/1.5 var(--pub-record); }
-	blockquote.testimony { font-family:var(--pub-body); }
-	mark { background:#ecd69e; color:inherit; }
-	.reading > a { display:inline-flex; align-items:center; gap:8px; color:#35583f; min-height:44px; font:600 .83rem/1.4 var(--pub-body); }
-	@media(max-width:500px){ .desk-tabs button{font-size:max(12px,.8rem);} .reading{border-left-width:6px;} }
+	.desk-picker { min-width:0; color:var(--lp-cream); }
+	.desk-tabs { display:flex; flex-wrap:wrap; gap:0 .55rem; border-bottom:1px solid color-mix(in srgb,var(--lp-cream) 29%,transparent); }
+	.desk-tabs button { min-height:44px; padding:.25rem .2rem; background:transparent; border:0; border-bottom:2px solid transparent; color:inherit; font:600 .85rem/1.3 var(--pub-body); }
+	.desk-tabs button[aria-pressed="true"] { color:var(--lp-amber); border-bottom-color:currentColor; }
+	.desk-tabs button:hover,.excerpt a:hover { text-decoration:underline; }
+	.excerpt { padding:.8rem 1rem 0; margin-top:.6rem; border-radius:6px; color:var(--lp-ink); background:var(--lp-paper) url('/public/ivory-paper.webp') center/600px; }
+	.excerpt blockquote { font:400 .96rem/1.48 var(--pub-record); text-wrap:pretty; }
+	.excerpt blockquote.testimony { font-family:var(--pub-body); }
+	.excerpt mark { color:inherit; background:var(--lp-amber-wash); box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+	.excerpt a { display:inline-flex; align-items:center; gap:.35em; min-height:44px; color:var(--pub-plum); font:600 .8rem/1.4 var(--pub-body); }
+	.direct-sources { display:flex; flex-wrap:wrap; gap:.85rem; }
+	.direct-sources a { display:inline-flex; align-items:center; min-height:44px; color:inherit; }
+	.desk-picker a:focus-visible,.desk-tabs button:focus-visible { outline-offset:1px; }
 </style>
