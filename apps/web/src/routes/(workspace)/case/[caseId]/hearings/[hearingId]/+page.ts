@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import type { PageLoad } from './$types';
 
-export const load: PageServerLoad = async ({ parent, params }) => {
+export const load: PageLoad = async ({ parent, params }) => {
   const { workspace, lang } = await parent();
   if (!workspace.hearings.some((h) => h.id === params.hearingId)) {
     error(404, lang === 'id' ? 'Sidang tidak ditemukan.' : 'Hearing not found.');

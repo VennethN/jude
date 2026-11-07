@@ -3,7 +3,7 @@ import { removeSourceIn, restoreSourceIn, retentionMs } from './retention';
 import { retainedMarker } from './retained-evidence';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CoreRequest } from './request';
-import type { ContextRef, SessionInfo, Thread, Workspace } from '../domain';
+import type { ChatMessage, ContextRef, SessionInfo, Thread, Workspace } from '../domain';
 import { needsReview } from '../domain';
 import { billing, checkQuota, meter } from './billing';
 import {
@@ -44,10 +44,13 @@ import {
   type Fields,
 } from './validation';
 import { jsonFields } from './request';
-import { authorizeCase, listMembers, setCaseMember } from './access';
-import { answerQuestion } from './providers/assistant';
+import { authorizeCase, caseAccess, listMembers, setCaseMember } from './access';
+import { answerQuestion, sourcePool } from './providers/assistant';
+import { ASSISTANT_QUESTION_LIMIT, type AssistantStage, type LegalSearchStatus } from '../domain';
+import { answerStream, sharedAnswer, cancelAnswer } from './answer-stream';
 import { mergeEvidenceRanks, semanticMatches, type SourceRef } from './providers/semantic-retrieval';
-import { discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
+import { isLawQuestion } from './providers/legal-query';
+import { answerLawQuestion, discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
 
 const groups = [
   'hearings',
@@ -106,7 +109,6 @@ export function caseHits(w: Workspace, query: string, semantic: SourceRef[] = []
     });
 }
 async function eventStream(event: CoreRequest, org: string, caseId: string) {
-  const initial = await readWorkspace(org, caseId);
   const tokenHash = createHash('sha256')
     .update(event.cookies.get('jude_session') ?? '')
     .digest('hex');
@@ -121,24 +123,24 @@ async function eventStream(event: CoreRequest, org: string, caseId: string) {
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       const send = (text: string) => controller.enqueue(new TextEncoder().encode(text));
-      const ping = async (first?: number) => {
+      const ping = async () => {
         if (closed) return;
         try {
-          const v =
-            first ??
-            (await transaction(async (db) => {
-              const [row] = await db.query<{ version: number }>(
-                'SELECT c.version FROM cases c JOIN workspace_case_members cm ON cm.case_id=c.id JOIN sessions s ON s.user_id=cm.user_id WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3 AND c.deleted_at IS NULL AND s.token_hash=$4 AND s.expires_at>$5',
-                [caseId, org, event.locals.session!.user.id, tokenHash, Date.now()],
-              );
-              return row?.version;
-            }));
+          const [row] = await transaction((db) => db.query<{ version: number }>(
+            'SELECT c.version FROM cases c JOIN workspace_case_members cm ON cm.case_id=c.id ' +
+            'JOIN memberships m ON m.org_id=c.org_id AND m.user_id=cm.user_id ' +
+            'JOIN sessions s ON s.user_id=m.user_id AND s.org_id=m.org_id ' +
+            'WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3 AND c.deleted_at IS NULL AND s.token_hash=$4 AND s.expires_at>$5',
+            [caseId, org, event.locals.session!.user.id, tokenHash, Date.now()],
+          ));
           if (closed) return;
-          if (!v) {
+          if (!row) {
+            send('event: case.access-lost\ndata: {}\n\n');
             abort();
             controller.close();
             return;
           }
+          const v = row.version;
           if (version !== v) {
             version = v;
             send(
@@ -165,7 +167,7 @@ async function eventStream(event: CoreRequest, org: string, caseId: string) {
         },
         { once: true },
       );
-      void ping(initial.version);
+      void ping();
     },
     cancel() {
       abort();
@@ -274,13 +276,15 @@ async function postMessage(
   threadId: string,
   f: Fields,
   key: string | null,
+  request: Request,
 ) {
   const org = session.organization.id,
-    text = string(f.text ?? f.question, 'text', 6000),
+    text = string(f.text ?? f.question, 'text', ASSISTANT_QUESTION_LIMIT),
     lang = choice(f.lang ?? session.prefs.lang ?? 'id', ['id', 'en'], 'lang');
   const withLegal = f.withLegal === undefined ? true : bool(f.withLegal, 'withLegal');
   const scope = caseId + '/threads/' + threadId + '/messages';
-  const before = await transaction(async (db) => {
+  if (key) string(key, 'Idempotency-Key', 100);
+  const before = await transaction<{ cached: Thread } | { workspace: Workspace; contexts: ContextRef[]; length: number; history: ChatMessage[] }>(async (db) => {
     await orgLock(db, org);
     const w = await workspaceIn(db, org, caseId);
     const thread = required(w.threads, (t) => t.id === threadId);
@@ -292,45 +296,65 @@ async function postMessage(
       if (prior) return { cached: JSON.parse(prior.result) as Thread };
     }
     await checkQuota(db, org, 'questions', 1);
-    return { workspace: w, contexts: contextsOf(w, f.contexts), length: thread.messages.length };
+    return { workspace: w, contexts: contextsOf(w, f.contexts), length: thread.messages.length, history: thread.messages };
   });
-  if (before.cached) return before.cached;
-  const contexts = before.contexts as ContextRef[];
-  const answer = await answerQuestion(
-    before.workspace!,
-    text,
-    contexts,
-    lang,
-    !session.user.guest && before.workspace!.caseRecord.label === 'private',
-    org,
+  async function generate(publish: (message: ChatMessage) => void, signal?: AbortSignal, progress?: (stage: AssistantStage) => void): Promise<Thread> {
+    if ('cached' in before) return before.cached;
+    const { workspace, contexts } = before;
+    let legalStatus: LegalSearchStatus | undefined;
+    const options = { signal, status: (value: LegalSearchStatus) => { legalStatus = value; } };
+    if (withLegal && isLawQuestion(text)) progress?.('legal');
+    const legalQuestion = await answerLawQuestion(workspace, text, contexts, lang, withLegal, options);
+    const answer: ChatMessage = legalQuestion?.answer ?? await answerQuestion(
+      workspace, text, contexts, lang, !session.user.guest && workspace.caseRecord.label === 'private',
+      org, publish, { signal, progress, history: before.history },
+    );
+    signal?.throwIfAborted();
+    if (answer.mode === 'sources-only') publish(answer);
+    if (withLegal && !legalQuestion) progress?.('legal');
+    const discovered = legalQuestion?.discoveries ?? (withLegal
+      ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])], options) : []);
+    if (legalStatus) answer.legalStatus = legalStatus;
+    signal?.throwIfAborted();
+    progress?.('saving');
+    return transaction((db) =>
+      idempotent(db, org, scope, key, async () => {
+        signal?.throwIfAborted();
+        await caseAccess(db, session, caseId, 'write');
+        await checkQuota(db, org, 'questions', 1);
+        const result = await changeIn(db, org, caseId, (w) => {
+          const thread = required(w.threads, (t) => t.id === threadId);
+          if (thread.messages.length !== before.length)
+            conflict('Another question was added. Reload this conversation.');
+          contextsOf(w, contexts);
+          if (answer.citations?.some((c) => !hasCitation(w, c)))
+            conflict('A cited source has changed. Ask the question again.');
+          const original = sourcePool(workspace, [{ kind: 'case' }], lang);
+          const current = sourcePool(w, [{ kind: 'case' }], lang);
+          if (answer.citations?.some(c => original.find(s=>s.kind===c.kind&&s.id===c.id)?.text !== current.find(s=>s.kind===c.kind&&s.id===c.id)?.text))
+            conflict('A cited source has changed. Ask the question again.');
+          const legal = retainLegal(w, discovered);
+          if (thread.messages.length === 0) thread.title = thread.title || text.slice(0, 80);
+          thread.sample = false;
+          thread.updated = Date.now();
+          thread.messages.push(
+            { id: randomUUID(), role: 'user', text, contexts },
+            { ...answer, ...(legal.length ? { legal } : {}), id: randomUUID(), role: 'assistant' },
+          );
+          return thread;
+        });
+        await meter(db, org, 'questions', 1);
+        return result;
+      }),
+    );
+  }
+  const cacheKey = key ? JSON.stringify([org, scope, key]) : undefined;
+  const acceptsStream = request.headers.get('accept')?.split(',').some(
+    (value) => value.trim().split(';')[0] === 'application/x-ndjson',
   );
-  const discovered = withLegal
-    ? await discoverLegal(before.workspace!, text, [...contexts, ...(answer.citations ?? [])])
-    : [];
-  return transaction((db) =>
-    idempotent(db, org, scope, key, async () => {
-      await checkQuota(db, org, 'questions', 1);
-      const result = await changeIn(db, org, caseId, (w) => {
-        const thread = required(w.threads, (t) => t.id === threadId);
-        if (thread.messages.length !== before.length)
-          conflict('Another question was added. Reload this conversation.');
-        contextsOf(w, contexts);
-        if (answer.citations?.some((c) => !hasCitation(w, c)))
-          conflict('A cited source has changed. Ask the question again.');
-        const legal = retainLegal(w, discovered);
-        if (thread.messages.length === 0) thread.title = thread.title || text.slice(0, 80);
-        thread.sample = false;
-        thread.updated = Date.now();
-        thread.messages.push(
-          { id: randomUUID(), role: 'user', text, contexts },
-          { ...answer, ...(legal.length ? { legal } : {}), id: randomUUID(), role: 'assistant' },
-        );
-        return thread;
-      });
-      await meter(db, org, 'questions', 1);
-      return result;
-    }),
-  );
+  return acceptsStream
+    ? answerStream(request.signal, (publish, signal, progress) => sharedAnswer(cacheKey, generate, publish, signal, progress))
+    : sharedAnswer(cacheKey, generate, undefined, request.signal);
 }
 async function liveQuota(db: Database, org: string, w: Workspace) {
   if (w.caseRecord.label === 'synthetic') return;
@@ -421,10 +445,14 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
     return transaction((db) => removeItem(db, org, caseId, trash, id));
   if (trash && id && act === 'restore' && method === 'POST')
     return transaction((db) => restoreItem(db, org, caseId, trash, id));
+  if (resource === 'threads' && id && act === 'cancel' && method === 'POST') {
+    const attempt = string(key, 'Idempotency-Key', 100);
+    return { cancelled: cancelAnswer(JSON.stringify([org, caseId + '/threads/' + id + '/messages', attempt])) };
+  }
   const f = await jsonFields(event.request);
   if (!resource && method === 'PATCH') return mutateWorkspace(org, caseId, (w) => patchCase(w, f));
   if (resource === 'threads' && id && act === 'messages' && method === 'POST')
-    return postMessage(session, caseId, id, f, key);
+    return postMessage(session, caseId, id, f, key, event.request);
   const startingHearing =
     resource === 'hearings' && method === 'POST' && (f.flow === 'live' || act === 'start');
   const voiceReady = startingHearing && !session.user.guest && (await transcriptionAvailable());

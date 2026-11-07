@@ -1,6 +1,6 @@
 <script lang="ts">
   import { displayTitle } from '$lib/workspace/format';
-
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import {
@@ -179,7 +179,7 @@
 {/snippet}
 {#snippet textPassage(passageId: string, text: string)}
   <div class="passage-block" class:focused={selected?.id === passageId}>
-    <button class="passage" data-pid={passageId} onclick={() => (inspect = { kind: 'passage', id: passageId })}>
+    <button class="passage" data-tour={selected?.id === passageId ? 'source-passage' : undefined} data-pid={passageId} onclick={() => (inspect = { kind: 'passage', id: passageId })}>
       {#if citations.has(passageId)}<mark><Match {text} term={query}/></mark>{:else}<Match {text} term={query}/>{/if}
     </button>
     {@render citationLinks(passageId)}
@@ -193,11 +193,11 @@
     ><ArrowLeft size={15} />{id ? 'Dokumen' : 'Documents'}</a
   >
   <header class="ev-head">
-    <div>
+    <PageHeading art="page" compact>
       <h1>{displayTitle(doc, lang)}</h1>
       <p class="ev-meta">{id ? 'Dokumen ditampilkan dalam bahasa aslinya.' : 'This document is shown in its original language.'}</p>
       <p>{local(doc.kind, lang)} · {doc.file} · {doc.pages} {id ? 'halaman' : 'pages'}</p>
-    </div>
+    </PageHeading>
     <div class="ev-actions">
       <a class="ev-button" href={original} download
         ><Download size={16} />{id ? 'Unduh asli' : 'Download original'}</a

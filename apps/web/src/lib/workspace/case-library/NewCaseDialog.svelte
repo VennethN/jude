@@ -38,6 +38,14 @@
     quotaError = code === 'quota_exceeded' || code === 'feature_not_in_plan';
     if (quotaError) return step === 'blank' ? quotaNotice : (en ? 'Your plan has reached its case or storage limit. Check usage before importing.' : 'Kuota perkara atau penyimpanan paket telah tercapai. Periksa pemakaian sebelum mengimpor.');
     if (code === 'file_too_large') return en ? 'This archive is too large to import.' : 'Arsip ini terlalu besar untuk diimpor.';
+    if (code === 'archive_manifest' || code === 'archive_invalid')
+      return en ? 'Choose a Jude case export (.jude or .zip) and keep it compressed.' : 'Pilih berkas ekspor perkara Jude (.jude atau .zip) tanpa mengekstraknya.';
+    if (code === 'archive_version' || code === 'archive_unsupported')
+      return en ? 'This archive uses a format Jude cannot read. Export the case again in the current .jude format.' : 'Format arsip ini belum didukung. Ekspor ulang perkara dalam format .jude terbaru.';
+    if (code === 'archive_integrity' || code === 'archive_incomplete')
+      return en ? 'Part of the case is missing or damaged. Download a fresh copy of the complete export.' : 'Sebagian isi perkara hilang atau rusak. Unduh kembali berkas ekspor yang lengkap.';
+    if (code === 'archive_reference')
+      return en ? 'An evidence link points to a missing or changed source. Export the complete case again.' : 'Tautan bukti mengarah ke sumber yang hilang atau berubah. Ekspor ulang perkara beserta seluruh sumbernya.';
     return step === 'blank' ? (en ? 'Could not create the case. Try again.' : 'Perkara belum dapat dibuat. Coba lagi.') : (en ? 'This archive could not be imported. Check the file, then try again.' : 'Arsip ini tidak bisa diimpor. Periksa filenya, lalu coba lagi.');
   }
   async function create(event: SubmitEvent) {
@@ -71,14 +79,24 @@
   async function importCase(file?: File) {
     if (!file || busy || storageFull || casesFull) return;
     message = ''; quotaError = false;
-    if (!file.name.toLowerCase().endsWith('.jude')) {
-      message = en ? 'Choose a .jude archive.' : 'Pilih berkas arsip .jude.';
+    if (!/\.(jude|zip)$/i.test(file.name)) {
+      message = en ? 'Choose a Jude case export (.jude or .zip).' : 'Pilih berkas ekspor perkara Jude (.jude atau .zip).';
       return;
     }
     busy = true; percent = null;
     try { await openSaved(await uploadFile(file)); }
     catch (error) { message = failure(error); }
     finally { busy = false; if (fileInput) fileInput.value = ''; }
+  }
+  function dropArchive(event: DragEvent) {
+    event.preventDefault();
+    if (busy) return;
+    const data = event.dataTransfer;
+    if (data?.items[0]?.webkitGetAsEntry?.()?.isDirectory) {
+      message = en ? 'You selected a folder. Choose the original .jude file, or compress the case folder into a ZIP.' : 'Anda memilih folder. Pilih berkas .jude asli atau kompres folder perkara menjadi ZIP.';
+      return;
+    }
+    void importCase(data?.files[0]);
   }
 </script>
 
@@ -101,12 +119,12 @@
       <div class="step-actions"><button class="button subtle" type="button" disabled={busy} onclick={() => change('choose')}><ArrowLeft size={16}/>{en ? 'Back' : 'Kembali'}</button><button class="button primary" disabled={busy || !title.trim()} type="submit">{busy ? (en ? 'Creating…' : 'Membuat…') : (en ? 'Create case' : 'Buat perkara')}</button></div>
     </form>
   {:else}
-    <label class="upload" class:busy ondragover={(event) => event.preventDefault()} ondrop={(event) => {event.preventDefault(); void importCase(event.dataTransfer?.files[0]);}}>
-      <input class="sr-only" bind:this={fileInput} type="file" accept=".jude" disabled={busy} onchange={(event) => importCase(event.currentTarget.files?.[0])}/>
+    <label class="upload" class:busy ondragover={(event) => event.preventDefault()} ondrop={dropArchive}>
+      <input class="sr-only" bind:this={fileInput} type="file" accept=".jude,.zip,application/zip,application/vnd.jude.case+zip" disabled={busy} onchange={(event) => importCase(event.currentTarget.files?.[0])}/>
       <FileUp size={25}/><strong>{busy ? (en ? 'Importing case…' : 'Mengimpor perkara…') : importTitle}</strong>
       {#if busy && percent !== null && percent < 100}<progress value={percent} max="100" aria-label={en ? 'Upload progress' : 'Kemajuan unggahan'}></progress>
       {:else if busy}<small>{en ? 'Checking the archive and its files.' : 'Memeriksa arsip dan isi berkasnya.'}</small>
-      {:else}<small class="pointer">{en ? 'Drop the archive here or select a file.' : 'Tarik arsip ke sini atau pilih berkas.'}</small><small class="touch">{en ? 'Select an archive from your device.' : 'Pilih arsip dari perangkat Anda.'}</small>{/if}
+      {:else}<small class="pointer">{en ? 'Drop or select your .jude or .zip file.' : 'Tarik atau pilih berkas .jude atau .zip Anda.'}</small><small class="touch">{en ? 'Choose a .jude or .zip file from your device.' : 'Pilih berkas .jude atau .zip dari perangkat Anda.'}</small>{/if}
     </label>
     <div class="step-actions"><button class="button subtle" disabled={busy} onclick={() => change('choose')}><ArrowLeft size={16}/>{en ? 'Back' : 'Kembali'}</button></div>
   {/if}

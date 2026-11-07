@@ -6,9 +6,10 @@
 	import { localized, planById, type Language } from '@jude/core/plans';
 	import type { AccountMode } from './forms.server';
 	let { lang, mode, form }: { lang: Language; mode: AccountMode; form?: { ok?: boolean; error?: string; email?: string; name?: string } | null } = $props();
+	const createAccount = localized('Buat akun', 'Create an account');
 	const copy = {
 		login: { title: localized('Masuk ke ruang kerja.', 'Sign in to your workspace.'), lead: localized('Lanjutkan pekerjaan dengan dokumen dan catatan perkara Anda.', 'Return to your case documents and working notes.'), button: localized('Masuk', 'Sign in') },
-		signup: { title: localized('Buka ruang kerja Anda.', 'Open your workspace.'), lead: localized('Buat akun untuk menyimpan perkara dan menjelajahi contoh pemeriksaan saksi.', 'Create an account to keep your case files and explore an example witness examination.'), button: localized('Buat akun', 'Create account') },
+		signup: { title: localized(createAccount.id + '.', createAccount.en + '.'), lead: localized('Simpan dokumen perkara, ikuti sidang, dan tinjau temuan di ruang kerja Anda.', 'Keep your case documents, hearings and findings in your workspace.'), button: createAccount },
 		reset: { title: localized('Atur ulang kata sandi.', 'Reset your password.'), lead: localized('Masukkan email akun Anda untuk meminta tautan pengaturan ulang.', 'Enter your account email to request a reset link.'), button: localized('Kirim tautan', 'Send reset link') },
 		invite: { title: localized('Gabung ke ruang kerja.', 'Join the workspace.'), lead: localized('Gunakan undangan ini untuk membuat akses ke ruang kerja tim Anda.', 'Use your invitation to create access to your team’s workspace.'), button: localized('Terima undangan', 'Accept invitation') }
 	};
@@ -35,6 +36,7 @@
 </script>
 <svelte:head><title>{current.title[lang]} · Jude</title><meta name="robots" content="noindex"/><meta name="referrer" content="strict-origin"/></svelte:head>
 {#snippet accountFields()}
+{#if mode === 'signup' && (selectedPlan === 'pro' || selectedPlan === 'firm')}<p class="plan-note">{planById(selectedPlan).name[lang]} · {isId ? 'Uji coba 14 hari tanpa kartu.' : '14-day trial without a card.'}</p>{/if}
 	{#if form?.ok && mode === 'reset'}
 		<p class="pub-feedback" role="status">{hasResetToken ? (isId ? 'Kata sandi telah diubah. Anda bisa masuk kembali.' : 'Your password has been changed. You can sign in again.') : (isId ? 'Jika alamat ini terdaftar, tautan pengaturan ulang akan dikirim melalui email.' : 'If this email is registered, a password reset link will be sent.')}</p>
 		<a class="pub-textlink" href="/login">{isId ? 'Kembali ke halaman masuk' : 'Back to sign in'}<Icon name="arrow"/></a>
@@ -52,21 +54,20 @@
 			<button class="pub-button" disabled={submitting}>{submitting ? (isId ? 'Memproses…' : 'Working…') : hasResetToken ? (isId ? 'Simpan kata sandi' : 'Save password') : current.button[lang]}<Icon name="arrow"/></button>
 		</form>
 		<div class="account-links">
-			{#if mode === 'login'}<span>{isId ? 'Belum punya akun?' : 'New to Jude?'}</span><a href={'/signup' + nextQuery}>{isId ? 'Buat akun' : 'Create an account'}</a>
+			{#if mode === 'login'}<span>{isId ? 'Belum punya akun?' : 'New to Jude?'}</span><a href={'/signup' + nextQuery}>{createAccount[lang]}</a>
 			{:else if mode === 'signup'}<span>{isId ? 'Sudah punya akun?' : 'Already have an account?'}</span><a href={'/login' + nextQuery}>{isId ? 'Masuk' : 'Sign in'}</a>
 			{:else}<a href="/login">{isId ? 'Kembali ke halaman masuk' : 'Back to sign in'}</a>{/if}
 		</div>
 	{/if}
 {/snippet}
 
-{#if mode === 'login'}
+{#if mode === 'login' || mode === 'signup'}
 	<LoginCover title={current.title[lang]} lead={current.lead[lang]}>{@render accountFields()}</LoginCover>
 {:else}
 <section class="account">
 	<div class="sheet">
 		<h1>{current.title[lang]}</h1>
 		<p class="lead">{hasResetToken ? (isId ? 'Pilih kata sandi baru untuk akun Anda.' : 'Choose a new password for your account.') : current.lead[lang]}</p>
-		{#if mode === 'signup' && (selectedPlan === 'pro' || selectedPlan === 'firm')}<p class="plan-note">{planById(selectedPlan).name[lang]} · {isId ? 'Uji coba 14 hari tanpa kartu.' : '14-day trial without a card.'}</p>{/if}
 		{@render accountFields()}
 	</div>
 </section>

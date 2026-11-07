@@ -103,6 +103,18 @@ async function caseThread(synthetic = false) {
   return { client, base, messages, send, workspace, session, caseId };
 }
 
+test('current Discovery fields retain the requested article and canonical link', async () => {
+  const c = await caseThread();
+  const url = rootHref + '/pasal-188';
+  network((request) => request.pathname === '/api/v1/search'
+    ? Response.json({ results: [{ work, url: rootHref, matching_pasals: [{ pasal: '188', url }], best_passage: { pasal: '189', url: rootHref + '/pasal-189' } }] })
+    : Response.json({ work }));
+  const thread = await c.send('Pasal 188 KUHAP');
+  expect(thread.messages.at(-1)?.legalStatus).toBe('found');
+  expect((await c.workspace()).legal).toEqual([expect.objectContaining({ article: 'Pasal 188', sourceUrl: 'https://pasal.id' + url })]);
+  await transaction(db => db.query('DELETE FROM pasal_metadata_cache'));
+});
+
 test('private messages resolve public identifiers only and save immutable, case-local law references', async () => {
   const c = await caseThread();
   await c.client.ok(c.base + '/hearings/import', 'POST', {
@@ -136,7 +148,7 @@ test('private messages resolve public identifiers only and save immutable, case-
   const thread = await c.send(question, { contexts }, key);
   const answer = thread.messages[1];
   expect(answer.citations).toEqual([{ kind: 'statement', id: statement.id }]);
-  expect(answer.text).toContain(secret);
+  expect(answer.text).toMatchObject({ id: expect.stringContaining(secret), en: expect.stringContaining(secret) });
   expect(answer.legal).toEqual([expect.stringMatching(/^pasal-[a-f0-9]{32}$/)]);
   expect(requests).toHaveLength(2);
   const id = answer.legal![0];
@@ -162,7 +174,7 @@ test('private messages resolve public identifiers only and save immutable, case-
   const ours = cached.filter((row) => row.metadata.includes(uri));
   expect(ours).toHaveLength(2);
   for (const row of ours) {
-    expect(row.cache_key).toMatch(/^(search|work):[a-f0-9]{64}$/);
+    expect(row.cache_key).toMatch(/^(search:v2|work):[a-f0-9]{64}$/);
     expect(Number(row.expires_at) - Date.now()).toBeGreaterThan(ttl - 10000);
     expect(Number(row.expires_at) - Date.now()).toBeLessThanOrEqual(ttl);
     expect(row.metadata).not.toContain(excludedContent);
@@ -221,7 +233,7 @@ test('provider outages, missing keys and non-regulatory private questions preser
   expect(fetch).not.toHaveBeenCalled();
   const answer = (await c.send(secret + ' UU 5/2025', { contexts })).messages.at(-1)!;
   expect(new URL(String(fetch.mock.calls[0][0])).searchParams.get('q')).toBe('UU Nomor 5 Tahun 2025');
-  expect(answer.text).toContain(secret);
+  expect(answer.text).toMatchObject({ id: expect.stringContaining(secret), en: expect.stringContaining(secret) });
   expect(answer.legal).toBeUndefined();
   expect((await c.workspace()).legalDiscovery).toBe('unavailable');
   expect((await c.send('Pasal 809', { contexts })).messages.at(-1)?.legal).toBeUndefined();
@@ -412,3 +424,90 @@ test.each(['verified', 'uncited', 'outage'] as const)(
     }
   },
 );
+
+const constitutionWork = {
+  frbr_uri: '/akn/id/act/uud/1945/original', type: 'UUD', title: 'Undang-Undang Dasar Negara Republik Indonesia Tahun 1945',
+  number: '1945', year: 1945, status: 'diubah',
+};
+const constitutionUrl = 'https://pasal.id/peraturan/uud/uud-1945';
+const constitutionHit = { work: constitutionWork, url: constitutionUrl, best_passage: null, matching_pasals: [] };
+
+test('the exact constitutional question returns the primary UUD record without a case keyword match', async () => {
+  const c = await caseThread(), urls: URL[] = [];
+  const fetch = network(url => {
+    urls.push(url);
+    expect(url.pathname).toBe('/api/v1/laws' + constitutionWork.frbr_uri);
+    expect([...url.searchParams]).toEqual([]);
+    return Response.json({ work: { ...constitutionWork, url: constitutionUrl } });
+  });
+  const request = 'what is the most relevant uud to this';
+  const answer = (await c.send(request)).messages.at(-1)!;
+  expect(answer.text).toMatchObject({
+    id: expect.stringContaining(constitutionWork.title), en: expect.stringContaining(constitutionWork.title),
+  });
+  expect(answer.text).toMatchObject({ id: expect.stringContaining('Hak, tindakan'), en: expect.stringContaining('Which right') });
+  expect(answer.citations).toEqual([]);
+  expect(answer.legal).toHaveLength(1);
+  expect(await c.client.ok(c.base + '/legal/' + answer.legal![0])).toMatchObject({
+    provider: 'pasal', type: 'UUD', regulation: constitutionWork.title, article: '', sourceUrl: constitutionUrl,
+  });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(urls[0].href).not.toMatch(/private|Riana|relevant/);
+  const disabled = (await c.send(request, { withLegal: false })).messages.at(-1)!;
+  expect(disabled.text).toMatchObject({ en: expect.stringMatching(/switched off/) });
+  expect(disabled.legal).toBeUndefined();
+  const demo = await caseThread(true);
+  expect((await demo.send(request)).messages.at(-1)?.text).toMatchObject({ en: expect.stringMatching(/sample legal index/) });
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+test('English and Indonesian legal intent use only the controlled topic in the attached document', async () => {
+  const c = await caseThread(), privateA = 'Saksi Anonim A, tel. 08127890000', privateB = 'Rahasia dokumen B';
+  await mutateWorkspace(c.session.organization.id, c.caseId, w => {
+    for (const [id, text] of [['jobs', privateA + ' menjelaskan pemutusan hubungan kerja.'], ['school', privateB + ' membahas hak atas pendidikan.']]) {
+      w.documents.push({ id, caseId: c.caseId, title: 'Catatan ' + id, kind: { id: 'Catatan', en: 'Notes' }, pages: 1, size: '', file: 'TXT', added: '2026-01-01' });
+      w.passages.push({ id: id + 'p', docId: id, page: 1, text });
+    }
+  });
+  const employment = { ...work, frbr_uri: '/akn/id/act/uu/2003/13', number: '13', year: 2003, title: 'Ketenagakerjaan' };
+  const requests: URL[] = [];
+  network(url => {
+    requests.push(url);
+    if (url.pathname.startsWith('/api/v1/laws/')) return Response.json({ work: url.pathname.includes('/uud/') ? constitutionWork : employment });
+    const q = url.searchParams.get('q');
+    if (q === 'ketenagakerjaan') {
+      expect(url.searchParams.get('type')).toBe('UU');
+      return Response.json({ results: [{ work: employment, url: 'https://pasal.id/peraturan/uu/uu-no-13-tahun-2003' }] });
+    }
+    expect(q).toBe('hak atas pendidikan');
+    expect(url.searchParams.get('type')).toBe('UUD');
+    return Response.json({ results: [{ ...constitutionHit, best_passage: { pasal: '31', url: constitutionUrl + '/pasal-31' },
+      matching_pasals: [{ pasal: '31', url: constitutionUrl + '#pasal-31' }] }] });
+  });
+  const ordinary = (await c.send('Undang-undang apa yang mengatur hal ini?', { contexts: [{ kind: 'document', id: 'jobs' }] })).messages.at(-1)!;
+  expect(await c.client.ok(c.base + '/legal/' + ordinary.legal![0])).toMatchObject({ type: 'UU' });
+  expect(ordinary.citations).toEqual([{ kind: 'passage', id: 'jobsp' }]);
+  expect(JSON.stringify(ordinary.text)).not.toContain(privateB);
+  const charter = (await c.send('What is the most relevant UUD to this?', { contexts: [{ kind: 'document', id: 'school' }] })).messages.at(-1)!;
+  expect(await c.client.ok(c.base + '/legal/' + charter.legal![0])).toMatchObject({ type: 'UUD', article: 'Pasal 31', sourceUrl: constitutionUrl + '/pasal-31' });
+  expect(charter.citations).toEqual([{ kind: 'passage', id: 'schoolp' }]);
+  expect(charter.text).toMatchObject({ en: expect.stringContaining(privateB), id: expect.stringContaining(privateB) });
+  expect(JSON.stringify(charter.text)).not.toContain(privateA);
+  const outbound = requests.map(url => decodeURIComponent(url.href)).join(' ');
+  expect(outbound).not.toMatch(/Saksi|Anonim|081278|Rahasia|dokumen|jobs|school|relevan|Riana|mengatur|menjelaskan/);
+});
+
+test('zero matches, missing context, and provider outages have different answers with no invented authority', async () => {
+  const c = await caseThread();
+  const fetch = network(url => url.searchParams.get('q') === 'UU Nomor 997 Tahun 2025'
+    ? Response.json({ total: 0, results: [] }) : new Response(null, { status: 503 }));
+  const vague = (await c.send('Which law applies to this?')).messages.at(-1)!;
+  expect(vague.text).toMatchObject({ en: expect.stringContaining('Which legal issue') });
+  expect(fetch).not.toHaveBeenCalled();
+  const empty = (await c.send('Which provisions of Law No. 997 of 2025 apply?')).messages.at(-1)!;
+  expect(empty.text).toMatchObject({ en: expect.stringContaining('no verified match') });
+  expect(empty.legal).toBeUndefined();
+  const failed = (await c.send('Find UU No. 996 Tahun 2025')).messages.at(-1)!;
+  expect(failed.text).toMatchObject({ en: expect.stringContaining('unavailable') });
+  expect(failed.legal).toBeUndefined();
+});

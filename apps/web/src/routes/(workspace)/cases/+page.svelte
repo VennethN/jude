@@ -1,6 +1,6 @@
 <script lang="ts">
   import { displayTitle } from '$lib/workspace/format';
-
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { invalidate, invalidateAll } from '$app/navigation';
   import { onMount, tick } from 'svelte';
   import { Archive, ArchiveRestore, ChevronDown, FolderOpen, Plus, Search } from '@lucide/svelte';
@@ -63,13 +63,13 @@
 <svelte:head><title>{en ? 'Your cases' : 'Perkara Anda'} · Jude</title></svelte:head>
 <div class="library">
   <header class="library-head">
-    <div class="introduction">
+    <div class="introduction"><PageHeading art="folder">
       <h1>{en ? 'Your cases' : 'Perkara Anda'}</h1>
       <p>{en ? 'Each case keeps its own documents, hearings, findings and conversations.' : 'Setiap perkara menyimpan berkas, sidang, temuan, dan percakapannya sendiri.'}</p>
-    </div>
+    </PageHeading></div>
     <div class="tools">
-      <label class="search"><Search size={17}/><span class="sr-only">{en ? 'Find a case' : 'Cari perkara'}</span><input type="search" bind:value={query} placeholder={en ? 'Find a case…' : 'Cari perkara…'} aria-controls="case-register"/></label>
-      <button class="button primary" disabled={!ready} onclick={() => creating = true}><Plus size={17}/>{en ? 'New case' : 'Perkara baru'}</button>
+      <label class="search" data-tour="case-search"><Search size={17}/><span class="sr-only">{en ? 'Find a case' : 'Cari perkara'}</span><input type="search" bind:value={query} placeholder={en ? 'Find a case…' : 'Cari perkara…'} aria-controls="case-register"/></label>
+      <button class="button primary" data-tour="case-new" disabled={!ready} onclick={() => creating = true}><Plus size={17}/>{en ? 'New case' : 'Perkara baru'}</button>
     </div>
   </header>
 
@@ -77,7 +77,7 @@
   {#if data.caseUnavailable}<p class="feedback" role="status">{en ? 'That case was not found, or you do not have access.' : 'Perkara itu tidak ditemukan, atau Anda tidak punya akses.'}</p>{/if}
   {#if announcement}<p class="feedback" role="status">{announcement}</p>{/if}
   {#if restoreError}<p class="feedback" role="alert">{restoreError} {#if refused}<a href="/billing">{en ? 'See plans' : 'Lihat paket'}</a>{/if}</p>{/if}
-  <ul class="case-grid" id="case-register" aria-label={en ? 'Active cases' : 'Perkara aktif'}>
+  <ul data-tour="case-register" class="case-grid" id="case-register" aria-label={en ? 'Active cases' : 'Perkara aktif'}>
     {#each active as item (item.id)}
       <li><CaseCard {item} lang={data.lang} updated={dateText(item.updated)}/></li>
     {:else}

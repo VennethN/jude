@@ -1,14 +1,19 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { casePrompts } from '$lib/workspace/case-prompts';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
-  import { ArrowUp, Plus, X, History, FolderOpen, Scale, Search, SquarePen } from '@lucide/svelte';
-  import type { ContextRef, InspectTarget, Lang, Thread, Workspace } from '@jude/core/domain';
+  import { ArrowUp, Plus, X, History, FolderOpen, Scale, Search, SquarePen, Square } from '@lucide/svelte';
+  import type { ChatMessage as Message, ContextRef, InspectTarget, Lang, Thread, Workspace } from '@jude/core/domain';
   import { api, ApiError } from '$lib/client';
+  import { ASSISTANT_QUESTION_LIMIT, type AssistantStage } from '@jude/core/domain';
+  import { assistantError } from './assistant-client';
   import { apiPath, casePath, evidenceKey, local, meaningful, sourceOf } from './records';
   import Inspector from './Inspector.svelte';
   import ChatMessage from './ChatMessage.svelte';
+  import { claimAttempt, forgetAttempt, readAnswer, rememberAttempt, type AnswerAttempt } from './answer-stream';
+  import { workspaceRequest } from '$lib/workspace/tab-cache';
   import './evidence.css';
 
   let {
@@ -36,7 +41,7 @@
   const discovery = $derived(
     w.legalDiscovery ?? (w.caseRecord.label === 'synthetic' ? 'sample' : 'unavailable'),
   );
-  const searchLaw = $derived(withLegal && discovery !== 'unavailable');
+  const searchLaw = $derived(withLegal);
   const lawHint = $derived(
     discovery === 'unavailable'
       ? id
@@ -52,9 +57,8 @@
   );
   let currentId = $state(untrack(() => (threadId && threadId !== 'new' ? threadId : '')));
   let result = $state<Thread>();
-  let thread = $derived(
-    result?.id === currentId && result ? result : w.threads.find((t) => t.id === currentId),
-  );
+  let savedThread = $derived(w.threads.find((t) => t.id === currentId));
+  let thread = $derived(result?.id === currentId && (!savedThread || result.updated >= savedThread.updated) ? result : savedThread);
   let draft = $state(
     untrack(() => initialDraft || (!compact ? (page.state as { judeDraft?: string }).judeDraft : '') || ''),
   );
@@ -63,15 +67,31 @@
     pick = $state(false),
     search = $state(''),
     busy = $state(false),
-    pending = $state(''),
     problem = $state(''),
     limit = $state(false),
     retry = $state('');
+  let pending = $state.raw<Message>();
+  let partial = $state.raw<Message>();
+  let previousCount = $state(0);
+  const messages = $derived(pending
+    ? [...(thread?.messages.slice(0, previousCount) ?? []), pending, ...(partial ? [partial] : [])]
+    : (thread?.messages ?? []));
+  const conversationTitle = $derived(thread ? local(thread.title, lang) : pending ? local(pending.text, lang).slice(0, 100) : '');
   let inspect = $state<InspectTarget | null>(null);
   let composer: HTMLTextAreaElement;
   let flow: HTMLDivElement;
   let addContextButton: HTMLButtonElement;
   let sourceSearch = $state<HTMLInputElement>();
+  let stage = $state<AssistantStage>('retrieving');
+  let ready = $state(false);
+  let active = false;
+  let stopping = false;
+  const stageText = $derived({
+    retrieving: id ? 'Mencari sumber yang relevan…' : 'Finding relevant sources…',
+    answering: id ? 'Menyusun jawaban dan memeriksa kutipan…' : 'Preparing the answer and checking quotations…',
+    legal: id ? 'Mencari rujukan di Pasal.id…' : 'Looking up references on Pasal.id…',
+    saving: id ? 'Menyimpan jawaban…' : 'Saving the answer…',
+  }[stage]);
   const pickerId = $derived(compact ? 'dock-source-picker' : 'page-source-picker');
 
   async function scrollToLatest(smooth = false) {
@@ -89,8 +109,40 @@
     await tick();
     (open ? sourceSearch : addContextButton)?.focus({ preventScroll: true });
   }
-  let lastAttempt: { fingerprint: string; key: string } | undefined;
-  let storeKey = $derived('jude:thread:' + w.caseRecord.id);
+  let lastAttempt: AnswerAttempt | undefined;
+  let activeRequest: AbortController | undefined;
+  onDestroy(() => { persistDraft(); active = false; activeRequest?.abort(); });
+  function attemptSlot(threadId: string) {
+    const account = page.data.account;
+    return ['jude:ask', account?.organization.id, account?.user.id, w.caseRecord.id, threadId || 'new'].join('/');
+  }
+  function followsLatest() {
+    return !flow || flow.scrollHeight - flow.scrollTop - flow.clientHeight < 90;
+  }
+  let storeKey = $derived('jude:thread:' + page.data.account?.user.id + ':' + w.caseRecord.id);
+  let savedSlot = $state('');
+  let draftKey = $derived(storeKey + ':draft:' + (savedSlot || (compact ? currentId || 'new' : threadId && threadId !== 'new' ? threadId : 'new')));
+  function persistDraft() {
+    if (!ready) return;
+    try {
+      const text = draft || (pending ? local(pending.text, lang) : '');
+      if (text) sessionStorage.setItem(draftKey, JSON.stringify({ text, contexts, withLegal }));
+      else sessionStorage.removeItem(draftKey);
+    } catch { /* Storage is optional. */ }
+  }
+  function restoreDraft() {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(draftKey) || 'null');
+      if (!draft && saved && typeof saved.text === 'string') {
+        draft = saved.text.slice(0, ASSISTANT_QUESTION_LIMIT);
+        if (!initialContexts.length && Array.isArray(saved.contexts))
+          extra = saved.contexts.filter((c: ContextRef) => c && sourceOf(w, c, lang)).slice(0, 6);
+        if (typeof saved.withLegal === 'boolean') withLegal = saved.withLegal;
+      }
+    } catch { /* A malformed or unavailable draft must not prevent composing. */ }
+  }
+  $effect(() => { persistDraft(); });
+
   function parse(value: string | null): ContextRef | undefined {
     if (value === 'case' || value === 'documents') return { kind: value };
     if (!value) return;
@@ -218,65 +270,120 @@
   async function send(text = draft, suggested = false) {
     text = text.trim();
     if (!text || busy) return;
-    const attached = contexts.length ? [...contexts] : [{ kind: 'case' } as const],
-      typed = draft;
+    if (text.length > ASSISTANT_QUESTION_LIMIT) { problem = assistantError(new ApiError('validation', '', 422), lang); return; }
+    const attached = contexts.length ? [...contexts] : [{ kind: 'case' } as const];
+    const typed = draft, question = { text, lang, contexts: attached, withLegal };
+    const initialSlot = attemptSlot(currentId);
+    const startedAt = page.url.pathname;
+    stage = 'retrieving';
+    const controller = new AbortController();
+    activeRequest = controller;
     busy = true;
-    pending = text;
+    previousCount = thread?.messages.length ?? 0;
+    pending = { id: 'pending-question', role: 'user', text, contexts: attached };
+    partial = undefined;
     problem = '';
     retry = '';
     limit = false;
     if (!suggested) draft = '';
     pick = false;
     void scrollToLatest(true);
+    let path = '';
     try {
+      const attempt = await claimAttempt(initialSlot, JSON.stringify(question), previousCount, lastAttempt);
+      if (controller.signal.aborted) return;
+      lastAttempt = attempt;
+      // A lost receipt can be retried after the workspace already received the saved pair.
+      previousCount = Math.min(previousCount, attempt.startCount);
       if (!currentId) {
-        const created = await api<Thread>(apiPath(w, 'threads'), 'POST', { title: text.slice(0, 100) });
+        const previousKey = draftKey;
+        const created = await api<Thread>(apiPath(w, 'threads'), 'POST', { title: text.slice(0, 100) }, {
+          'Idempotency-Key': attempt.key,
+        }, controller.signal);
+        if (controller.signal.aborted) return;
         currentId = created.id;
         result = created;
         remember(currentId);
+        persistDraft();
+        if (previousKey !== draftKey) try { sessionStorage.removeItem(previousKey); } catch { /* Storage is optional. */ }
       }
-      const fingerprint = JSON.stringify([currentId, text, attached, searchLaw]);
-      if (lastAttempt?.fingerprint !== fingerprint) lastAttempt = { fingerprint, key: crypto.randomUUID() };
-      const response = await fetch(apiPath(w, 'threads/' + encodeURIComponent(currentId) + '/messages'), {
+      const threadSlot = attemptSlot(currentId);
+      rememberAttempt(threadSlot, attempt);
+      path = apiPath(w, 'threads/' + encodeURIComponent(currentId) + '/messages');
+      const response = await fetch(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': lastAttempt.key },
-        body: JSON.stringify({ text, lang, contexts: attached, withLegal: searchLaw }),
+        headers: { Accept: 'application/x-ndjson', 'Content-Type': 'application/json', 'Idempotency-Key': attempt.key },
+        body: JSON.stringify(question),
+        signal: controller.signal,
       });
-      const payload = await response.json();
-      if (!response.ok)
-        throw new ApiError(
-          payload?.error?.code ?? 'request_failed',
-          payload?.error?.message ?? response.statusText,
-          response.status,
-        );
-      result = payload as Thread;
+      const completed = await readAnswer(response, lang, (message) => {
+        if (controller.signal.aborted) return;
+        const pinned = followsLatest();
+        partial = message;
+        if (pinned) void scrollToLatest();
+      }, phase => { if (phase !== 'reading') stage = phase; });
+      if (controller.signal.aborted) return;
+      const pinned = followsLatest();
+      result = completed;
+      pending = partial = undefined;
+      persistDraft();
+      forgetAttempt(initialSlot, attempt);
+      forgetAttempt(threadSlot, attempt);
+      forgetAttempt(attemptSlot(''), attempt);
       lastAttempt = undefined;
-      pending = '';
-      await invalidateAll();
-      if (!compact && page.params.threadId !== currentId)
-        await goto(base + '/' + encodeURIComponent(currentId), {
-          replaceState: true,
-          noScroll: true,
-          keepFocus: true,
-        });
-      await scrollToLatest(true);
+      workspaceRequest('POST', path, 200);
+      // The received thread is already saved, even if refreshing the surrounding workspace fails.
+      await invalidateAll().catch(() => undefined);
+      if (controller.signal.aborted) return;
+      if (active && page.url.pathname === startedAt && !compact && page.params.threadId !== currentId) {
+        const previousKey = draftKey;
+        savedSlot = currentId;
+        persistDraft();
+        if (previousKey !== draftKey) try { sessionStorage.removeItem(previousKey); } catch { /* Storage is optional. */ }
+        await goto(base + '/' + encodeURIComponent(currentId), { replaceState: true, noScroll: true, keepFocus: true });
+      }
+      if (pinned && !controller.signal.aborted) await scrollToLatest();
     } catch (e) {
+      if (controller.signal.aborted || !pending || stopping) return;
+      if (path && e instanceof ApiError) workspaceRequest('POST', path, e.status);
       limit = e instanceof ApiError && e.status === 402;
-      problem =
-        e instanceof ApiError
-          ? e.message
-          : id
-            ? 'Jawaban belum tersedia. Coba lagi.'
-            : 'The answer is unavailable. Try again.';
+      problem = assistantError(e, lang);
       retry = text;
       if (!suggested && !draft.trim()) draft = typed || text;
     } finally {
-      busy = false;
-      pending = '';
+      if (activeRequest === controller && !controller.signal.aborted && !stopping) {
+        activeRequest = undefined;
+        busy = false;
+        pending = partial = undefined;
+        persistDraft();
+      }
+    }
+  }
+  async function stopAnswer() {
+    const request = activeRequest;
+    const text = pending ? local(pending.text, lang) : '';
+    if (!request || stopping) return;
+    stopping = true;
+    try {
+      if (currentId && lastAttempt) await api(apiPath(w, 'threads/' + encodeURIComponent(currentId) + '/cancel'), 'POST', {}, { 'Idempotency-Key': lastAttempt.key });
+    } catch (error) {
+      if (active) problem = assistantError(error, lang);
+    } finally {
+      request.abort();
+      stopping = false;
+      if (active) {
+        activeRequest = undefined;
+        busy = false;
+        if (!draft.trim()) draft = text;
+        pending = partial = undefined;
+        persistDraft();
+      }
     }
   }
   function reset() {
+    try { sessionStorage.removeItem(draftKey); } catch { /* Storage is optional. */ }
     currentId = '';
+    savedSlot = '';
     result = undefined;
     extra = [];
     removedInitial = [];
@@ -310,6 +417,7 @@
     }
   }
   onMount(() => {
+    active = true;
     const next = page.state as { judeAsk?: { caseId: string; text: string } };
     if (!compact && threadId === 'new' && next.judeAsk?.caseId === w.caseRecord.id) {
       const { judeAsk, ...rest } = next;
@@ -321,6 +429,7 @@
       if (initialQuestion.trim()) {
         currentId = '';
         remember('');
+        ready = true;
         void send(initialQuestion, true);
         return;
       }
@@ -336,13 +445,15 @@
       restoreContexts(w.threads.find((t) => t.id === currentId));
       void scrollToLatest();
     }
+    restoreDraft();
+    ready = true;
   });
 </script>
 
 <svelte:window onkeydown={keydown} />
 <div class="ev-panel assistant" class:compact>
   {#if compact}<header class="panel-head">
-      <h2 class="ev-title">{id ? 'Asisten perkara' : 'Case assistant'}</h2>
+      <PageHeading art="quote" compact><h2 class="ev-title">{id ? 'Asisten perkara' : 'Case assistant'}</h2></PageHeading>
       <div class="ev-inline">
         <a
           class="ev-icon"
@@ -370,18 +481,26 @@
     aria-relevant="additions"
     aria-label={id ? 'Pesan percakapan' : 'Conversation messages'}
   >
-    {#if thread?.messages.length}
+    {#if messages.length}
       {#if compact}<header class="thread-title">
-          <h2 class="ev-title">{local(thread.title, lang)}</h2>
-          {#if thread.sample}<span class="ev-meta">{id ? 'Contoh sintetis' : 'Synthetic example'}</span>{/if}
+          <h2 class="ev-title">{conversationTitle}</h2>
+          {#if thread?.sample}<span class="ev-meta">{id ? 'Contoh sintetis' : 'Synthetic example'}</span>{/if}
         </header>{/if}
       <div class="log">
-        {#each thread.messages as m (m.id)}<ChatMessage
+        {#each messages as m, index (index)}<ChatMessage
             {lang}
             workspace={w}
             message={m}
+            streaming={m === partial}
             inspect={(t) => (inspect = t)}
           />{/each}
+        {#if pending && !partial}
+          <div class="reading" role="status">
+            <span>{id ? 'Asisten perkara' : 'Case assistant'}</span>
+            <span class="reading-status">{stageText}</span>
+            <div class="reading-lines" aria-hidden="true"><i></i><i></i><i></i></div>
+          </div>
+        {/if}
       </div>
     {:else}
       <div class="welcome">
@@ -402,10 +521,6 @@
         </div>
       </div>
     {/if}
-    {#if pending}<div class="pending" role="status">
-        <strong>{pending}</strong>
-        <p>{id ? 'Membaca sumber perkara…' : 'Reading the case record…'}</p>
-      </div>{/if}
     {#if problem}<div class="ev-notice" role="alert">
         <p>{problem}</p>
         {#if limit}<a class="ev-link" href="/billing">{id ? 'Lihat paket' : 'See plan'}</a
@@ -451,7 +566,8 @@
         bind:this={composer}
         bind:value={draft}
         rows="2"
-        maxlength="8000"
+        maxlength={ASSISTANT_QUESTION_LIMIT}
+        aria-describedby={draft.length >= ASSISTANT_QUESTION_LIMIT - 500 ? pickerId + '-length' : undefined}
         placeholder={id ? 'Tulis pertanyaan tentang perkara…' : 'Ask a question about this case…'}
         onkeydown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -460,6 +576,7 @@
           }
         }}
       ></textarea>
+      {#if draft.length >= ASSISTANT_QUESTION_LIMIT - 500}<p class="length-hint" id={pickerId + '-length'}>{draft.length.toLocaleString(lang)} / {ASSISTANT_QUESTION_LIMIT.toLocaleString(lang)} {id ? 'karakter' : 'characters'}</p>{/if}
       <div class="send-row">
         <button
           type="button"
@@ -475,20 +592,19 @@
           class="legal-toggle"
           aria-pressed={searchLaw}
           title={lawHint}
-          disabled={discovery === 'unavailable'}
           onclick={() => (withLegal = !withLegal)}
         >
           <Scale size={14} aria-hidden="true" />Pasal.id
         </button>
-        <button
+        {#if busy}<button type="button" class="send" aria-label={id ? 'Hentikan jawaban' : 'Stop answer'} title={id ? 'Hentikan jawaban' : 'Stop answer'} onclick={stopAnswer}><Square size={16} aria-hidden="true" /></button>{:else}<button
           type="submit"
           class="send"
           aria-label={id ? 'Kirim pertanyaan' : 'Send question'}
           title={id ? 'Kirim pertanyaan' : 'Send question'}
-          disabled={!draft.trim() || busy || limit}
+          disabled={!draft.trim() || limit}
         >
           <ArrowUp size={18} aria-hidden="true" />
-        </button>
+        </button>{/if}
       </div>
     </div>
     {#if pick}
@@ -533,6 +649,7 @@
 {#if inspect}<Inspector workspace={w} {lang} target={inspect} close={() => (inspect = null)} />{/if}
 
 <style>
+  .length-hint { margin: 0; padding: 0 12px 6px; color: var(--muted); font: 400 12px/1.4 var(--sans); text-align: end; }
   .assistant {
     display: flex;
     flex: 1;
@@ -631,16 +748,32 @@
   .suggestions button:disabled {
     opacity: 0.58;
   }
-  .pending {
-    margin-top: 16px;
-    padding: 10px 0;
-    font-size: 14px;
-  }
-  .pending p {
-    margin: 6px 0 0;
+  .reading {
+    min-width: 0;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+    font: 600 12px/1.45 var(--sans);
     color: var(--muted);
-    font-size: 13px;
   }
+  .reading-status { margin-inline-start: 8px; font-weight: 400; }
+  .reading-lines {
+    display: grid;
+    gap: 13px;
+    margin: 14px 0 7px;
+    max-width: 63ch;
+  }
+  .reading-lines i {
+    width: 93%;
+    height: 8px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--line-strong) 60%, var(--surface));
+  }
+  .reading-lines i:nth-child(2) { width: 78%; }
+  .reading-lines i:last-child { width: 44%; }
+  @media (prefers-reduced-motion: no-preference) {
+    .reading-lines { animation: reading-pulse 1.6s ease-in-out infinite alternate; }
+  }
+  @keyframes reading-pulse { to { opacity: 0.5; } }
   .composer {
     position: relative;
     flex: none;
@@ -702,7 +835,7 @@
   }
   .add-context,
   .legal-toggle {
-    min-height: 32px;
+    min-height: 44px;
     border: 1px solid var(--line);
     border-radius: 20px;
     background: var(--surface);
@@ -758,7 +891,7 @@
     border: none;
     background: transparent;
     color: var(--ink);
-    font: 400 15px/1.5 var(--sans);
+    font: 400 16px/1.5 var(--sans);
     resize: none;
   }
   .input-box textarea:focus-visible {
@@ -776,8 +909,8 @@
   .send {
     margin-left: auto;
     flex: none;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     display: grid;
     place-items: center;
     border: 0;

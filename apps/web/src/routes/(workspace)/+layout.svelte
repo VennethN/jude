@@ -1,7 +1,9 @@
 <script lang="ts">
   import { displayTitle, displaySpeaker, initials, timecode } from '$lib/workspace/format';
-
+  import BrandLockup from '$lib/BrandLockup.svelte';
   import { page } from '$app/state';
+  import { watchWorkspace, workspaceAccessLost } from '$lib/workspace/tab-cache';
+  import { workspaceScope } from '$lib/workspace/scope';
   import { afterNavigate, goto, invalidate, replaceState } from '$app/navigation';
   import { onMount, tick } from 'svelte';
   import {
@@ -43,6 +45,7 @@
   import Tours from '$lib/workspace/Tours.svelte';
   import TourInvite from '$lib/workspace/TourInvite.svelte';
   import Assistant from '$lib/evidence/Assistant.svelte';
+  import WorkspaceNavigation from '$lib/workspace/WorkspaceNavigation.svelte';
   let { data, children } = $props();
   const w = $derived(page.data.workspace as Workspace | undefined),
     en = $derived(data.lang === 'en'),
@@ -145,6 +148,9 @@
     m.addEventListener('change', sync);
     return () => m.removeEventListener('change', sync);
   });
+  $effect(() => watchWorkspace(workspaceScope(data.account), () => {
+    void invalidate((key) => ['jude:session', 'jude:case', 'jude:case-library'].includes(key.href));
+  }));
   $effect(() => {
     const id = w?.caseRecord.id;
     if (!id) return;
@@ -159,6 +165,11 @@
     };
     stream.onmessage = refresh;
     stream.addEventListener('case.updated', refresh);
+    stream.addEventListener('case.access-lost', () => { stream.close(); void workspaceAccessLost(); });
+    stream.onerror = () => {
+      // An HTTP permission failure during reconnect never delivers an SSE message.
+      if (stream.readyState === EventSource.CLOSED) void invalidate('jude:case');
+    };
     return () => stream.close();
   });
   async function save(options: Preferences) {
@@ -228,7 +239,7 @@
       panelQuestion = judePanelQuestion.text;
       overlay = 'assistant';
     }
-    if (judeTour && account.demo) {
+    if (judeTour) {
       tourFromOverview = true;
       overlay = 'tour';
     }
@@ -347,6 +358,7 @@
 <svelte:window bind:innerWidth={viewportWidth}/>
 <div
   class="desk"
+  data-sveltekit-preload-data="tap"
   class:with-assistant={overlay === 'assistant' && dockAssistant}
   class:collapsed={prefs.railCollapsed}
   class:has-live={showLive}
@@ -355,21 +367,18 @@
 >
   <a class="skip" href="#case-main">{en ? 'Skip to content' : 'Ke isi utama'}</a>
   <aside class="rail" id="workspace-rail">
-    <a class="brand" href="/cases" aria-label="Jude"
-      ><span class="full-brand">jude.</span><span class="mini-brand">j.</span></a
-    >
+    <a class="brand" href="/cases" aria-label="Jude"><BrandLockup monochrome/></a>
     {#if w}
       <a
         class="switch-case"
         href="/cases"
-        title={en ? 'Back to cases' : 'Kembali ke perkara'}
-        aria-label={(en ? 'Back to cases' : 'Kembali ke perkara') + ' · ' + displayTitle(w.caseRecord, data.lang)}
+        title={(en ? 'Back to cases' : 'Kembali ke perkara') + ' · ' + displayTitle(w.caseRecord, data.lang)}
       >
         <span class="case-icon"><FolderOpen size={18} /></span><span class="tablet-label"
           >{en ? 'Cases' : 'Perkara'}</span
         >
         <span class="case-identity"
-          ><strong>{displayTitle(w.caseRecord, data.lang)}</strong><small
+          ><strong>{displayTitle(w.caseRecord, data.lang)}</strong>{' '}<small
             >{w.caseRecord.reference ||
               (w.caseRecord.label === 'synthetic'
                 ? en
@@ -387,7 +396,7 @@
           <a
             class="rail-link section-link"
             href={base + (n.path ? '/' + n.path : '')}
-            aria-label={n.name}
+            aria-label={n.name + (n.path === 'documents' && w.documents.length ? ' ' + w.documents.length : n.path === 'findings' && reviewCount ? ' ' + reviewCount : '')}
             aria-describedby={status ? 'rail-status-' + n.key : undefined}
             title={n.name + (status ? ' · ' + status : '')}
             aria-current={section === n.path ? 'page' : undefined}
@@ -454,13 +463,12 @@
       <div class="account-block">
         <button
           class="member"
-          aria-label={(en ? 'Preferences' : 'Preferensi') + ' · ' + accountName}
-          title={accountName}
+          title={(en ? 'Preferences' : 'Preferensi') + ' · ' + accountName}
           onclick={() => (overlay = 'prefs')}
-          ><span class="avatar">{initials(accountName)}</span><span class="tablet-label"
+          ><span class="avatar" aria-hidden="true">{initials(accountName)}</span>{' '}<span class="tablet-label"
             >{en ? 'Account' : 'Akun'}</span
-          ><span class="account-label"
-            ><strong>{accountName}</strong><small
+          >{' '}<span class="account-label"
+            ><strong>{accountName}</strong>{' '}<small
               >{account.user.guest
                 ? en
                   ? 'Guest workspace'
@@ -473,10 +481,9 @@
           class="billing-link"
           href="/billing"
           title={planName + ' · ' + (en ? 'Plans and billing' : 'Paket dan tagihan')}
-          aria-label={planName + ' · ' + (en ? 'Plans and billing' : 'Paket dan tagihan')}
-          ><span class="plate" data-plan={account.plan.id}>{planName}</span><span class="tablet-label"
+          ><span class="plate" data-plan={account.plan.id}>{planName}</span>{' '}<span class="tablet-label"
             >{en ? 'Plans' : 'Paket'}</span
-          ><span class="billing-label">{en ? 'Plans & billing' : 'Paket & tagihan'}</span></a
+          >{' '}<span class="billing-label">{en ? 'Plans and billing' : 'Paket dan tagihan'}</span></a
         >
       </div>
     </div>
@@ -495,7 +502,7 @@
       <div class="tools">
         {#if w}<button
             class="search-tool"
-            aria-label={en ? 'Search the case' : 'Cari dalam perkara'}
+            aria-label={en ? 'Search hearings, findings, documents…' : 'Cari sidang, temuan, dokumen…'}
             aria-keyshortcuts="/ Control+K Meta+K"
             title={en ? 'Search the case' : 'Cari dalam perkara'}
             onclick={openSearch}
@@ -533,9 +540,9 @@
               {#if w}<button onclick={caseMenu}
                   ><FolderOpen size={16} />{en ? 'Case actions' : 'Tindakan perkara'}</button
                 >{/if}
-              {#if account.demo}<button onclick={() => menuOverlay('tour')}
+              <button onclick={() => menuOverlay('tour')}
                   ><Compass size={16} />{en ? 'Guided tours' : 'Panduan perkara'}</button
-                >{/if}
+                >
               <button
                 class="shortcut-tool"
                 aria-keyshortcuts="Shift+/"
@@ -561,7 +568,7 @@
         <a
           class="session-link"
           href={base + '/hearings/' + live.id}
-          aria-label={(en ? 'Open hearing' : 'Buka sidang') +
+          title={(en ? 'Open hearing' : 'Buka sidang') +
             ' ' +
             live.number +
             ' · ' +
@@ -587,7 +594,7 @@
               >{initials(speaker).slice(0, 1)}</span
             >{/if}
           <span class="session-copy"
-            ><b>{en ? 'Hearing' : 'Sidang'} {live.number} · {live.title[data.lang]}</b>{#if lastLine}<span
+            ><b>{en ? 'Hearing' : 'Sidang'} {live.number} · {live.title[data.lang]}</b>{#if lastLine}{' '}<span
                 >{lastLine.text}</span
               >{/if}</span
           >
@@ -620,8 +627,8 @@
       </div>
     {/if}
     <main id="case-main" tabindex="-1" class="content">
-      {#if account.demo && !account.prefs.tourSeen && overlay !== 'tour'}<TourInvite {en} compact={section === 'assistant' && !!page.params.threadId}/>{/if}
-      {@render children()}
+      {#if !account.prefs.tourSeen && overlay !== 'tour' && (account.demo || !w || !section)}<TourInvite {en} demo={!!account.demo} register={!w} compact={section === 'assistant' && !!page.params.threadId}/>{/if}
+      <WorkspaceNavigation {en}>{@render children()}</WorkspaceNavigation>
     </main>
   </div>
   {#if w}
@@ -630,7 +637,6 @@
         {@const status = sectionStatus(n.path)}
         <a
           href={base + (n.path ? '/' + n.path : '')}
-          aria-label={n.name}
           aria-describedby={status ? 'phone-status-' + n.key : undefined}
           aria-current={section === n.path ? 'page' : undefined}
         >
@@ -672,7 +678,9 @@
     </Dialog>
   {/if}
   {#if overlay === 'search' && w}<Search workspace={w} lang={data.lang} close={() => (overlay = null)} />{/if}
-  {#if overlay === 'tour' && account.demo}<Tours
+  {#if overlay === 'tour'}<Tours
+      workspace={w}
+      cases={page.data.cases ?? []}
       startOverview={tourFromOverview}
       session={account}
       lang={data.lang}
@@ -690,6 +698,7 @@
       </div>
     </Dialog>{/if}
   {#if overlay === 'prefs'}<Dialog
+      art="bookmark"
       title={en ? 'Preferences' : 'Preferensi'}
       lang={data.lang}
       close={() => (overlay = null)}
@@ -783,7 +792,8 @@
     overflow: auto;
   }
   .rail .brand {
-    display: block;
+    display: flex;
+    align-items: center;
     padding: 0 6px 12px;
     margin: 0 0 4px;
     font:
@@ -792,9 +802,6 @@
       serif;
     color: var(--nav-ink);
     letter-spacing: -0.045em;
-  }
-  .mini-brand {
-    display: none;
   }
   .switch-case {
     display: flex;
@@ -1213,7 +1220,7 @@
     font-weight: 600;
   }
   .session-copy > span {
-    color: var(--muted);
+    color: var(--ink);
     font-size: 12px;
   }
   .session-open {
@@ -1270,13 +1277,12 @@
   .collapsed .rail-link > span,
   .collapsed .account-label,
   .collapsed .case-identity,
-  .collapsed .full-brand,
   .collapsed .billing-label,
   .collapsed .rail-count {
     display: none;
   }
-  .collapsed .mini-brand {
-    display: block;
+  .collapsed .brand {
+    --jude-name-display: none;
   }
   .collapsed .rail {
     padding-inline: 9px;
@@ -1335,14 +1341,13 @@
     .rail-link > span,
     .account-label,
     .case-identity,
-    .full-brand,
     .billing-label,
     .rail-count,
     .collapse-control {
       display: none;
     }
-    .mini-brand {
-      display: block;
+    .rail .brand {
+      --jude-name-display: none;
     }
     .account-block {
       border-color: transparent;

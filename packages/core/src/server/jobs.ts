@@ -91,7 +91,7 @@ let stopWorker: (() => void) | undefined;
 export function runAnalysisWorker() {
   if (stopWorker) return stopWorker;
   let stopped = false,
-    active = false,
+    recovering = false,
     lastRecovery = 0,
     lastPurge = 0,
     purging = false;
@@ -109,32 +109,37 @@ export function runAnalysisWorker() {
       purging = false;
     }
   };
-  const tick = async () => {
+  const lanes = new Set<number>();
+  async function runLane(lane: number) {
+    if (stopped || lanes.has(lane)) return;
+    lanes.add(lane);
+    try {
+      while (!stopped) {
+        const job = await claim();
+        if (!job) return;
+        await processOne(job);
+      }
+    } catch {
+      // An expired lease or a transient database failure is retried on the next poll.
+    } finally { lanes.delete(lane); }
+  }
+  const tick = () => {
+    if (stopped) return;
     void maintainRetention();
-    if (!indexing && !stopped) {
+    if (!indexing) {
       indexing = true;
       void runSemanticIndexBatch().catch(() => undefined).finally(() => { indexing = false; });
     }
-    if (stopped || active) return;
-    active = true;
-    try {
-      if (Date.now() - lastRecovery > 60_000) {
-        await transaction(recoverStatements);
-        lastRecovery = Date.now();
-      }
-      const lanes = async () => {
-        while (!stopped) {
-          const job = await claim();
-          if (!job) return;
-          await processOne(job);
-        }
-      };
-      await Promise.allSettled([lanes(), lanes()]);
-    } catch {
-      /* Retry the database connection on the next tick. */
-    } finally {
-      active = false;
+    if (!recovering && Date.now() - lastRecovery > 60_000) {
+      recovering = true;
+      void transaction(recoverStatements)
+        .then(() => { lastRecovery = Date.now(); })
+        .catch(() => undefined)
+        .finally(() => { recovering = false; });
     }
+    // An idle lane must keep accepting new testimony while its neighbour awaits a model result.
+    void runLane(0);
+    void runLane(1);
   };
   const timer = setInterval(() => {
     void tick();

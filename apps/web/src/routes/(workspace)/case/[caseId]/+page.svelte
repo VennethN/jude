@@ -1,6 +1,6 @@
 <script lang="ts">
   import { displayCourt, displayTitle, formatDate, timecode } from '$lib/workspace/format';
-
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import {
@@ -92,7 +92,7 @@
 <svelte:head><title>{displayTitle(c, data.lang)} · Jude</title></svelte:head>
 <div class="overview">
   <header class="file-head">
-    <div class="file-id">
+    <div class="file-id" data-tour="case-file">
       <span class="case-type"
         >{c.label === 'synthetic'
           ? en
@@ -103,8 +103,10 @@
             : 'Perkara privat'}</span
       >{#if c.reference}<span>{c.reference}</span>{/if}
     </div>
-    <h1>{displayTitle(c, data.lang)}</h1>
-    {#if c.summary[data.lang]}<p class="summary">{c.summary[data.lang]}</p>{/if}
+    <PageHeading art="folder">
+      <h1>{displayTitle(c, data.lang)}</h1>
+      {#if c.summary[data.lang]}<p class="summary">{c.summary[data.lang]}</p>{/if}
+    </PageHeading>
     <dl class="facts">
       <div>
         <dt>{en ? 'Client' : 'Klien'}</dt>
@@ -386,6 +388,7 @@
     align-items: center;
   }
   .file-id {
+    margin-bottom: 10px;
     gap: 12px;
     color: var(--muted);
     font-size: 0.83rem;
@@ -406,9 +409,10 @@
       Georgia,
       serif;
     letter-spacing: -0.035em;
-    margin: 10px 0 11px;
+    margin: 0;
   }
   .summary {
+    margin-top: 8px;
     max-width: 75ch;
   }
   .facts {

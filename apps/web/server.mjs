@@ -1,5 +1,6 @@
 import { createServer, request as httpRequest } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { voiceHeaders } from './voice-gateway.mjs';
 process.env.BODY_SIZE_LIMIT ??= '64M';
 const { handler } = await import('./build/handler.js');
 const target = process.env.VOICE_ORIGIN ? new URL(process.env.VOICE_ORIGIN) : null;
@@ -7,13 +8,15 @@ if (target && !['http:', 'https:'].includes(target.protocol))
   throw new Error('VOICE_ORIGIN must be an HTTP origin.');
 const request = target?.protocol === 'https:' ? httpsRequest : httpRequest;
 function upstream(req) {
+  const headers = voiceHeaders(req, target, process.env.ORIGIN);
+  if (!headers) return null;
   return request({
     protocol: target.protocol,
     hostname: target.hostname,
     port: target.port,
     method: req.method,
     path: req.url,
-    headers: req.headers,
+    headers,
   });
 }
 function noVoice(res) {
@@ -30,6 +33,7 @@ const server = createServer((req, res) => {
     return;
   }
   const out = upstream(req);
+  if (!out) { res.writeHead(403); res.end(); return; }
   out.on('response', (r) => {
     res.writeHead(r.statusCode ?? 502, r.headers);
     r.pipe(res);
@@ -48,6 +52,7 @@ server.on('upgrade', (req, socket, head) => {
     return;
   }
   const out = upstream(req);
+  if (!out) { socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n'); return; }
   out.on('upgrade', (r, other, upHead) => {
     let headers = 'HTTP/1.1 101 Switching Protocols\r\n';
     for (let i = 0; i < r.rawHeaders.length; i += 2)

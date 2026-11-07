@@ -1,5 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import { expect, test } from '@playwright/test';
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 
 test('jump from a hearing finding to the exact line and retain a bookmark and speaker assignment', async ({
   page
@@ -90,6 +91,32 @@ test('an imported transcript stays searchable with an accessible time index', as
   await page.getByRole('button', { name: 'Cari transkrip' }).click();
   await page.getByRole('searchbox', { name: 'Cari kata atau pembicara' }).fill('sehat');
   await expect(page.locator('.words mark').first()).toHaveText(/sehat/i);
+});
+
+test('an archived recording keeps unidentified turns and grouped voices readable in both languages', async ({ page }) => {
+  await page.goto('/demo');
+  const files = unzipSync(await readFile(new URL('./fixtures/hearing-playback.jude', import.meta.url)));
+  const record = JSON.parse(strFromU8(files['case.json']));
+  const ids = ['voice-pending-37a20b02', 'voice-cluster-b70bc79a', 'voice-cluster-834531ad', 'v4'];
+  record.speakers = ids.map(id => ({ id, label: '', role: 'unknown', confirmed: false }));
+  record.statements = ids.map((id, i) => ({
+    ...record.statements[0], id: 'line-' + i, t: i, speakerId: id,
+  }));
+  files['case.json'] = strToU8(JSON.stringify(record));
+  const origin = new URL(page.url()).origin;
+  const imported = await page.request.post('/api/cases/import', {
+    headers: { origin },
+    multipart: { file: { name: 'recording.jude', mimeType: 'application/zip', buffer: Buffer.from(zipSync(files)) } },
+  });
+  expect(imported.ok(), await imported.text()).toBeTruthy();
+  const { id } = await imported.json();
+  const data = await (await page.request.get('/api/cases/' + id + '/workspace')).json();
+  await page.goto('/case/' + id + '/hearings/' + data.hearings[0].id);
+  const names = page.locator('.lines article .name');
+  await expect(names).toHaveText(['Pembicara belum dikenali', 'Suara 1', 'Suara 2', 'Suara 4']);
+  await page.context().addCookies([{ name: 'jude_lang', value: 'en', url: origin }]);
+  await page.reload();
+  await expect(names).toHaveText(['Unidentified speaker', 'Voice 1', 'Voice 2', 'Voice 4']);
 });
 
 test('an imported recording seeks to linked testimony and plays only when requested', async ({ page }) => {

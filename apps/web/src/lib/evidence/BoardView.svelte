@@ -441,7 +441,8 @@
   <div class="board-work" class:expanded={focused}>
     <div class="ev-tools board-tools">
       <div class="board-identity">
-        <PanelsTopLeft size={16} aria-hidden="true" />
+        {#if focused}<img src="/public/clay/spool.webp" alt="" width="30" height="30" />
+        {:else}<PanelsTopLeft size={16} aria-hidden="true" />{/if}
         <select
           class="board-select"
           aria-label={id ? 'Pilih papan' : 'Choose board'}
@@ -681,7 +682,7 @@
               </div>
             </div>
           </div>
-          <section class="empty-mobile">
+          <section class="empty-mobile" data-tour="board-canvas">
             <PanelsTopLeft size={22} aria-hidden="true" />
             <p>
               {id
@@ -713,7 +714,7 @@
           >
         </div>
       </div>
-      <aside class="desktop-library">{@render library()}</aside>
+      <aside class="desktop-library" data-tour="board-add">{@render library()}</aside>
     </div>
     {#if selected && selection && item}<section class="card-editor ev-notice">
         <header class="ev-inline">
@@ -984,6 +985,7 @@
     color: var(--ink);
     font: 500 0.83rem/1.3 var(--sans);
   }
+  .board-identity img { object-fit: contain; }
   .board-count {
     margin-left: auto;
     white-space: nowrap;

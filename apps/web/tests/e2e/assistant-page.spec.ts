@@ -168,7 +168,7 @@ test('an English narrow screen retains saved narrative, original words and unava
   const files = unzipSync(await readFile(new URL('./fixtures/hearing-playback.jude', import.meta.url)));
   const archive = JSON.parse(strFromU8(files['case.json']));
   const statement = archive.statements[0];
-  statement.text = 'Ucapan uji [1] sintetis.';
+  statement.text = 'Ucapan uji [1] sintetis. **Asli**\n- tetap sebagai kutipan.';
   const citation = { kind: 'statement', id: statement.id };
   const quoted = '“' + statement.text + '” [1]';
   const unavailable = {
@@ -201,7 +201,16 @@ test('an English narrow screen retains saved narrative, original words and unava
           text: 'The file contains a second account. ' + quoted,
           citations: [citation],
         },
-        { role: 'assistant', mode: 'ai', text: quoted, citations: [citation], legal: [law.id] },
+        {
+          role: 'assistant', mode: 'ai', citations: [citation], legal: [law.id],
+          text: [
+            '## Witness accounts', 'The **two _accounts_** differ [1].',
+            '- The witness described the entrance [1].\n- The second account concerns a later time.',
+            '### Questions for review', '3. Compare the timing.\n4. Ask about the entrance [1].',
+            'Original wording: ' + quoted,
+            'Unverified [outside page](https://example.test/record) and <b>archived text</b>.',
+          ].join('\n\n'),
+        },
         {
           role: 'assistant',
           mode: 'sources-only',
@@ -233,7 +242,20 @@ test('an English narrow screen retains saved narrative, original words and unava
     'The file contains a second account. “' + statement.text + '”',
   );
   await expect(answers.nth(1).locator('.answer')).toContainText(statement.text);
-  await expect(answers.nth(1).locator('.answer .citation')).toHaveCount(1);
+  const formatted = answers.nth(1).locator('.answer');
+  await expect(formatted.getByRole('heading', { level: 3 })).toHaveText('Witness accounts');
+  await expect(formatted.getByRole('heading', { level: 4 })).toHaveText('Questions for review');
+  await expect(formatted.locator('strong > em')).toHaveText('accounts');
+  await expect(formatted.locator('strong > em')).toHaveCSS('font-synthesis', 'style');
+  expect(await formatted.locator('p').first().textContent()).toBe('The two accounts differ 1.');
+  await expect(formatted.locator('ul > li')).toHaveCount(2);
+  await expect(formatted.locator('ol')).toHaveAttribute('start', '3');
+  await expect(formatted.locator('ol > li')).toHaveCount(2);
+  await expect(formatted.locator('.citation')).toHaveCount(4);
+  await expect(formatted.locator('.verbatim')).toHaveText('“' + statement.text + '”');
+  await expect(formatted.locator('.verbatim :is(strong, em, .citation)')).toHaveCount(0);
+  await expect(formatted.getByText(/<b>archived text<\/b>/)).toBeVisible();
+  await expect(formatted.locator('b, a[href^="https://example.test"]')).toHaveCount(0);
   await expect(answers.nth(2).locator('.answer')).toContainText(
     'The earlier record [2] differs from the testimony',
   );

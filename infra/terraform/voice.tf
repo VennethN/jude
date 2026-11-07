@@ -4,6 +4,16 @@ variable "enable_voice_host" {
   default     = false
 }
 
+variable "voice_direct_hostname" {
+  description = "Optional public DNS name resolving directly to the EC2 EIP for HTTPS voice testing."
+  type        = string
+  default     = ""
+  validation {
+    condition     = var.voice_direct_hostname == "" || can(regex("^[a-z0-9]([a-z0-9.-]*[a-z0-9])?\\.[a-z]{2,}$", var.voice_direct_hostname))
+    error_message = "Use a lowercase DNS hostname without a scheme or path."
+  }
+}
+
 locals {
   voice_count = var.enable_voice_host && var.enable_application ? 1 : 0
 }
@@ -29,12 +39,29 @@ resource "aws_security_group" "voice_origin" {
     protocol        = "tcp"
     prefix_list_ids = [data.aws_ec2_managed_prefix_list.cloudfront[0].id]
   }
+  dynamic "ingress" {
+    for_each = var.voice_direct_hostname == "" ? [] : [1]
+    content {
+      description = "Direct voice HTTPS from all IPv4 clients"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = ["0.0.0.0/0"]
+    }
+  }
   egress {
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
+
+resource "aws_ssm_parameter" "voice_direct_hostname" {
+  count = local.voice_count == 1 && var.voice_direct_hostname != "" ? 1 : 0
+  name  = "/${local.name}/runtime/JUDE_VOICE_PUBLIC_HOST"
+  type  = "String"
+  value = var.voice_direct_hostname
 }
 
 resource "aws_iam_role" "voice" {
@@ -135,3 +162,4 @@ output "voice_instance_id" { value = one(aws_instance.voice[*].id) }
 output "voice_web_url" { value = local.voice_count == 1 ? "https://${aws_cloudfront_distribution.voice[0].domain_name}" : null }
 output "voice_files_bucket" { value = one(aws_s3_bucket.files[*].id) }
 output "voice_files_key" { value = one(aws_kms_key.files[*].arn) }
+output "voice_direct_url" { value = local.voice_count == 1 && var.voice_direct_hostname != "" ? "https://${var.voice_direct_hostname}" : null }

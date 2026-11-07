@@ -1,6 +1,6 @@
 <script lang="ts">
   import { displayTitle } from '$lib/workspace/format';
-
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { ApiError, api } from '$lib/client';
@@ -153,10 +153,10 @@
   ondrop={dropFiles}
 >
   <header class="ev-head">
-    <div>
+    <PageHeading art="page">
       <h1>{id ? 'Dokumen' : 'Documents'}</h1>
       <p>{id ? 'Berkas yang menjadi sumber dalam perkara ini.' : 'The source files held in this case.'}</p>
-    </div>
+    </PageHeading>
     <div class="ev-actions">
       <input
         class="ev-only"
@@ -168,7 +168,7 @@
         aria-label={id ? 'Pilih berkas' : 'Choose files'}
         onchange={(e) => upload(Array.from(e.currentTarget.files ?? []))}
       />
-      <button class="ev-button primary" disabled={!interactive || busy} onclick={() => input.click()}
+      <button class="ev-button primary" data-tour="doc-upload" disabled={!interactive || busy} onclick={() => input.click()}
         ><Upload size={17} />{busy
           ? id
             ? 'Mengunggah…'

@@ -8,7 +8,7 @@ const relations=['supports','conflicts','context','related'] as const;
 const source=objectSchema({passageId:str,match:str,relation:{type:'string',enum:relations}});
 const schema=objectSchema({checkable:{type:'boolean'},status:{type:'string',enum:statuses},said:str,title:l10n,explanation:l10n,verify:l10n,uncertainty:l10n,question:l10n,sources:{type:'array',items:source}});
 function translated(x:unknown):x is L10n {
-  return !!x&&typeof x==='object'&&'en' in x&&'id' in x&&typeof x.en==='string'&&typeof x.id==='string'&&safeLanguage(x.en+' '+x.id);
+  return !!x&&typeof x==='object'&&'en' in x&&'id' in x&&typeof x.en==='string'&&typeof x.id==='string'&&!!x.en.trim()&&!!x.id.trim()&&safeLanguage(x.en+' '+x.id);
 }
 export async function analyzeStatement(workspace:Workspace,line:Statement,orgId?:string):Promise<Finding|null>{
   const sources=(await retrieve(workspace,line.text,[{kind:'documents'}],'id',orgId)).slice(0,10);

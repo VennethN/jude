@@ -11,7 +11,9 @@ pnpm install --frozen-lockfile
 pnpm --filter @jude/web dev
 ```
 
-Open the URL printed by Vite. Sign up or select **Coba perkara contoh**. For live replay and audio transport, install the Python voice dependencies from its README, then run both services using `pnpm dev` from the repository root. To connect a separately hosted voice service, provide its internal URL in `VOICE_ORIGIN`.
+Open the URL printed by Vite. Sign up or select **Coba perkara contoh**. For live replay and audio transport, install the Python voice dependencies from its README, then run both services using `pnpm dev` from the repository root. To use the hosted recording service from localhost, set `VOICE_ORIGIN` in the repository root `.env` to the HTTPS origin of the Jude deployment that shares your `DATABASE_URL`, then run `pnpm dev`. The browser keeps its local Jude session and sends recordings through its same-origin `/api/live/` routes. Check `GET /api/live/capabilities` for transcription readiness. The local Python service starts when the local gateway is selected.
+
+To run only web locally against the existing EC2 voice service, set `JUDE_VOICE_REMOTE=true`, `ORIGIN=http://localhost:5173`, and `VOICE_ORIGIN=https://jude-voice.15.232.90.76.sslip.io` in the root `.env`, then run `pnpm dev --host localhost --port 5173 --strictPort`. Use the same PostgreSQL database as voice so sessions and case permissions are shared; use a local absolute RDS CA path. These settings access production records. The development proxy validates the local origin before forwarding HTTP and WebSocket requests with the hosted origin. Python and the diarization model remain on EC2. Keep this development server bound to loopback.
 
 ```sh
 pnpm --filter @jude/web check
@@ -38,7 +40,9 @@ pnpm design:check
 
 ## Services
 
-The server calls OpenAI directly. GPT-6.1 Terra generates findings and Assistant answers. With PostgreSQL and `OPENAI_API_KEY`, a background worker embeds private case evidence with `text-embedding-3-small`. Case search, the Assistant, and hearing comparisons combine lexical matches with cosine similarity. Set `JUDE_SEMANTIC_SEARCH=false` to disable embedding requests. Guest examples and SQLite use local text search. Originals are served privately from local files or AWS S3 using `JUDE_S3_BUCKET`, `JUDE_S3_KMS_KEY` and `AWS_REGION`.
+The server calls OpenAI directly. GPT-6.1 Terra generates findings and Assistant answers. With PostgreSQL and `OPENAI_API_KEY`, a background worker embeds private case evidence with `text-embedding-3-small`. Case search, the Assistant, and hearing comparisons combine lexical matches with cosine similarity. Set `JUDE_SEMANTIC_SEARCH=false` to disable embedding requests. Guest examples use local text search. The SQLite Assistant can cache embeddings on demand for private cases; PostgreSQL continues to use its background index. Originals are served privately from local files or AWS S3 using `JUDE_S3_BUCKET`, `JUDE_S3_KMS_KEY` and `AWS_REGION`.
+
+For assistant development, set `OPENAI_API_KEY`, optionally `OPENAI_PROJECT_ID`, and `OPENAI_ASSISTANT_MODEL` (or the shared `OPENAI_MODEL`). The example environment includes `OPENAI_EMBEDDING_MODEL=text-embedding-3-small` for multilingual retrieval and a 6,000-token assistant output budget. Existing `.env` files need no new values unless overriding these defaults. Embeddings use the same case database; migrations apply on startup. See [assistant retrieval and request details](../../packages/core/README.md#assistant-retrieval-and-requests).
 
 The Assistant’s Pasal.id control includes legal references with a question. The synthetic case searches its labelled sample records. For private workspaces, set `JUDE_PASAL_TOKEN` on the web server. The Discovery API returns regulation metadata and links to read the source on Pasal.id. [Pasal.id Discovery API](https://pasal.id/en/api)
 

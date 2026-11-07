@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLockup from '$lib/BrandLockup.svelte';
   import { onMount } from 'svelte';
   import type { PageProps } from './$types';
   import { Plus } from '@lucide/svelte';
@@ -88,7 +89,7 @@
       inert={!navigationShown}
       aria-label={id ? 'Navigasi harga' : 'Pricing navigation'}
     >
-      <a class="word" href="/">jude.</a>
+      <a class="word" href="/" aria-label={id ? 'Beranda Jude' : 'Jude home'}><BrandLockup/></a>
       <div>
         <a href="#plans">{id ? 'Paket' : 'Plans'}</a><a href="#pr-compare"
           >{id ? 'Perbandingan' : 'Comparison'}</a

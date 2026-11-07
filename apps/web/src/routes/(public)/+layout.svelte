@@ -4,6 +4,7 @@
   import '$lib/public/public.css';
   import PublicNav from '$lib/public/PublicNav.svelte';
   import PublicFooter from '$lib/public/PublicFooter.svelte';
+  import DemoEntry from '$lib/public/DemoEntry.svelte';
   import type { LayoutProps } from './$types';
 
   let { data, children }: LayoutProps = $props();
@@ -30,7 +31,8 @@
 
 <div class="public-world" style:--z={cover ? scale : 1} style:zoom={cover ? scale : 1}>
   <a class="pub-skip" href="#public-main">{data.lang === 'id' ? 'Lewati ke isi' : 'Skip to content'}</a>
-  <PublicNav lang={data.lang} signedIn={Boolean(data.session?.user)}/>
+  <PublicNav lang={data.lang} signedIn={Boolean(data.session && !data.session.user.guest)}/>
   <main id="public-main" tabindex="-1">{@render children()}</main>
   <PublicFooter lang={data.lang} />
+  <DemoEntry lang={data.lang} privateAccount={!!data.session && !data.session.user.guest}/>
 </div>

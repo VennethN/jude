@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
 	import '$lib/public/public.css';
 	import CyclePicker from '$lib/public/CyclePicker.svelte';
 	import { enhance } from '$app/forms';
@@ -57,15 +58,17 @@
 <div class="billing-page" data-theme={theme}>
   <a class="pub-skip" href="#billing-main">{isId ? 'Lewati ke isi' : 'Skip to content'}</a>
   <header class="bar-top">
-    <Wordmark home="/cases"/>
+    <Wordmark home="/cases" monochrome={theme === 'night'}/>
     <a class="back" href={returnTo}><ArrowLeft size={16}/>{isId ? 'Kembali' : 'Back'}</a>
     <span class="billing-tag">{simulated ? (isId ? 'Tagihan simulasi' : 'Simulated billing') : (isId ? 'Tagihan organisasi' : 'Organisation billing')}</span>
   </header>
   <main class="billing" id="billing-main" tabindex="-1">
     <header class="page-head">
-      <h1>{isId ? 'Paket & tagihan' : 'Plans & billing'}</h1>
+      <PageHeading art="scales">
+        <h1>{isId ? 'Paket & tagihan' : 'Plans & billing'}</h1>
       <p>{isId ? 'Paket akun Anda, kuota bulan ini, dan paket yang tersedia.' : 'Your account plan, this month’s usage and the available plans.'}
         {simulated ? (isId ? 'Tagihan simulasi dengan harga contoh.' : 'This example workspace uses simulated billing.') : (isId ? 'Harga contoh dalam rupiah.' : 'Example prices in Indonesian rupiah.')}</p>
+      </PageHeading>
     </header>
     {#if form?.kind === 'plan'}<p class="feedback" class:error={!form.ok} role="status">
       {form.ok ? (isId ? 'Paket organisasi telah diperbarui.' : 'The organisation’s plan has been updated.') : (errors[form.error as keyof typeof errors] ?? errors.default)[data.lang]}

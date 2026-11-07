@@ -2319,6 +2319,25 @@
 .lp .button { border-color:transparent; }
 .lp .button.outline { border-color:color-mix(in srgb,var(--lp-cream) 70%,transparent); }
 .lp .actions { align-items:stretch; }
+.lp .actions .button { font: 600 1rem/1.35 var(--pub-body); }
+.lp .account-entry { min-inline-size: 10rem; justify-content: space-between; }
+.lp .story-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding-inline: 10px;
+  color: var(--lp-cream);
+  font: 500 .9375rem/1.4 var(--pub-body);
+  text-underline-offset: .28em;
+}
+.lp .story-link:hover { text-decoration: underline; }
+@media (max-width: 760px) {
+  .lp .account-entry { justify-content: center; }
+  .lp .opening .actions { gap: 10px; }
+  .lp .story-link { align-self: center; }
+}
 .lp .sample { font-family:var(--pub-body); }
 .lp .t-text { text-wrap:pretty; }
 @media(max-width:760px) { .lp .frame { padding-top:84px; } }

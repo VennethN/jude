@@ -1,5 +1,7 @@
-import { createHash } from 'node:crypto';
-import type { Citation, ContextRef, LegalRef, Workspace } from '../../domain';
+import { createHash, randomUUID } from 'node:crypto';
+import type { ChatMessage, Citation, ContextRef, Lang, LegalRef, LegalSearchStatus, Workspace } from '../../domain';
+import { caseSources, contextKeys, type Source } from './assistant';
+import { constitutionalTopic, isLawQuestion, lawCategory, publicLawTerms as searchTerms, type PublicLawSearch as Search } from './legal-query';
 import { pasalSourceUrl } from '../../legal';
 import { transaction } from '../db';
 import { legal as samples } from '../seed';
@@ -26,56 +28,21 @@ interface Work {
   number: string;
   year: string;
   status: string;
+  url?: string;
 }
 interface Hit {
   work: Work;
   article: string;
   url?: string;
 }
-interface Search {
-  q: string;
-  article: string;
-  numbered?: { type: string; number: string; year: string };
-  code?: string;
-}
-
 export function legalDiscoveryMode(
-  w: Pick<Workspace, 'caseRecord'>,
+  w: { caseRecord: Pick<Workspace['caseRecord'], 'label'> },
 ): NonNullable<Workspace['legalDiscovery']> {
   if (w.caseRecord.label === 'synthetic') return 'sample';
   const key = token();
   if (!key || (interrupted?.fingerprint === digest(key) && interrupted.until > Date.now()))
     return 'unavailable';
   return 'available';
-}
-
-const vocabulary: [RegExp, string][] = [
-  [/\b(?:penggelapan|embezzlement)\b/i, 'penggelapan'],
-  [/\b(?:alat bukti|admissibility|evidence law)\b/i, 'alat bukti'],
-  [/\b(?:keterangan saksi|witness testimony|testimony of witnesses)\b/i, 'keterangan saksi'],
-  [/\b(?:perekaman sidang|rekaman sidang|courtroom recording)\b/i, 'perekaman sidang'],
-  [/\b(?:ketenagakerjaan|employment law)\b/i, 'ketenagakerjaan'],
-];
-
-/** Only reconstructed public identifiers and fixed legal vocabulary may leave the case boundary. */
-function searchTerms(input: string, explicitOnly = false): Search | undefined {
-  const article = input.match(/\b(?:pasal|article)\s+(\d{1,4}[a-z]?)\b/i)?.[1]?.toUpperCase() ?? '';
-  const numbered = input.match(
-    /\b(UU|PP|PERPPU|PERPRES|PERMA|PERDA|undang[- ]undang)\s*(?:RI\s*)?(?:(?:no\.?|nomor)\s*)?(\d{1,4})\s*(?:tahun\s*|\/\s*|of\s+)((?:19|20)\d{2})\b/i,
-  );
-  const code = input.match(/\b(?:KUHAP|KUHP|KUHPerdata|KUHD)\b/i)?.[0]?.toUpperCase();
-  const law = numbered
-    ? {
-        type: numbered[1].toLowerCase().startsWith('undang') ? 'UU' : numbered[1].toUpperCase(),
-        number: numbered[2],
-        year: numbered[3],
-      }
-    : undefined;
-  const regulation = law ? `${law.type} Nomor ${law.number} Tahun ${law.year}` : code;
-  const name =
-    regulation ?? (article || explicitOnly ? '' : vocabulary.find(([pattern]) => pattern.test(input))?.[1]);
-  const q = [article ? 'Pasal ' + article : '', name].filter(Boolean).join(' ');
-  return q ? { q, article, numbered: law, code } : undefined;
 }
 
 function validUri(value: unknown): value is string {
@@ -100,6 +67,7 @@ function workOf(raw: unknown): Work | undefined {
     year: /^\d{4}$/.test(year) ? year : '',
     number: /^[\w.-]{1,25}$/.test(number) ? number : '',
     status: row.status_uncertain === true ? '' : field(row.status, 40),
+    url: source(row.url) ?? source(row.href),
   };
 }
 function source(raw: unknown) {
@@ -111,10 +79,17 @@ function source(raw: unknown) {
     return;
   }
 }
+function articleNumber(value: unknown) {
+  const token = (typeof value === 'number' ? String(value) : field(value, 20)).replace(/^Pasal\s+/i, '').toUpperCase();
+  return /^\d{1,4}[A-Z]?$/.test(token) ? token : '';
+}
+
 function hitOf(raw: unknown, query: Search): Hit | undefined {
   const item = record(raw),
     work = workOf(item.work);
   if (!work) return;
+  if (item.status_uncertain === true) work.status = '';
+  if (query.type && work.type.toUpperCase() !== query.type) return;
   const law = query.numbered;
   if (law && (work.type.toUpperCase() !== law.type || work.number !== law.number || work.year !== law.year))
     return;
@@ -128,27 +103,30 @@ function hitOf(raw: unknown, query: Search): Hit | undefined {
     if (!names[query.code]?.test(work.title)) return;
   }
   const passage = record(item.best_passage);
-  const proven = passage.version === 1 ? field(passage.pasal_number, 5).toUpperCase() : '';
-  const numbers = Array.isArray(item.matching_pasals) ? item.matching_pasals.map(String) : [];
-  if (
-    query.article &&
-    proven !== query.article &&
-    !numbers.some((value) => value.toUpperCase() === query.article)
-  )
-    return;
-  const article =
-    query.article || (!query.numbered && !query.code && /^\d{1,4}[A-Z]?$/.test(proven) ? proven : '');
-  const url =
-    (proven && proven === article ? source(passage.href) : undefined) ??
-    source(passage.work_href) ??
-    source(item.work_href) ??
-    source(record(item.work).href);
+  const proven = articleNumber(passage.pasal ?? (passage.version === 1 ? passage.pasal_number : undefined));
+  const matches = Array.isArray(item.matching_pasals) ? item.matching_pasals : [];
+  const match = matches.find(value => {
+    const number = typeof value === 'object' ? record(value).pasal ?? record(value).pasal_number : value;
+    return articleNumber(number) === query.article;
+  });
+  if (query.article && proven !== query.article && match === undefined) return;
+  const article = query.article ||
+    (!query.numbered && !query.code && (query.type !== 'UUD' || query.topic) && /^\d{1,4}[A-Z]?$/.test(proven) ? proven : '');
+  const workUrl = source(item.url) ?? source(record(item.work).url) ?? source(passage.work_href) ??
+    source(item.work_href) ?? source(record(item.work).href);
+  const articleUrl = (article && proven === article ? source(passage.url ?? passage.href) : undefined) ??
+    (article && match !== undefined ? source(record(match).url ?? record(match).href) : undefined);
+  const locator = articleUrl && new URL(articleUrl);
+  const articlePath = locator && locator.pathname.replace(/\/pasal-[^/]+\/?$/, '').replace(/\/$/, '');
+  const matchesArticle = locator && new RegExp('(?:/pasal-|#(?:pasal|node)-)' + article + '/?$', 'i').test(locator.href);
+  const sameWork = !workUrl || articlePath === new URL(workUrl).pathname.replace(/\/$/, '');
+  const url = matchesArticle && sameWork ? articleUrl : workUrl;
   return { work, article, url };
 }
 function metadataRef(hit: Hit): LegalRef {
   const { work, article } = hit;
   const regulation =
-    work.number && work.year
+    work.type !== 'UUD' && work.number && work.year
       ? `${work.type} No. ${work.number} Tahun ${work.year} · ${work.title}`
       : work.title;
   const label = article ? 'Pasal ' + article : '';
@@ -170,11 +148,11 @@ function metadataRef(hit: Hit): LegalRef {
   };
 }
 
-async function readJson(path: string, key: string): Promise<unknown> {
+async function readJson(path: string, key: string, signal?: AbortSignal): Promise<unknown> {
   const response = await fetch(origin + '/api/v1/' + path, {
     headers: { accept: 'application/json', authorization: 'Bearer ' + key },
     redirect: 'error',
-    signal: AbortSignal.timeout(2500),
+    signal: AbortSignal.any([AbortSignal.timeout(8000), ...(signal ? [signal] : [])]),
   });
   if (!response.ok || !response.body || Number(response.headers.get('content-length')) > maxBytes) {
     await response.body?.cancel();
@@ -226,19 +204,29 @@ async function cached<T>(cacheKey: string, load: () => Promise<T>): Promise<T> {
 }
 
 /** The detail response can contain an article tree. Only the public work identity is retained. */
-export async function getPasalWork(uri: string, key: string) {
+export async function getPasalWork(uri: string, key: string, signal?: AbortSignal) {
   if (!validUri(uri)) return undefined;
-  const work = await cached('work:' + digest(uri), async () => {
-    const result = record(await readJson('laws' + uri, key));
+  const work = await cached('work:' + digest('v2:' + uri), async () => {
+    const result = record(await readJson('laws' + uri, key, signal));
     const found = workOf(result.work);
     return found?.uri === uri ? found : null;
   });
   return work ?? undefined;
 }
 
-async function searchPasal(query: Search, key: string): Promise<LegalRef[]> {
-  const hits = await cached('search:' + digest(query.q), async () => {
-    const result = record(await readJson('search?' + new URLSearchParams({ q: query.q, limit: '3' }), key));
+async function searchPasal(query: Search, key: string, signal?: AbortSignal): Promise<LegalRef[]> {
+  if (query.type === 'UUD' && !query.article && !query.topic) {
+    // This public FRBR identifier is returned by Pasal.id for the base Constitution.
+    // An exact work lookup avoids ranking amendments ahead of it.
+    const charter = await getPasalWork('/akn/id/act/uud/1945/original', key, signal);
+    if (charter?.type === 'UUD' && charter.year === '1945' && charter.url) {
+      return [metadataRef({ work: charter, article: '', url: charter.url })];
+    }
+  }
+  const parameters = new URLSearchParams({ q: query.q, limit: '3' });
+  if (query.type) parameters.set('type', query.type);
+  const hits = await cached('search:v2:' + digest(parameters.toString()), async () => {
+    const result = record(await readJson('search?' + parameters, key, signal));
     if (!Array.isArray(result.results)) throw new Error('invalid_pasal_results');
     const seen = new Set<string>();
     return result.results.slice(0, 3).flatMap((item) => {
@@ -248,13 +236,19 @@ async function searchPasal(query: Search, key: string): Promise<LegalRef[]> {
       return [hit];
     });
   });
+  // A work-level request for the Constitution should open the instrument before an amendment.
+  if (query.type === 'UUD' && !query.article && !query.topic) {
+    const original = hits.find(hit => hit.work.uri.endsWith('/original'));
+    if (original) return [metadataRef(original)];
+  }
   const primary = hits[0];
   if (!primary) return [];
   // Search already supplies a usable identity. Detail can verify the status without retaining its content.
   let verified: Work | undefined;
   try {
-    verified = await getPasalWork(primary.work.uri, key);
+    verified = await getPasalWork(primary.work.uri, key, signal);
   } catch {
+    signal?.throwIfAborted();
     /* Keep the search result's own metadata. */
   }
   return hits.map((hit, index) => metadataRef(index === 0 && verified ? { ...hit, work: verified } : hit));
@@ -284,14 +278,29 @@ function contextLaws(w: Workspace, refs: (Citation | ContextRef)[]) {
   return { ids, text };
 }
 
-async function privateLookup(w: Workspace, query?: Search): Promise<LegalRef[]> {
+type Outcome = 'found' | 'no-results' | 'unavailable' | 'disabled' | 'needs-topic' | 'sample-empty' | 'charter-only';
+type Lookup = { refs: LegalRef[]; outcome: Outcome };
+interface DiscoveryOptions { signal?: AbortSignal; status?: (status: LegalSearchStatus) => void }
+async function privateLookup(w: Workspace, query?: Search, options: DiscoveryOptions = {}): Promise<Lookup> {
   const key = token();
-  if (!key || !query || legalDiscoveryMode(w) !== 'available') return [];
+  options.signal?.throwIfAborted();
+  if (!key || legalDiscoveryMode(w) !== 'available') {
+    options.status?.(key ? 'unavailable' : 'not_configured');
+    return { refs: [], outcome: 'unavailable' };
+  }
+  if (!query) {
+    options.status?.('no_query');
+    return { refs: [], outcome: 'needs-topic' };
+  }
   try {
-    return await searchPasal(query, key);
+    const refs = await searchPasal(query, key, options.signal);
+    options.status?.(refs.length ? 'found' : 'no_matches');
+    return { refs, outcome: refs.length ? 'found' : 'no-results' };
   } catch {
+    options.signal?.throwIfAborted();
     interrupted = { fingerprint: digest(key), until: Date.now() + 60000 };
-    return [];
+    options.status?.('unavailable');
+    return { refs: [], outcome: 'unavailable' };
   }
 }
 
@@ -299,18 +308,20 @@ async function privateLookup(w: Workspace, query?: Search): Promise<LegalRef[]> 
 export function discoverCitedLegal(w: Workspace, quotations: string[]): Promise<LegalRef[]> {
   const query = quotations
     .map((quote) => searchTerms(quote, true))
-    .find((term) => term?.numbered || term?.code);
-  return privateLookup(w, query);
+    .find((term) => term?.numbered || term?.code || term?.type === 'UUD');
+  return privateLookup(w, query).then(result => result.refs);
 }
 
 export async function discoverLegal(
   w: Workspace,
   text: string,
   refs: (Citation | ContextRef)[],
+  options: DiscoveryOptions = {},
 ): Promise<LegalRef[]> {
   const related = contextLaws(w, refs),
     query = searchTerms(text);
   if (w.caseRecord.label === 'synthetic') {
+    options.status?.('sample');
     const words = ' ' + (text.toLowerCase().match(/[\p{L}\d]+/gu) ?? []).join(' ') + ' ';
     const rank = samples.map((sample) => {
       const seen = w.legal.find(
@@ -318,6 +329,7 @@ export async function discoverLegal(
       );
       let score = 0;
       if (
+        (query?.type !== 'UUD' || sample.type.toUpperCase() === 'UUD') &&
         (!query?.article || sample.article === 'Pasal ' + query.article) &&
         (!query?.code || sample.regulation.toUpperCase().includes(query.code))
       ) {
@@ -336,7 +348,7 @@ export async function discoverLegal(
   }
   const saved = w.legal.filter((row) => row.provider === 'pasal' && related.ids.has(row.id));
   const safeQuery = query ?? related.text.map((line) => searchTerms(line, true)).find(Boolean);
-  return [...saved, ...(await privateLookup(w, safeQuery))].slice(0, 6);
+  return [...saved, ...(await privateLookup(w, safeQuery, options)).refs].slice(0, 6);
 }
 
 export function retainLegal(w: Workspace, discoveries: LegalRef[]) {
@@ -358,4 +370,115 @@ export function retainLegal(w: Workspace, discoveries: LegalRef[]) {
     if (ids.size === 3) break;
   }
   return [...ids];
+}
+
+function questionContext(w: Workspace, refs: ContextRef[], lang: Lang, direct?: Search, category?: string) {
+  const selected = refs.filter(ref => ref.kind !== 'case');
+  // An attached line or passage is an exact scope. A selected hearing, document or board includes its own records.
+  const keys = contextKeys(w, selected.filter(ref => ref.kind !== 'statement' && ref.kind !== 'passage'));
+  for (const ref of selected) if (ref.kind === 'statement' || ref.kind === 'passage') keys.add(ref.kind + ':' + ref.id);
+  const sources = caseSources(w, lang).filter(source => !selected.length || keys.has(source.kind + ':' + source.id));
+  const candidates = sources.flatMap(source => {
+    const term = searchTerms(source.text) ?? searchTerms(source.group);
+    return term ? [{ term, source }] : [];
+  });
+  const matchesCategory = (term: Search) => category === 'UUD' ? term.type === 'UUD' || constitutionalTopic(term) :
+    category !== 'UU' || (term.type !== 'UUD' && (!term.numbered || term.numbered.type === 'UU'));
+  const compatible = candidates.filter(item => matchesCategory(item.term));
+  // Prefer an explicit identifier in the record; a stated question always wins over inference.
+  const same = direct && compatible.find(({ term }) => term.q === direct.q);
+  const counts = new Map<string, number>();
+  for (const { term } of compatible) counts.set(term.q, (counts.get(term.q) ?? 0) + 1);
+  const rank = ({ term }: typeof compatible[number]) =>
+    (term.numbered || term.code || term.type === 'UUD' && term.article ? sources.length + 1 : 0) + counts.get(term.q)!;
+  const contextual = compatible.sort((a, b) => rank(b) - rank(a))[0];
+  const generalCharter = direct?.type === 'UUD' && !direct.article && !direct.topic;
+  let query = direct;
+  if (generalCharter && contextual && (contextual.term.article || constitutionalTopic(contextual.term)))
+    query = { ...contextual.term, type: 'UUD' };
+  if (!query) {
+    query = contextual?.term;
+    if (!query && !selected.length) {
+      const description = searchTerms([w.caseRecord.title, w.caseRecord.summary[lang]].join(' '));
+      if (description && matchesCategory(description)) query = description;
+    }
+    if (query && category === 'UU' && !query.numbered) query = { ...query, type: 'UU' };
+  }
+  const source = same?.source ?? (!direct || generalCharter ? contextual?.source : undefined) ?? (selected.length ? sources[0] : undefined);
+  return { query, source };
+}
+
+function lawReplyText(lookup: Lookup, lang: Lang, query: Search | undefined, category: string | undefined, source?: Source) {
+  const en = lang === 'en';
+  const name = lookup.refs[0];
+  let text: string;
+  switch (lookup.outcome) {
+    case 'found': {
+      const label = name.regulation + (name.article ? ', ' + name.article : '');
+      const provider = name.provider === 'sample' ? (en ? 'The synthetic case index' : 'Indeks perkara sintetis') : 'Pasal.id';
+      text = en ? provider + ' lists ' + label + '.' : provider + ' mencantumkan ' + label + '.';
+      if (category === 'UUD' && !name.article) {
+        text += en
+          ? ' This identifies the Constitution. Which right, government action or court procedure should I look for in a particular article?'
+          : ' Ini rujukan konstitusinya. Hak, tindakan pemerintah, atau prosedur persidangan apa yang ingin Anda telusuri ke pasal tertentu?';
+      } else {
+        text += en
+          ? ' Open the linked provision to compare its wording and effective date with the facts before treating it as applicable.'
+          : ' Buka rujukannya untuk membandingkan bunyi ketentuan dan tanggal berlakunya dengan fakta perkara sebelum menentukan penerapannya.';
+      }
+      break;
+    }
+    case 'charter-only':
+      text = en ? 'Pasal.id did not verify an article for “' + query!.q + '”. Its work-level reference is ' + name.regulation + '. Which specific right or state action should we investigate?'
+        : 'Pasal.id belum memverifikasi pasal untuk “' + query!.q + '”. Rujukan tingkat peraturannya adalah ' + name.regulation + '. Hak atau tindakan negara apa yang ingin diperiksa?';
+      break;
+    case 'no-results':
+      text = en ? 'Pasal.id returned no verified match for “' + query!.q + '”. Try the regulation number, year or a more specific public legal topic.'
+        : 'Pasal.id tidak menemukan rujukan terverifikasi untuk “' + query!.q + '”. Coba nomor peraturan, tahun, atau topik hukum yang lebih spesifik.';
+      break;
+    case 'unavailable':
+      text = en ? 'Pasal.id is unavailable. I could not verify a legal reference for this question.'
+        : 'Pasal.id sedang tidak tersedia. Rujukan hukum untuk pertanyaan ini belum dapat diverifikasi.';
+      break;
+    case 'disabled':
+      text = en ? 'Legal discovery is switched off for this question. Enable Pasal.id to look up a regulation.'
+        : 'Penelusuran hukum dinonaktifkan untuk pertanyaan ini. Aktifkan Pasal.id untuk mencari peraturan.';
+      break;
+    case 'sample-empty':
+      text = en ? 'The synthetic case has no matching entry in its sample legal index. A private case can search Pasal.id.'
+        : 'Indeks contoh di perkara sintetis ini tidak memuat rujukan yang cocok. Perkara privat dapat menelusuri Pasal.id.';
+      break;
+    case 'needs-topic':
+      text = en ? 'Which legal issue should I look up? Name the subject or attach the document or testimony that identifies it. A regulation number and year also work.'
+        : 'Isu hukum apa yang ingin ditelusuri? Sebutkan topiknya atau lampirkan dokumen maupun keterangan yang memuatnya. Nomor dan tahun peraturan juga bisa digunakan.';
+  }
+  if (source) {
+    const quote = source.text.slice(0, 300);
+    text += '\n\n' + (en ? 'From the case record' : 'Dari berkas perkara') + ' [1]\n“' + quote + '”' + (quote.length < source.text.length ? '…' : '');
+  }
+  return text;
+}
+
+/** Answer explicit legal questions even when the question's words do not occur in case evidence. */
+export async function answerLawQuestion(w: Workspace, text: string, refs: ContextRef[], lang: Lang, enabled: boolean, options: DiscoveryOptions = {}) {
+  if (!isLawQuestion(text)) return;
+  const category = lawCategory(text), { query, source } = questionContext(w, refs, lang, searchTerms(text), category);
+  let lookup: Lookup;
+  if (!enabled) lookup = { outcome: 'disabled', refs: [] };
+  else if (w.caseRecord.label === 'synthetic') {
+    const sample = await discoverLegal(w, query?.q ?? text, refs, options);
+    lookup = { outcome: sample.length ? 'found' : 'sample-empty', refs: sample };
+  } else {
+    lookup = await privateLookup(w, query, options);
+    if (lookup.outcome === 'no-results' && query?.type === 'UUD' && (query.topic || query.article)) {
+      const base = await privateLookup(w, { q: 'UUD 1945', article: '', type: 'UUD' }, options);
+      if (base.refs.length) lookup = { outcome: 'charter-only', refs: base.refs };
+    }
+  }
+  const answer: ChatMessage = {
+    id: randomUUID(), role: 'assistant', mode: 'sources-only',
+    text: { id: lawReplyText(lookup, 'id', query, category, source), en: lawReplyText(lookup, 'en', query, category, source) },
+    citations: source ? [{ kind: source.kind, id: source.id }] : [],
+  };
+  return { answer, discoveries: lookup.refs };
 }

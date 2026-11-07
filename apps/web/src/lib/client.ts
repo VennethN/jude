@@ -1,5 +1,6 @@
 import { requestErrorText } from './request-errors';
 import { invalidateAll } from '$app/navigation';
+import { workspaceRequest } from '$lib/workspace/tab-cache';
 
 export class ApiError extends Error {
   constructor(
@@ -16,6 +17,7 @@ export async function api<T = unknown>(
   method = 'GET',
   body?: unknown,
   headers?: HeadersInit,
+  signal?: AbortSignal,
 ): Promise<T> {
   const form = typeof FormData !== 'undefined' && body instanceof FormData;
   const requestHeaders = new Headers(headers);
@@ -23,8 +25,10 @@ export async function api<T = unknown>(
   const response = await fetch(path, {
     method,
     headers: requestHeaders,
+    signal,
     body: body === undefined ? undefined : form ? body : JSON.stringify(body),
   });
+  workspaceRequest(method, path, response.status);
   const payload = response.status === 204 ? null : await response.json();
   if (!response.ok)
     throw new ApiError(

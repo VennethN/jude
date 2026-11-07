@@ -1,15 +1,18 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { onMount } from 'svelte';
   import { invalidate, replaceState } from '$app/navigation';
   import { Compass } from '@lucide/svelte';
   import { api } from '$lib/client';
-  let { en, compact = false }: { en: boolean; compact?: boolean } = $props();
+  let { en, compact = false, demo = false, register = false }: { en: boolean; compact?: boolean; demo?:boolean; register?:boolean } = $props();
   const title = $derived(en ? 'See how Jude works' : 'Lihat cara kerja Jude');
   const description = $derived(
-    en
+    register ? (en ? 'Find your case files and see how to start a case.' : 'Temukan berkas Anda dan lihat cara membuka perkara baru.') : !demo ? (en ? 'Explore this case and the controls for hearings, exhibits, and findings.' : 'Kenali perkara ini serta kontrol sidang, dokumen, dan temuannya.') : en
       ? 'Follow testimony from the synthetic hearing to the exact passage in the case file. Allow about a minute.'
       : 'Ikuti satu keterangan dari sidang contoh sampai ke kalimat persis di berkas perkara sintetis. Luangkan sekitar satu menit.',
   );
+  let ready = $state(false);
+  onMount(() => { ready = true; });
   let savingTour = $state(false),
     tourError = $state('');
   async function tour(start: boolean) {
@@ -47,10 +50,10 @@
 
 {#snippet actions()}
   <div class="tour-actions">
-    <button class="button primary" disabled={savingTour} onclick={() => tour(true)}
+    <button class="button primary" disabled={!ready || savingTour} onclick={() => tour(true)}
       >{en ? 'Start the tour' : 'Mulai tur'}</button
     >
-    <button class="button" disabled={savingTour} onclick={() => tour(false)}
+    <button class="button" disabled={!ready || savingTour} onclick={() => tour(false)}
       >{en ? 'Not now' : 'Tidak sekarang'}</button
     >
   </div>
