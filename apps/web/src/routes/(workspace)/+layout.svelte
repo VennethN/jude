@@ -42,6 +42,7 @@
   import Tours from '$lib/workspace/Tours.svelte';
   import TourInvite from '$lib/workspace/TourInvite.svelte';
   import Assistant from '$lib/evidence/Assistant.svelte';
+  import WorkspaceNavigation from '$lib/workspace/WorkspaceNavigation.svelte';
   let { data, children } = $props();
   const w = $derived(page.data.workspace as Workspace | undefined),
     en = $derived(data.lang === 'en'),
@@ -618,7 +619,7 @@
     {/if}
     <main id="case-main" tabindex="-1" class="content">
       {#if !account.prefs.tourSeen && overlay !== 'tour' && (account.demo || !w || !section)}<TourInvite {en} demo={!!account.demo} register={!w} compact={section === 'assistant' && !!page.params.threadId}/>{/if}
-      {@render children()}
+      <WorkspaceNavigation {en}>{@render children()}</WorkspaceNavigation>
     </main>
   </div>
   {#if w}
