@@ -107,7 +107,6 @@ export function caseHits(w: Workspace, query: string, semantic: SourceRef[] = []
     });
 }
 async function eventStream(event: CoreRequest, org: string, caseId: string) {
-  const initial = await readWorkspace(org, caseId);
   const tokenHash = createHash('sha256')
     .update(event.cookies.get('jude_session') ?? '')
     .digest('hex');
@@ -122,24 +121,24 @@ async function eventStream(event: CoreRequest, org: string, caseId: string) {
   const body = new ReadableStream<Uint8Array>({
     start(controller) {
       const send = (text: string) => controller.enqueue(new TextEncoder().encode(text));
-      const ping = async (first?: number) => {
+      const ping = async () => {
         if (closed) return;
         try {
-          const v =
-            first ??
-            (await transaction(async (db) => {
-              const [row] = await db.query<{ version: number }>(
-                'SELECT c.version FROM cases c JOIN workspace_case_members cm ON cm.case_id=c.id JOIN sessions s ON s.user_id=cm.user_id WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3 AND c.deleted_at IS NULL AND s.token_hash=$4 AND s.expires_at>$5',
-                [caseId, org, event.locals.session!.user.id, tokenHash, Date.now()],
-              );
-              return row?.version;
-            }));
+          const [row] = await transaction((db) => db.query<{ version: number }>(
+            'SELECT c.version FROM cases c JOIN workspace_case_members cm ON cm.case_id=c.id ' +
+            'JOIN memberships m ON m.org_id=c.org_id AND m.user_id=cm.user_id ' +
+            'JOIN sessions s ON s.user_id=m.user_id AND s.org_id=m.org_id ' +
+            'WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3 AND c.deleted_at IS NULL AND s.token_hash=$4 AND s.expires_at>$5',
+            [caseId, org, event.locals.session!.user.id, tokenHash, Date.now()],
+          ));
           if (closed) return;
-          if (!v) {
+          if (!row) {
+            send('event: case.access-lost\ndata: {}\n\n');
             abort();
             controller.close();
             return;
           }
+          const v = row.version;
           if (version !== v) {
             version = v;
             send(
@@ -166,7 +165,7 @@ async function eventStream(event: CoreRequest, org: string, caseId: string) {
         },
         { once: true },
       );
-      void ping(initial.version);
+      void ping();
     },
     cancel() {
       abort();

@@ -40,7 +40,7 @@ interface Search {
 }
 
 export function legalDiscoveryMode(
-  w: Pick<Workspace, 'caseRecord'>,
+  w: { caseRecord: Pick<Workspace['caseRecord'], 'label'> },
 ): NonNullable<Workspace['legalDiscovery']> {
   if (w.caseRecord.label === 'synthetic') return 'sample';
   const key = token();

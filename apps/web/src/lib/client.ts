@@ -1,4 +1,5 @@
 import { invalidateAll } from '$app/navigation';
+import { workspaceRequest } from '$lib/workspace/tab-cache';
 
 export class ApiError extends Error {
   constructor(
@@ -24,6 +25,7 @@ export async function api<T = unknown>(
     headers: requestHeaders,
     body: body === undefined ? undefined : form ? body : JSON.stringify(body),
   });
+  workspaceRequest(method, path, response.status);
   const payload = response.status === 204 ? null : await response.json();
   if (!response.ok)
     throw new ApiError(

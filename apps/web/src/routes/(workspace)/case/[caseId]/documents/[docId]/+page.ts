@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
+import type { PageLoad } from './$types';
 
-export const load: PageServerLoad = async ({ parent, params }) => {
+export const load: PageLoad = async ({ parent, params }) => {
   const { workspace } = await parent();
   const documentRecord = workspace.documents.find((d) => d.id === params.docId);
   if (!documentRecord) error(404, 'Document not found');

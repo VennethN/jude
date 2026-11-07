@@ -1,5 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { watchWorkspace, workspaceAccessLost } from '$lib/workspace/tab-cache';
+  import { workspaceScope } from '$lib/workspace/scope';
   import { afterNavigate, goto, invalidate, replaceState } from '$app/navigation';
   import { onMount, tick } from 'svelte';
   import {
@@ -143,6 +145,9 @@
     m.addEventListener('change', sync);
     return () => m.removeEventListener('change', sync);
   });
+  $effect(() => watchWorkspace(workspaceScope(data.account), () => {
+    void invalidate((key) => ['jude:session', 'jude:case', 'jude:case-library'].includes(key.href));
+  }));
   $effect(() => {
     const id = w?.caseRecord.id;
     if (!id) return;
@@ -157,6 +162,11 @@
     };
     stream.onmessage = refresh;
     stream.addEventListener('case.updated', refresh);
+    stream.addEventListener('case.access-lost', () => { stream.close(); void workspaceAccessLost(); });
+    stream.onerror = () => {
+      // An HTTP permission failure during reconnect never delivers an SSE message.
+      if (stream.readyState === EventSource.CLOSED) void invalidate('jude:case');
+    };
     return () => stream.close();
   });
   async function save(options: Preferences) {
@@ -345,6 +355,7 @@
 <svelte:window bind:innerWidth={viewportWidth}/>
 <div
   class="desk"
+  data-sveltekit-preload-data="tap"
   class:with-assistant={overlay === 'assistant' && dockAssistant}
   class:collapsed={prefs.railCollapsed}
   class:has-live={showLive}
