@@ -150,7 +150,7 @@ class VoiceRepositoryTest(unittest.TestCase):
             start=2,
             pcm=b"\x10\x00" * 24_000,
             keep=keep,
-            text=text or name,
+            text=name if text is None else text,
         )
 
     def test_tenants_roles_membership_archive_and_session_revocation(self):
@@ -267,6 +267,18 @@ class VoiceRepositoryTest(unittest.TestCase):
         lines = self.repo.statements(self.owner, "case", "hearing")
         self.assertNotEqual(lines[0]["speakerId"], statements[0]["speakerId"])
         self.assertEqual(lines[1]["speakerId"], statements[1]["speakerId"])
+
+    def test_reconnecting_microphone_identifies_speech_and_silent_commits(self):
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        for turn_id, text, sid in (("said", "Testimony.", "mic-hearing-said"), ("quiet", "", None)):
+            with self.subTest(turn=turn_id):
+                self.assertIsNone(self.repo.committed_turn(self.owner, "case", "hearing", turn_id))
+                received = self.turn(turn_id, lease, keep=False, text=text)
+                self.assertEqual(received, {"id": turn_id, "statementId": sid})
+                self.assertEqual(self.repo.committed_turn(self.owner, "case", "hearing", turn_id), received)
+                self.assertEqual(self.turn(turn_id, lease, text="a retry"), received)
+                self.expect_error(403, self.repo.committed_turn, self.viewer, "case", "hearing", turn_id)
+        self.assertEqual(len(self.repo.statements(self.owner, "case", "hearing")), 1)
 
     def test_replay_is_synthetic_case_scoped_and_retry_safe(self):
         with ThreadPoolExecutor(max_workers=2) as pool:

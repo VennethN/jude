@@ -230,6 +230,16 @@ def statement_id(hearing_id, turn_id):
     return value if len(value) <= 120 else "mic-" + hashlib.sha256(value.encode()).hexdigest()
 
 
+def _committed_turn(graph, hearing_id, turn_id):
+    row = graph.tx.one(
+        "SELECT s.id AS statement_id FROM voice_turns t "
+        "LEFT JOIN case_entities s ON s.case_id=t.case_id AND s.kind='statements' AND s.id=? "
+        "WHERE t.case_id=? AND t.hearing_id=? AND t.id=?",
+        (statement_id(hearing_id, turn_id), graph.id, hearing_id, turn_id),
+    )
+    return {"id": turn_id, "statementId": row["statement_id"]} if row is not None else None
+
+
 def _turns(tx, case_id, hearing_id):
     rows = tx.all(
         "SELECT id,start_seconds,bytes,object_key FROM voice_turns WHERE case_id=? AND hearing_id=? ORDER BY start_seconds,id",
@@ -477,15 +487,10 @@ class Repository:
                 (case_id, hearing_id, lease),
             )
 
-    def turn_exists(self, session, case_id, hearing_id, turn_id):
+    def committed_turn(self, session, case_id, hearing_id, turn_id):
         with self._case(session, case_id, "write") as graph:
             _live(session, graph, hearing_id)
-            return bool(
-                graph.tx.one(
-                    "SELECT id FROM voice_turns WHERE case_id=? AND hearing_id=? AND id=?",
-                    (case_id, hearing_id, turn_id),
-                )
-            )
+            return _committed_turn(graph, hearing_id, turn_id)
 
     def _require_lease(self, graph, hearing_id, lease):
         valid = graph.tx.one(
@@ -516,12 +521,9 @@ class Repository:
         with self._case(session, case_id, "write") as graph:
             _live(session, graph, hearing_id)
             self._require_lease(graph, hearing_id, lease)
-            prior = graph.tx.one(
-                "SELECT id FROM voice_turns WHERE case_id=? AND hearing_id=? AND id=?",
-                (case_id, hearing_id, turn_id),
-            )
-            if prior:
-                return {"id": turn_id, "statementId": sid if graph.get("statements", sid) else None}
+            prior = _committed_turn(graph, hearing_id, turn_id)
+            if prior is not None:
+                return prior
             _quota(graph.tx, session.org_id, duration, size, live=True)
         key = f"{session.org_id}/{case_id}/{hearing_id}/{uuid4()}.pcm" if keep else None
         if key:
@@ -531,12 +533,9 @@ class Repository:
             with self._case(session, case_id, "write") as graph:
                 hearing = _live(session, graph, hearing_id)
                 self._require_lease(graph, hearing_id, lease)
-                existing = graph.tx.one(
-                    "SELECT id FROM voice_turns WHERE case_id=? AND hearing_id=? AND id=?",
-                    (case_id, hearing_id, turn_id),
-                )
-                if existing:
-                    return {"id": turn_id, "statementId": sid if graph.get("statements", sid) else None}
+                existing = _committed_turn(graph, hearing_id, turn_id)
+                if existing is not None:
+                    return existing
                 period = _quota(graph.tx, session.org_id, duration, size, live=True)
                 graph.tx.execute(
                     "INSERT INTO voice_turns(case_id,hearing_id,id,start_seconds,bytes,object_key) VALUES(?,?,?,?,?,?)",

@@ -113,10 +113,13 @@ class VoiceTransportTest(unittest.TestCase):
 
         self.repo.acquire.side_effect = acquire
         self.repo.release.side_effect = lambda *_: active.release()
-        self.repo.turn_exists.side_effect = [False, True]
+        receipt = {"id": "turn-1", "statementId": "mic-h-turn-1"}
+        self.repo.committed_turn.side_effect = [None, receipt]
+        self.repo.store_turn.return_value = receipt
         recognizer = MagicMock()
 
         async def transcribe(pcm, partial):
+            await partial("hear")
             await partial("heard")
             return "heard"
 
@@ -138,8 +141,11 @@ class VoiceTransportTest(unittest.TestCase):
                 self.assertEqual(client.receive_json(), {"type": "ready"})
                 turn = {"id": "turn-1", "t": 1.25, "keep": False, "pcm": base64.b64encode(pcm).decode()}
                 client.send_json(turn)
-                self.assertEqual(client.receive_json()["text"], "heard")
-                self.assertEqual(client.receive_json(), {"type": "ack", "id": "turn-1"})
+                for words in ("hear", "heard"):
+                    self.assertEqual(
+                        client.receive_json(), {"type": "partial", "id": "mic-h-turn-1", "t": 1.25, "text": words}
+                    )
+                self.assertEqual(client.receive_json(), {"type": "ack", **receipt})
                 with self.assertRaises(WebSocketDisconnect) as refused, connect():
                     self.fail("A second microphone must not enter an active hearing")
                 self.assertEqual(refused.exception.code, 1008)
@@ -149,13 +155,35 @@ class VoiceTransportTest(unittest.TestCase):
             with connect() as replacement:
                 self.assertEqual(replacement.receive_json(), {"type": "ready"})
                 replacement.send_json(turn)
-                self.assertEqual(replacement.receive_json(), {"type": "ack", "id": "turn-1"})
+                self.assertEqual(replacement.receive_json(), {"type": "ack", **receipt})
             window.return_value.label.assert_called_once()
         recognizer.transcribe.assert_awaited_once()
         self.assertEqual(self.repo.store_turn.call_args.kwargs["speaker"], "anonymous-1")
         self.assertFalse(self.repo.store_turn.call_args.kwargs["keep"])
         self.assertEqual(self.repo.release.call_args_list, [call("c", "h", "first"), call("c", "h", "second")])
         self.assertFalse(active.locked())
+
+    def test_ack_for_a_turn_without_a_statement_does_not_create_a_caption(self):
+        receipt = {"id": "quiet", "statementId": None}
+        self.repo.committed_turn.side_effect = [None, receipt]
+        self.repo.store_turn.return_value = receipt
+        recognizer = MagicMock()
+        recognizer.transcribe = AsyncMock(return_value="")
+        context = MagicMock()
+        context.__aenter__.return_value = recognizer
+        with (
+            patch.object(transport, "Realtime", return_value=context),
+            patch.object(transport, "SpeakerWindow") as window,
+            self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client,
+        ):
+            self.assertEqual(client.receive_json(), {"type": "ready"})
+            turn = {"id": "quiet", "t": 2, "keep": True, "pcm": base64.b64encode(bytes(96)).decode()}
+            for _ in range(2):
+                client.send_json(turn)
+                self.assertEqual(client.receive_json(), {"type": "ack", "id": "quiet"})
+        recognizer.transcribe.assert_awaited_once()
+        self.repo.store_turn.assert_called_once()
+        window.return_value.label.assert_not_called()
 
 
 class LeaseCancellationTest(unittest.IsolatedAsyncioTestCase):
@@ -263,9 +291,13 @@ class RealtimeTest(unittest.IsolatedAsyncioTestCase):
         recognizer.socket = AsyncMock()
         prefix = "conversation.item.input_audio_transcription."
         recognizer.socket.recv.side_effect = [
-            json.dumps({"type": prefix + "delta", "delta": "Dua "}),
-            json.dumps({"type": prefix + "delta", "delta": "kata"}),
-            json.dumps({"type": prefix + "completed", "transcript": "Dua kata."}),
+            json.dumps({"type": prefix + "delta", "item_id": "old", "delta": "Stale"}),
+            json.dumps({"type": prefix + "delta", "item_id": "current", "delta": "Dua "}),
+            json.dumps({"type": "input_audio_buffer.committed", "item_id": "current"}),
+            json.dumps({"type": prefix + "failed", "item_id": "old"}),
+            json.dumps({"type": prefix + "completed", "item_id": "old", "transcript": "Another turn."}),
+            json.dumps({"type": prefix + "delta", "item_id": "current", "delta": "kata"}),
+            json.dumps({"type": prefix + "completed", "item_id": "current", "transcript": "Dua kata."}),
         ]
         partial = AsyncMock()
         self.assertEqual(await recognizer.transcribe(b"\0" * 1000, partial), "Dua kata.")
