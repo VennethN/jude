@@ -103,7 +103,7 @@ function acknowledge(ws: WebSocketRoute, packet: Packet) {
   ws.send(JSON.stringify({ type: 'ack', id: packet.id, statementId: 'mic-hearing-1-' + packet.id }));
 }
 
-test('live speech reaches the provider in 2.4 seconds and an unacknowledged turn survives a reconnect', async ({
+test('live audio leaves in 800 ms and an unacknowledged packet survives a reconnect', async ({
   page,
 }) => {
   let first: Packet | undefined;
@@ -133,14 +133,14 @@ test('live speech reaches the provider in 2.4 seconds and an unacknowledged turn
     .poll(() => page.evaluate(() => window.captureFixture.current?.text), { timeout: 6000 })
     .toBe('Saya melihat dokumen itu.');
   expect(first).toBeDefined();
-  expect(duration(first!)).toBeCloseTo(2.4, 3);
+  expect(duration(first!)).toBeCloseTo(0.8, 3);
   const caption = await page.evaluate(() => ({
     turn: window.captureFixture.current,
     elapsed: window.captureFixture.received,
   }));
   expect(caption.turn?.id).toBe('mic-hearing-1-' + first!.id);
   expect(caption.turn?.speakerId).toBeUndefined();
-  expect(caption.elapsed).toBeLessThan(4500);
+  expect(caption.elapsed).toBeLessThan(2400);
   await page.evaluate(() => window.captureFixture.recorder.paused(true));
   expect(await stored(page)).toContain(first!.id);
   firstSocket!.close({ code: 1011 });
@@ -158,7 +158,7 @@ test('live speech reaches the provider in 2.4 seconds and an unacknowledged turn
   });
 });
 
-test('idle silence avoids short turns, a pause drains the worklet tail and resume keeps a continuous timeline', async ({
+test('silence streams at the live clock and pause and resume preserve every sample', async ({
   page,
 }) => {
   const packets: Packet[] = [];
@@ -175,17 +175,12 @@ test('idle silence avoids short turns, a pause drains the worklet tail and resum
     },
     true,
   );
-  await expect
-    .poll(() => page.evaluate(() => performance.now() - window.captureFixture.began))
-    .toBeGreaterThan(2600);
-  expect(packets).toHaveLength(0);
+  await expect.poll(() => packets.length).toBeGreaterThanOrEqual(3);
+  expect(packets.slice(0, 3).every(p => duration(p) === 0.8 && Buffer.from(p.pcm, 'base64').every(byte => byte === 0))).toBe(true);
   await page.evaluate(() => {
     window.captureFixture.tone.gain.value = 0.18;
   });
-  await expect.poll(() => packets.length, { timeout: 5000 }).toBe(1);
-  const original = Buffer.from(packets[0].pcm, 'base64');
-  expect(original.subarray(0, 96_000).every((byte) => byte === 0)).toBe(true);
-  expect(original.subarray(-48_000).some((byte) => byte !== 0)).toBe(true);
+  await expect.poll(() => packets.some(p => Buffer.from(p.pcm, 'base64').some(byte => byte !== 0))).toBe(true);
   await page.evaluate(() => window.captureFixture.recorder.paused(true));
   await expect.poll(() => stored(page)).toEqual([]);
   const boundary = packets.length;
@@ -223,9 +218,9 @@ test('a server without maxInFlight receives one turn while later speech is saved
   expect(packets).toHaveLength(1);
   acknowledge(connection!, packets[0]);
   await expect.poll(() => packets.length).toBe(2);
-  expect(duration(packets[0])).toBeCloseTo(2.4, 3);
+  expect(duration(packets[0])).toBeCloseTo(0.8, 3);
   expect(duration(packets[1])).toBeCloseTo(8, 3);
-  expect(packets[1].t).toBeCloseTo(2.4, 3);
+  expect(packets[1].t).toBeCloseTo(0.8, 3);
   await page.evaluate(() => window.captureFixture.recorder.stop());
 });
 
@@ -246,8 +241,8 @@ test('three turns reach recognition before the first ACK and further speech stay
 
   await expect.poll(() => packets.length, { timeout: 12_000 }).toBe(3);
   for (const [index, packet] of packets.entries()) {
-    expect(packet.t).toBeCloseTo(index * 2.4, 3);
-    expect(duration(packet)).toBeCloseTo(2.4, 3);
+    expect(packet.t).toBeCloseTo(index * 0.8, 3);
+    expect(duration(packet)).toBeCloseTo(0.8, 3);
   }
   const [first, second, third] = packets;
   socket.send(JSON.stringify({ type: 'partial', id: 'mic-hearing-1-' + third.id, t: third.t, text: 'Turn three is audible.' }));
@@ -262,7 +257,7 @@ test('three turns reach recognition before the first ACK and further speech stay
   acknowledge(socket, second);
   await expect.poll(() => packets.length).toBe(4);
   const fourth = packets[3];
-  expect(fourth.t).toBeCloseTo(7.2, 3);
+  expect(fourth.t).toBeCloseTo(2.4, 3);
   expect(duration(fourth)).toBeCloseTo(8, 3);
   const pending = await stored(page);
   expect(pending).toEqual(expect.arrayContaining([first.id, third.id, fourth.id]));

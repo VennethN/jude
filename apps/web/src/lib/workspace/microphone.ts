@@ -1,4 +1,3 @@
-import { invalidate } from '$app/navigation';
 import { prepareMicrophone, type PreparedMicrophone } from './microphone-input';
 
 export interface LiveTranscriptTurn {
@@ -16,7 +15,7 @@ interface CapturedTurn {
   keep: boolean;
 }
 const sampleRate = 24_000;
-const liveCaptionSamples = 2.4 * sampleRate;
+const liveCaptionSamples = 0.8 * sampleRate;
 const queuedTurnSamples = 8 * sampleRate;
 const minimumVoicedWindow = 1.2 * sampleRate;
 const speechEndSilence = 0.55 * sampleRate;
@@ -159,8 +158,8 @@ export async function capture(
     stopSent = true;
     ws.send(JSON.stringify({ type: 'stop' }));
   }
-  let caption: { turn: string; time: number; committed: boolean } | undefined;
-  let refreshing = false, refreshNeeded = false, latestCaptionTime = -1;
+  let caption: { resultId: string; value: LiveTranscriptTurn } | undefined;
+  let latestCaptionTime = -1;
   let chunks: Int16Array<ArrayBuffer>[] = [],
     samples = 0,
     silent = 0,
@@ -183,22 +182,6 @@ export async function capture(
   try {
     lock = await navigator.wakeLock?.request('screen');
   } catch {}
-  // Refreshing a large case can be slower than the next microphone turn.
-  async function refreshTranscript() {
-    refreshNeeded = true;
-    if (refreshing) return;
-    refreshing = true;
-    try {
-      while (refreshNeeded && !stopped) {
-        refreshNeeded = false;
-        const displayed = caption?.committed ? caption : undefined;
-        await invalidate('jude:case');
-        if (displayed && displayed === caption) { caption = undefined; partial(); }
-      }
-    } catch {
-      // The turn is durable. Workspace events can still reconcile its caption.
-    } finally { refreshing = false; }
-  }
   async function pump() {
     if (pumpBusy) { pumpRequested = true; return; }
     if (!ready || stopped || !ws || stopSent || inFlight.size >= windowSize) return;
@@ -264,16 +247,19 @@ export async function capture(
           await pump();
         } else if (m.type === 'partial' && typeof m.text === 'string') {
           const turn = m.turnId ?? [...submitted.keys()].find(id => m.id === 'mic-' + hearingId + '-' + id || m.id === id);
-          const time = submitted.get(turn);
-          if (time === undefined || time < latestCaptionTime) return;
+          const packetStart = submitted.get(turn);
+          if (packetStart === undefined) return;
+          const time = typeof m.t === 'number' && Number.isFinite(m.t) ? m.t : packetStart;
+          if (time < latestCaptionTime) return;
           latestCaptionTime = time;
-          caption = { turn, time, committed: false };
-          partial({
+          const value = {
             id: m.statementId ?? 'mic-' + hearingId + '-' + turn,
             text: m.text,
             speakerId: typeof m.speakerId === 'string' ? m.speakerId : undefined,
             t: time,
-          });
+          };
+          caption = { resultId: m.id, value };
+          partial(value);
         } else if (m.type === 'accepted' && submitted.has(m.id)) {
           lastProgress = Date.now();
           inFlight.delete(m.id);
@@ -283,7 +269,12 @@ export async function capture(
           rotating = true;
           requestDrain();
         } else if (m.type === 'transcript') {
-          void refreshTranscript();
+          // Keep the last words visible until the case event delivers the saved row.
+          // Transcript.svelte reconciles the provisional row by this durable ID.
+          if (caption && m.id === caption.resultId && typeof m.statementId === 'string') {
+            partial({ ...caption.value, id: m.statementId });
+            caption = undefined;
+          }
         } else if (m.type === 'stopped') {
           providerStopped = true;
           ready = false;
@@ -303,8 +294,6 @@ export async function capture(
           if (stopped || connected !== ws) return;
           inFlight.delete(m.id);
           submitted.delete(m.id);
-          if (caption && caption.turn === m.id) caption.committed = true;
-          void refreshTranscript();
           await pump();
         }
       } catch {
@@ -397,14 +386,19 @@ export async function capture(
     samples += a.length;
     elapsed += a.length / sampleRate;
     silent = peak < 280 ? silent + a.length : 0;
+    // Keep the provider at the live audio position during silence, including before
+    // the first word. A disconnected or busy socket still spools larger local turns.
+    if (ready && inFlight.size < windowSize) {
+      if (samples >= liveCaptionSamples) flush();
+      return;
+    }
     if (firstVoicedSample < 0) {
       if (samples >= queuedTurnSamples) flush();
       return;
     }
     const voicedWindow = samples - firstVoicedSample;
-    const limit = ready && inFlight.size < windowSize ? liveCaptionSamples : queuedTurnSamples;
     if (
-      voicedWindow >= limit ||
+      voicedWindow >= queuedTurnSamples ||
       (voicedWindow >= minimumVoicedWindow && (silent >= speechEndSilence || samples >= queuedTurnSamples))
     )
       flush();
