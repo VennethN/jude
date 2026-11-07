@@ -1,0 +1,7 @@
+{
+  "basic": { "boards": 1, "cases": 2, "hours": 3, "questions": 50, "storage": 1, "seats": 1 },
+  "pro": { "boards": 5, "cases": 25, "hours": 15, "questions": 300, "storage": 20, "seats": 1 },
+  "firm": { "boards": 25, "cases": null, "hours": 60, "questions": 2000, "storage": 200, "seats": 25 },
+  "partner": { "boards": null, "cases": null, "hours": null, "questions": null, "storage": null, "seats": null }
+}
+

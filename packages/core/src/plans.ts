@@ -1,3 +1,4 @@
+import quotas from './plan-quotas.json';
 export type Language = 'id' | 'en';
 export type LocalText = Record<Language, string>;
 export type PlanId = 'basic' | 'pro' | 'firm' | 'partner';
@@ -73,25 +74,25 @@ export const plans: Plan[] = [
 	plan({
 		id: 'basic', tier: 0, name: localized('Dasar', 'Basic'),
 		tagline: localized('Untuk mulai menyusun berkas perkara sendiri.', 'For starting your own case file.'),
-		monthly: 0, perUser: false, quotas: { boards: 1, cases: 2, hours: 3, questions: 50, storage: 1, seats: 1 },
+		monthly: 0, perUser: false, quotas: quotas.basic,
 		features: basic, bullets: [featureNames.findings_with_sources, featureNames.case_assistant, localized('Satu papan temuan', 'One findings board')]
 	}),
 	plan({
 		id: 'pro', tier: 1, name: localized('Advokat Pro', 'Advocate Pro'),
 		tagline: localized('Untuk advokat yang menangani beberapa perkara.', 'For advocates handling several cases at once.'),
-		monthly: 349000, perUser: false, quotas: { boards: 5, cases: 25, hours: 15, questions: 300, storage: 20, seats: 1 },
+		monthly: 349000, perUser: false, quotas: quotas.pro,
 		features: pro, bullets: [featureNames.live_transcription, featureNames.ai_note_suggestions, featureNames.jude_export]
 	}),
 	plan({
 		id: 'firm', tier: 2, name: localized('Firma', 'Firm'),
 		tagline: localized('Untuk tim yang bekerja pada berkas bersama.', 'For teams working on shared case files.'),
-		monthly: 899000, perUser: true, quotas: { boards: 25, cases: null, hours: 60, questions: 2000, storage: 200, seats: 25 },
+		monthly: 899000, perUser: true, quotas: quotas.firm,
 		features: firm, bullets: [featureNames.team_sharing, featureNames.case_roles, featureNames.priority_support]
 	}),
 	plan({
 		id: 'partner', tier: 3, name: localized('Mitra', 'Partner'),
 		tagline: localized('Untuk kebutuhan kantor hukum yang disepakati secara khusus.', 'For law offices with individually agreed requirements.'),
-		monthly: null, perUser: false, quotas: { boards: null, cases: null, hours: null, questions: null, storage: null, seats: null },
+		monthly: null, perUser: false, quotas: quotas.partner,
 		features: partner, bullets: [localized('Kapasitas sesuai kontrak', 'Capacity by arrangement'), localized('Diskusi kebutuhan akses', 'Access requirements review'), localized('Pendampingan tim', 'Team onboarding')]
 	})
 ];
