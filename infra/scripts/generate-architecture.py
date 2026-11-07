@@ -19,8 +19,6 @@ import math
 from pathlib import Path
 
 CONFIG = {
-    "web_region": "Asia Pacific (Singapore)",
-    "web_region_code": "ap-southeast-1",
     "backend_region": "Asia Pacific (Jakarta)",
     "backend_region_code": "ap-southeast-3",
     "vpc": "10.40.0.0/16",
@@ -43,7 +41,7 @@ BLUE = "#2874d8"
 GREEN = "#469f25"
 ASSETS = Path(__file__).resolve().parents[2] / "docs/architecture/icons"
 ICON_BY_TITLE = {
-    "AWS Amplify Hosting": "amplify", "CloudWatch Logs": "cloudwatch",
+    "CloudFront": "cloudfront", "CloudWatch Logs": "cloudwatch",
     "OpenAI API": "openai", "Internet Gateway": "internet-gateway",
     "Amazon ECR": "ecr", "Parameter Store": "parameter-store",
     "Secrets Manager": "secrets-manager", "Session Manager": "session-manager",
@@ -57,8 +55,8 @@ class Drawing:
     def __init__(self, width=2000, height=1100, png=True):
         self.width, self.height, self.scale = width, height, 2
         self.svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
-                    '<title id="title">AWS architecture: Amplify web and standalone voice</title>',
-                    '<desc id="desc">Singapore Amplify calls OpenAI, Jakarta EC2 voice and public Single-AZ RDS. GitHub Actions voice deployment is planned.</desc>',
+                    '<title id="title">AWS architecture: EC2 frontend, web API and Python voice</title>',
+                    '<desc id="desc">CloudFront serves HTTPS from a Jakarta EC2 host running SvelteKit frontend and API plus Python voice. RDS and private S3 storage are in Jakarta. GitHub Actions deployment is planned.</desc>',
                     '<rect width="100%" height="100%" fill="white"/>']
         self.image = self.pen = None
         self.font_cache = {}
@@ -183,121 +181,84 @@ class Drawing:
 
 
 def generate(config, output, png):
-    """32px outer padding, 24px component padding, dedicated connector lanes."""
+    """One Jakarta compute region; CloudFront is an edge service, not hosting."""
     c = config
-    d = Drawing(width=2240, height=1160, png=png)
+    d = Drawing(width=2080, height=1180, png=png)
+    d.rect(240, 40, 1600, 1090, "white", "#647084", 16)
+    d.icon(264, 64, INK, "aws-cloud", size=40)
+    d.text(320, 85, "AWS Cloud", 27, bold=True)
+    d.card(320, 132, 330, 88, "CloudFront", PURPLE, size=22)
+    d.card(1870, 132, 180, 88, "OpenAI API", TEAL, size=17)
+    d.group(280, 268, 1520, 800, c["backend_region"], c["backend_region_code"])
+    d.group(312, 374, 1456, 466, f'Amazon VPC · {c["vpc"]}', color=GREEN, fill="#fbfefb")
+    d.group(344, 454, 850, 362, f'Application subnet · {c["voice_subnet"]}', color=GREEN, fill="#f5fbf4")
+    d.group(1242, 454, 494, 362, "RDS subnet group · 2 AZs", color=BLUE, fill="#f6faff")
+    d.card(1452, 350, 284, 64, "Internet Gateway", PURPLE, size=18)
 
-    # Centralized bounds: x, y, width, height. Regions fit their contents rather
-    # than stretching Singapore to the height of Jakarta's networking stack.
-    boxes = {
-        "account": (256, 56, 1740, 1056),
-        "singapore": (288, 190, 420, 532),
-        "jakarta": (760, 190, 1204, 858),
-        "vpc": (792, 300, 1140, 464),
-        "voice_subnet": (824, 380, 520, 360),
-        "db_subnets": (1400, 380, 500, 360),
-        "amplify": (320, 330, 356, 128),
-        "iam": (320, 490, 356, 80),
-        "web_logs": (320, 602, 356, 88),
-        "openai": (2028, 190, 180, 96),
-        "gateway": (1548, 276, 352, 64),
-        "ec2": (848, 450, 472, 176),
-        "caddy": (872, 532, 176, 64),
-        "fastapi": (1096, 532, 200, 64),
-        "ebs": (848, 650, 472, 56),
-        "rds": (1424, 458, 452, 112),
-        "db_public": (1424, 666, 452, 50),
-        "users": (32, 350, 168, 96),
-        "github": (32, 578, 168, 112),
-        "actions": (32, 792, 168, 112),
-        "admin": (32, 964, 168, 88),
-    }
+    d.card(368, 528, 802, 214, f'Amazon EC2 · {c["instance"]}', ORANGE, kind="compute", fill="#fffaf4", size=23)
+    d.asset(1040, 547, 28, 24, "docker")
+    d.text(1076, 560, "Docker", 17, color=BLUE, bold=True)
+    d.rect(392, 602, 330, 72, "#f4f9ff", "#91b3de", 8)
+    d.text(557, 625, "SvelteKit · Node.js", 21, bold=True, align="center")
+    d.text(557, 653, "Frontend + API :3000", 18, color=MUTED, align="center")
+    d.rect(780, 602, 366, 72, "#f4f9ff", "#91b3de", 8)
+    d.icon(796, 624, TEAL, "fastapi", size=28)
+    d.text(980, 625, "Python · FastAPI", 21, bold=True, align="center")
+    d.text(980, 653, "Voice :3001", 18, color=MUTED, align="center")
+    d.line([(722, 638), (780, 638)], width=1.8, arrow=True)
+    d.rect(392, 690, 330, 40, "white", "#91b3de", 8)
+    d.asset(463, 698, 80, 26, "caddy")
+    d.text(582, 710, ":80", 17, bold=True)
+    d.line([(418, 690), (418, 674)], width=1.8, arrow=True)
+    d.rect(368, 758, 802, 40, "white", "#a9c99b", 8)
+    d.icon(384, 766, GREEN, "ebs", size=24)
+    d.text(424, 778, f'EBS gp3 · {c["disk_gb"]} GB', 19, bold=True)
 
-    def card(name, title, color, **kwargs):
-        d.card(*boxes[name], title, color, **kwargs)
+    d.text(1266, 519, f'AZ A · {c["db_subnet_a"]}', 18, color=MUTED)
+    d.card(1266, 548, 446, 112, "RDS PostgreSQL", PURPLE,
+           [f'{c["db_instance"]} · Single-AZ'], "database", fill="#fcf8ff", size=23)
+    d.text(1266, 692, f'AZ B · {c["db_subnet_b"]}', 18, color=MUTED)
+    d.text(1266, 719, "Subnet only · no standby", 17, color=MUTED)
+    d.rect(1266, 750, 446, 42, "#fff8ed", "#e8c99b", 8)
+    d.text(1489, 771, "Public RDS · TLS :5432", 18, bold=True, align="center")
 
-    def label(x, y, value, color=INK, size=16):
-        # White backplates keep labels legible at a boundary or line crossing.
-        width = len(value) * size * 0.55 + 20
-        d.rect(x-width/2, y-size/2-5, width, size+10, "white", "none", 5)
-        d.text(x, y, value, size, color=color, bold=True, align="center")
-
-    d.rect(*boxes["account"], "white", "#647084", 16, 1.5)
-    d.icon(280, 80, INK, "aws-cloud", size=40)
-    d.text(336, 101, "AWS Cloud", 27, bold=True)
-    d.group(*boxes["singapore"], c["web_region"], c["web_region_code"])
-    d.group(*boxes["jakarta"], c["backend_region"], c["backend_region_code"])
-    d.group(*boxes["vpc"], f'Amazon VPC · {c["vpc"]}', color=GREEN, fill="#fbfefb")
-    d.group(*boxes["voice_subnet"], f'Voice subnet · {c["voice_subnet"]}', color=GREEN, fill="#f5fbf4")
-    d.group(*boxes["db_subnets"], "RDS subnet group · 2 AZs", color=BLUE, fill="#f6faff")
-
-    card("amplify", "AWS Amplify Hosting", PINK, detail=["SvelteKit · SSR"], kind="amplify", fill="#fff8fa", size=22)
-    card("iam", "SSR compute role", PINK, kind="iam-role", size=20)
-    card("web_logs", "CloudWatch Logs", PINK, kind="logs", size=20)
-    card("openai", "OpenAI API", TEAL, size=17)
-    card("gateway", "Internet Gateway", PURPLE, size=20)
-    card("ec2", f'EC2 · {c["instance"]}', ORANGE, kind="compute", fill="#fffaf4", size=22)
-    d.asset(1190, 470, 28, 24, "docker")
-    d.text(1227, 482, "Docker", 16, color=BLUE, bold=True)
-    d.rect(*boxes["caddy"], "#f4f9ff", "#91b3de", 8)
-    d.asset(888, 549, 94, 30, "caddy")
-    d.text(1016, 564, ":443", 17, bold=True, align="center")
-    d.rect(*boxes["fastapi"], "#f4f9ff", "#91b3de", 8)
-    d.icon(1110, 547, TEAL, "fastapi", size=28)
-    d.text(1211, 553, "FastAPI · pyannote", 15, bold=True, align="center")
-    d.text(1211, 578, ":8000", 17, color=MUTED, align="center")
-    d.line([(1048, 564), (1096, 564)], width=1.8, arrow=True)
-    d.rect(*boxes["ebs"], "white", "#a9c99b", 8)
-    d.icon(864, 662, GREEN, "ebs", size=32)
-    d.text(916, 678, f'EBS gp3 · {c["disk_gb"]} GB', 20, bold=True)
-
-    d.text(1424, 443, f'AZ A · {c["db_subnet_a"]}', 18, color=MUTED)
-    card("rds", "RDS PostgreSQL", PURPLE, detail=[f'{c["db_instance"]} · Single-AZ'], kind="database", fill="#fcf8ff", size=23)
-    d.text(1424, 609, f'AZ B · {c["db_subnet_b"]}', 18, color=MUTED)
-    d.text(1424, 634, "Subnet only · no standby", 17, color=MUTED)
-    d.rect(*boxes["db_public"], "#fff8ed", "#e8c99b", 8)
-    d.text(1650, 691, "Public RDS · TLS :5432", 18, bold=True, align="center")
-
-    # Five equal service tiles: consistent icon size, baseline and spacing.
-    for index, (title, key, color) in enumerate([
-        ("Amazon ECR", "ecr", ORANGE),
-        ("Parameter Store", "parameter-store", PINK),
-        ("Secrets Manager", "secrets-manager", PINK),
-        ("Session Manager", "session-manager", PINK),
+    tiles = [
+        ("Amazon ECR", "ecr", ORANGE), ("Parameter Store", "parameter-store", PINK),
+        ("Secrets Manager", "secrets-manager", PINK), ("KMS", "kms", PINK),
+        ("S3 private files", "s3", GREEN), ("Session Manager", "session-manager", PINK),
         ("CloudWatch Logs", "cloudwatch", PINK),
-    ]):
-        x = 792 + 228 * index
-        d.rect(x, 824, 200, 120, "white", "#d7dde7", 10)
-        d.icon(x+76, 842, color, key, size=48)
-        d.text(x+100, 919, title, 17, bold=True, align="center")
+    ]
+    for index, (title, key, color) in enumerate(tiles):
+        x = 312 + index * 208
+        d.rect(x, 904, 192, 120, "white", "#d7dde7", 10)
+        d.icon(x+72, 922, color, key, size=48)
+        d.text(x+96, 998, title, 15, bold=True, align="center")
 
-    card("users", "Users", INK, size=20)
-    card("github", "GitHub", INK, size=19)
-    d.text(116, 665, c["repository"], 14, color=MUTED, align="center")
-    card("actions", "Actions", INK, detail=[c["voice_pipeline_status"]], size=18)
-    card("admin", "Admin", INK, size=19)
+    d.card(32, 130, 168, 96, "Users", INK, size=20)
+    d.card(32, 640, 168, 112, "GitHub", INK, size=19)
+    d.text(116, 727, c["repository"], 14, color=MUTED, align="center")
+    d.card(32, 842, 168, 112, "Actions", INK, detail=[c["voice_pipeline_status"]], size=18)
+    d.card(32, 1038, 168, 88, "Admin", INK, size=19)
 
-    # Application routes use three separate gutters, clear of card contents.
-    d.line([(200, 394), (320, 394)], width=2, arrow=True)
-    label(260, 374, "HTTPS")
-    d.line([(676, 392), (744, 392), (744, 564), (872, 564)], width=2, arrow=True)
-    d.line([(676, 430), (728, 430), (728, 790), (1384, 790), (1384, 514), (1424, 514)], width=2, arrow=True)
-    label(1074, 790, "PostgreSQL · TLS", size=16)
-    d.line([(676, 354), (732, 354), (732, 150), (2118, 150), (2118, 190)], TEAL, 2, arrow=True)
-    label(1350, 150, "OpenAI HTTPS", color=TEAL)
-    d.line([(676, 440), (696, 440), (696, 646), (676, 646)], MUTED, 1.3, arrow=True)
-    d.line([(1876, 542), (1948, 542), (1948, 884), (1904, 884)], MUTED, 1.3, arrow=True)
+    def label(x, y, value, color=INK):
+        w = len(value)*8.5+18
+        d.rect(x-w/2, y-13, w, 26, "white", "none", 5)
+        d.text(x, y, value, 16, color=color, bold=True, align="center")
 
-    # CI and administration stay in their own bottom routing lanes.
-    d.line([(200, 630), (272, 630), (272, 434), (320, 434)], ORANGE, 1.7, dashed=True, arrow=True)
-    d.line([(116, 690), (116, 792)], ORANGE, 1.7, dashed=True, arrow=True)
-    d.line([(200, 839), (232, 839), (232, 976), (892, 976), (892, 944)], ORANGE, 1.7, dashed=True, arrow=True)
-    label(540, 976, "Build + push image", color=ORANGE)
-    d.line([(892, 824), (892, 802), (1360, 802), (1360, 506), (1320, 506)], ORANGE, 1.7, dashed=True, arrow=True)
-    d.line([(200, 878), (216, 878), (216, 1080), (1556, 1080), (1556, 944)], ORANGE, 1.7, dashed=True, arrow=True)
-    label(1050, 1080, "Deploy via SSM", color=ORANGE)
-    d.line([(200, 1008), (232, 1008), (232, 1016), (1588, 1016), (1588, 944)], BLUE, 1.7, dashed=True, arrow=True)
-    d.line([(1576, 824), (1576, 814), (1372, 814), (1372, 642), (1320, 642), (1320, 610)], BLUE, 1.7, dashed=True, arrow=True)
+    d.line([(200, 178), (320, 178)], arrow=True)
+    label(260, 157, "HTTPS")
+    d.line([(320, 200), (264, 200), (264, 710), (392, 710)], BLUE, 2, arrow=True)
+    d.line([(692, 674), (692, 682), (1216, 682), (1216, 604), (1266, 604)], INK, 2, arrow=True)
+    d.line([(392, 638), (300, 638), (300, 348), (1960, 348), (1960, 220)], TEAL, 2, arrow=True)
+    label(1070, 348, "OpenAI HTTPS", TEAL)
+    d.line([(116, 752), (116, 842)], ORANGE, 1.7, dashed=True, arrow=True)
+    d.line([(200, 884), (224, 884), (224, 1054), (408, 1054), (408, 1024)], ORANGE, 1.7, dashed=True, arrow=True)
+    d.line([(408, 904), (408, 866), (1228, 866), (1228, 582), (1170, 582)], ORANGE, 1.7, dashed=True, arrow=True)
+    label(782, 866, "Image pull", ORANGE)
+    d.line([(200, 926), (216, 926), (216, 1100), (1444, 1100), (1444, 1024)], ORANGE, 1.7, dashed=True, arrow=True)
+    label(850, 1100, "Deploy via SSM", ORANGE)
+    d.line([(200, 1082), (232, 1082), (232, 1140), (1476, 1140), (1476, 1024)], BLUE, 1.7, dashed=True, arrow=True)
+    d.line([(1448, 904), (1448, 882), (1204, 882), (1204, 720), (1170, 720)], BLUE, 1.7, dashed=True, arrow=True)
     d.write(output)
 
 
