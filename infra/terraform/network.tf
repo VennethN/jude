@@ -14,7 +14,7 @@ resource "aws_vpc" "main" {
 }
 
 resource "aws_internet_gateway" "db" {
-  count  = var.db_publicly_accessible ? 1 : 0
+  count  = var.db_publicly_accessible || var.enable_application ? 1 : 0
   vpc_id = aws_vpc.main.id
   tags   = { Name = "${local.name}-db" }
 }
