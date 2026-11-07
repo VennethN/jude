@@ -20,6 +20,7 @@
   import type { Finding, InspectTarget, Lang, Workspace } from '@jude/core/domain';
   import { apiPath, assistantPath, boardPath, local } from './records';
   import Inspector from './Inspector.svelte';
+  import { guardUnsavedChanges } from '$lib/workspace/unsaved-changes';
 
   let {
     workspace: w,
@@ -39,6 +40,12 @@
   let line = $derived(w.statements.find((s) => s.id === f.statementId));
   let note = $state(untrack(() => f.note));
   let noteOpen = $state(untrack(() => !!f.note));
+  guardUnsavedChanges(
+    () => note !== f.note,
+    () => id
+      ? 'Catatan pemeriksaan belum disimpan. Buang perubahan dan lanjutkan?'
+      : 'Your review note has not been saved. Discard it and continue?'
+  );
   async function openNote() {
     noteOpen = true;
     await tick();
