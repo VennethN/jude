@@ -34,6 +34,8 @@ export default defineConfig(({ command }) => {
       ],
     },
     server: {
+      port: Number(process.env.PORT || 5173),
+      strictPort: true,
       proxy: {
         '/api/live/': voiceProxy({
           ...process.env,
