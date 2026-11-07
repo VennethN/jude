@@ -3,6 +3,7 @@
 import os
 import sqlite3
 import threading
+import weakref
 from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -33,6 +34,9 @@ class Database:
         self._initialized = False
         self._migration_lock = threading.Lock()
         self._anchor = None
+        self._pool = None
+        self._pool_lock = threading.Lock()
+        self._close_pool = None
         if self.path == ":memory:":
             self.path = f"file:jude-voice-{uuid4()}?mode=memory&cache=shared"
             self._anchor = sqlite3.connect(self.path, uri=True, check_same_thread=False)
@@ -52,6 +56,23 @@ class Database:
 
     @contextmanager
     def _transaction(self, write=False):
+        if self.url:
+            # Capture admission, replay checks and ACKs must not each pay for a
+            # fresh RDS TLS handshake. Keep bounded connections across threads.
+            with self._pool_lock:
+                if self._pool is None:
+                    from psycopg.rows import dict_row
+                    from psycopg_pool import ConnectionPool
+
+                    self._pool = ConnectionPool(self.url, min_size=1, max_size=4, timeout=8,
+                        max_idle=300, max_lifetime=1800, open=True,
+                        kwargs={"row_factory": dict_row, "connect_timeout": 8},
+                        check=ConnectionPool.check_connection)
+                    self._close_pool = weakref.finalize(self, self._pool.close)
+                pool = self._pool
+            with pool.connection() as conn:
+                yield Transaction(conn, True)
+            return
         conn = self._connect()
         try:
             if not self.url:
@@ -63,6 +84,13 @@ class Database:
             raise
         finally:
             conn.close()
+
+    def close(self):
+        with self._pool_lock:
+            if self._close_pool:
+                self._close_pool()
+                self._close_pool = None
+                self._pool = None
 
     def ready(self):
         if self._initialized:

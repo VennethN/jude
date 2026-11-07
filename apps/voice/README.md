@@ -32,6 +32,8 @@ Live audio uses one ordered Amazon Transcribe stream per connection. Final word 
 
 The connected browser sends uniform 200 ms PCM blocks, including silence, so Amazon can detect pauses promptly. Offline capture uses larger durable buffers. The browser keeps pending audio until transcript completion is acknowledged. Stop drains the provider's final results before closing. Uploaded recordings use one stream for the file and retain the provider's speaker transitions. File processing is paced at audio speed.
 
+PostgreSQL uses a bounded pool of up to four reusable connections per voice process. Capture admission and transcript acknowledgements retain their separate authorization checks and transactions without repeating an RDS TLS handshake for every 200 ms packet. Failed transactions roll back before a connection returns to the pool.
+
 The optional pyannote Community-1 worker remains available for unresolved recordings created by the previous service. Its model and deployment instructions are in the [AWS guide](docs/aws.md#local-speaker-diarization); it is not required for new Amazon Transcribe recordings.
 
 ## Remember case voices

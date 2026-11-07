@@ -41,6 +41,7 @@ class VoiceRepositoryFixture(unittest.TestCase):
             self.addCleanup(cleanup_schema)
             os.environ["DATABASE_URL"] = make_conninfo(dsn, options="-c search_path=" + schema)
         self.repo = Repository()
+        self.addCleanup(self.repo.db.close)
         self.assertTrue(self.repo.ready())
         with self.repo.db.transaction(True) as tx:
             for org in ("org-a", "org-b"):
@@ -155,6 +156,24 @@ class VoiceRepositoryFixture(unittest.TestCase):
 
 
 class VoiceRepositoryTest(VoiceRepositoryFixture):
+    def test_failed_transaction_rolls_back_before_connection_is_reused(self):
+        with self.assertRaisesRegex(RuntimeError, "synthetic rollback"), self.repo.db.transaction(True) as tx:
+            tx.execute("UPDATE organizations SET name='Uncommitted' WHERE id='org-a'")
+            raise RuntimeError("synthetic rollback")
+        self.assertEqual(self.one("SELECT name FROM organizations WHERE id='org-a'")["name"], "org-a")
+        self.execute("UPDATE organizations SET name='Committed' WHERE id='org-a'")
+        self.assertEqual(self.one("SELECT name FROM organizations WHERE id='org-a'")["name"], "Committed")
+
+    @unittest.skipUnless(os.getenv("JUDE_TEST_DATABASE_URL"), "PostgreSQL pool regression")
+    def test_postgres_reuses_connections_and_can_reopen_after_shutdown(self):
+        pids = {self.one("SELECT pg_backend_pid() AS pid")["pid"] for _ in range(8)}
+        self.assertLessEqual(len(pids), 4)
+        old_pool = self.repo.db._pool
+        self.repo.db.close()
+        self.assertTrue(old_pool.closed)
+        self.assertNotIn(self.one("SELECT pg_backend_pid() AS pid")["pid"], pids)
+        self.assertEqual(self.repo.case(self.owner, "case")["id"], "case")
+
     def test_tenants_roles_membership_archive_and_session_revocation(self):
         self.assertEqual(self.repo.case(self.viewer, "case")["title"], "case")
         self.expect_error(404, self.repo.case, self.owner, "secret")

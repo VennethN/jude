@@ -45,6 +45,8 @@ psycopg==3.3.8
     # via -r apps/voice/requirements.in
 psycopg-binary==3.3.8
     # via psycopg
+psycopg-pool==3.3.3
+    # via psycopg
 pydantic==2.14.3
     # via fastapi
 pydantic-core==2.50.4
@@ -65,6 +67,7 @@ typing-extensions==4.16.0
     #   fastapi
     #   opentelemetry-api
     #   psycopg
+    #   psycopg-pool
     #   pydantic
     #   pydantic-core
     #   starlette

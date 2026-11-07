@@ -68,6 +68,7 @@ async def lifespan(_app):
             await worker
         await matcher.close()
         _app.state.voiceprints = None
+        await asyncio.to_thread(repo.db.close)
 
 
 app = FastAPI(title="Jude Voice", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
