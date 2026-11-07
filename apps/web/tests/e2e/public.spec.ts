@@ -46,6 +46,7 @@ test('account forms create a session and preserve a same-origin return route wit
 		await page.getByLabel('Kata sandi',{exact:false}).fill(secret);
 		await page.getByRole('button',{name:'Buat akun'}).click();
 		await expect(page).toHaveURL(/\/billing$/);
+		await expect(page.getByRole('heading',{name:'Paket & tagihan'})).toBeVisible();
 		await expect(page.getByRole('heading',{name:'Kuota bulan ini',exact:true})).toBeVisible();
 		await context.request.post('/api/auth/logout');
 		await page.goto('/login?next=%2Fbilling');
