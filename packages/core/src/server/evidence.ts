@@ -210,7 +210,11 @@ export function addBoardCard(w: Workspace, id: string, fields: Fields) {
   const slot = board.cards.length;
   const cards = [
     ...board.cards,
-    { kind, id: refId, key, x: 24 + Math.floor(slot % 3) * 304, y: 24 + Math.floor(slot / 3) * 158 },
+    {
+      kind, id: refId, key,
+      x: fields.x ?? 24 + Math.floor(slot % 3) * 304,
+      y: fields.y ?? 24 + Math.floor(slot / 3) * 158,
+    },
   ];
   const excerpts =
     kind === 'excerpt'
