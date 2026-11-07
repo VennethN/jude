@@ -89,7 +89,9 @@ jobs:
           cache-from: type=gha,scope=jude-release
           cache-to: type=gha,scope=jude-release,mode=max
       - name: Upload release script
-        run: aws s3 cp infra/deploy/run-voice-host.sh "s3://$DEPLOY_OPS_BUCKET/_deploy/releases/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/run.sh" --only-show-errors
+        run: |
+          aws s3 cp infra/deploy/run-voice-host.sh "s3://$DEPLOY_OPS_BUCKET/_deploy/releases/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/run.sh" --only-show-errors
+          aws s3 cp infra/deploy/run-direct-voice.sh "s3://$DEPLOY_OPS_BUCKET/_deploy/releases/$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT/voice-gateway.sh" --only-show-errors
       - name: Deploy on the instance through SSM
         env:
           JUDE_IMAGE: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}@${{ steps.image.outputs.digest }}

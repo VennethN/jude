@@ -47,8 +47,10 @@ def main():
         f"aws ecr get-login-password | docker login --username AWS --password-stdin {quote(registry)}",
         f"docker pull {quote(image)}",
         f"aws s3 cp {quote(f's3://{bucket}/_deploy/releases/{run}-{attempt}/run.sh')} /opt/jude/run.sh --only-show-errors",
-        "chmod 0700 /opt/jude/run.sh",
+        f"aws s3 cp {quote(f's3://{bucket}/_deploy/releases/{run}-{attempt}/voice-gateway.sh')} /opt/jude/run-direct-voice.sh --only-show-errors",
+        "chmod 0700 /opt/jude/run.sh /opt/jude/run-direct-voice.sh",
         f"JUDE_IMAGE={quote(image)} /opt/jude/run.sh",
+        f"if grep -q '^JUDE_VOICE_PUBLIC_HOST=.' /run/jude/app.env; then JUDE_IMAGE={quote(image)} /opt/jude/run-direct-voice.sh; fi",
     ]
     payload = {
         "InstanceIds": [instance],

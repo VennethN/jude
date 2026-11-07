@@ -3,7 +3,7 @@ import { parseEnv } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, searchForWorkspaceRoot } from 'vite';
-import { voiceHeaders } from './voice-gateway.mjs';
+import { voiceProxy } from './scripts/voice-proxy.js';
 
 const repo = new URL('../../', import.meta.url);
 const rootEnv = new URL('.env', repo);
@@ -35,17 +35,11 @@ export default defineConfig(({ command }) => {
     },
     server: {
       proxy: {
-        '/api/live/': {
-          target: voiceTarget.origin,
-          ws: true,
-          changeOrigin: false,
-          bypass(req) {
-            if (voiceTarget.protocol !== 'https:') return;
-            const headers = voiceHeaders(req, voiceTarget, process.env.ORIGIN);
-            if (!headers) return false;
-            req.headers = headers;
-          },
-        },
+        '/api/live/': voiceProxy({
+          ...process.env,
+          VOICE_ORIGIN: origin || localVoice,
+          JUDE_VOICE_REMOTE: voiceTarget.protocol === 'https:' ? 'true' : process.env.JUDE_VOICE_REMOTE,
+        }),
       },
       fs: {
         allow: [searchForWorkspaceRoot(process.cwd())],
@@ -53,6 +47,8 @@ export default defineConfig(({ command }) => {
           '.env',
           '.env.*',
           '**/.git/**',
+          '**/.local-access/**',
+          '**/.aws/**',
           '**/.jude-data/**',
           '**/*.sqlite*',
           '**/*.tfvars',
