@@ -82,6 +82,7 @@ class CaseEntities:
         self.record = json.loads(row["record"])
         self.record["archived"] = bool(row["archived"])
         self.changed = False
+        self.revision_entities = set()
 
     def all(self, kind):
         rows = self.tx.all(
@@ -110,6 +111,11 @@ class CaseEntities:
             (self.id, kind, value["id"], pack(value), self.id, kind),
         )
         self.changed = self.changed or notify
+        self.revision_entities.add((kind, value["id"]))
+        if kind == "statements":
+            # Quiet captures persist duration without a workspace notification. Publish that
+            # hearing's latest clock alongside the next final transcript.
+            self.revision_entities.add(("hearings", value["hearingId"]))
         if kind == "statements" and not self.synthetic and value.get("phase") == "queued":
             self.tx.execute(
                 "INSERT INTO analysis_jobs(case_id,statement_id,available_at) VALUES(?,?,?) "
@@ -123,6 +129,18 @@ class CaseEntities:
             self.tx.execute(
                 "UPDATE cases SET record=?,version=version+1,updated_at=? WHERE id=?",
                 (pack(self.record), now_ms(), self.id),
+            )
+            version = self.tx.one("SELECT version FROM cases WHERE id=?", (self.id,))["version"]
+            self.tx.execute(
+                "INSERT INTO case_workspace_revisions(case_id,version,changes) VALUES(?,?,?)",
+                (self.id, version, pack([
+                    {"kind": kind, "id": entity_id}
+                    for kind, entity_id in sorted(self.revision_entities)
+                ])),
+            )
+            self.tx.execute(
+                "DELETE FROM case_workspace_revisions WHERE case_id=? AND version<=?",
+                (self.id, version - 128),
             )
 
 
