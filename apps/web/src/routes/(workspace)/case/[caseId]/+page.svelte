@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isGuestPractice } from '@jude/core/domain';
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
@@ -27,6 +28,7 @@
   import FindingLink from '$lib/evidence/FindingLink.svelte';
   import CaseForm from '$lib/workspace/CaseForm.svelte';
   import Dialog from '$lib/workspace/Dialog.svelte';
+  import { canStartHearing } from '$lib/workspace/hearing-access';
   import HearingRow from '$lib/workspace/HearingRow.svelte';
   import { voice } from '$lib/workspace/hearing-detail/people';
   import { casePrompts } from '$lib/workspace/case-prompts';
@@ -36,6 +38,7 @@
     c = $derived(w.caseRecord),
     base = $derived('/case/' + c.id),
     en = $derived(data.lang === 'en');
+  const practice = $derived(isGuestPractice(data.account, c));
   const review = $derived(w.findings.filter(needsReview));
   const empty = $derived(!w.hearings.length && !w.documents.length);
   const live = $derived(w.hearings.find((h) => h.mode === 'live'));
@@ -94,7 +97,7 @@
   <header class="file-head">
     <div class="file-id" data-tour="case-file">
       <span class="case-type"
-        >{c.label === 'synthetic'
+        >{practice ? (en ? 'Fictional practice case' : 'Perkara latihan fiktif') : c.label === 'synthetic'
           ? en
             ? 'Synthetic material'
             : 'Materi sintetis'
@@ -119,13 +122,13 @@
     </dl>
     {#if !empty && !c.archived}<div class="case-actions">
         {#if live}<a class="button" href={base + '/hearings/' + live.id}
-            ><Radio size={16} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a
+            ><Radio size={16} />{practice ? (en ? 'Open practice hearing' : 'Buka sidang latihan') : (en ? 'Open live hearing' : 'Buka sidang langsung')}</a
           >
-        {:else if c.label === 'synthetic' || data.canTranscribe}<a
+        {:else if practice || canStartHearing(data.account, c, data.canTranscribe)}<a
             class="button primary"
-            href={base + '/hearings?new=live'}><Mic size={16} />{en ? 'Record a hearing' : 'Rekam sidang'}</a
+            href={base + '/hearings?new=live'}><Mic size={16} />{practice ? (en ? 'Practice live testimony' : 'Latihan kesaksian langsung') : (en ? 'Record a hearing' : 'Rekam sidang')}</a
           >{/if}
-        {#if data.canTranscribe}<a class="button" href={base + '/hearings?new=audio'}
+        {#if data.canTranscribe && !data.account.user.guest}<a class="button" href={base + '/hearings?new=audio'}
             ><Upload size={16} />{en ? 'Upload audio' : 'Unggah audio'}</a
           >{/if}
         <a class="button" href={base + '/documents'}

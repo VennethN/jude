@@ -4,10 +4,23 @@ import type { CaptureState, LiveTranscriptTurn, Recorder } from '../microphone';
 type Session = { key: string; state: CaptureState; partial?: LiveTranscriptTurn; elapsed: number; runningSince: number };
 let active = $state<Session | null>(null);
 let device: Recorder | undefined;
+let startFailure = $state.raw<{ key: string; error: unknown }>();
 let release: (() => void) | undefined;
 
 export function getCapture(key: string) {
   return active?.key === key ? active : null;
+}
+
+export function microphoneStartFailure(key: string) {
+  return startFailure?.key === key ? startFailure.error : undefined;
+}
+
+// Only called after an explicitly submitted hearing has opened in this browser.
+export function connectStartedHearing(caseId: string, hearingId: string, userId: string, keep: boolean, startedAt: string | undefined, language?: Lang, practice = false) {
+  const key = [userId, caseId, hearingId].join('/');
+  void connectCapture(caseId, hearingId, userId, keep, startedAt, language, practice).catch(error => {
+    startFailure = { key, error };
+  });
 }
 
 export async function connectCapture(
@@ -16,9 +29,11 @@ export async function connectCapture(
   userId: string,
   keep: boolean,
   startedAt: string | undefined,
-  language: Lang = 'id'
+  language: Lang = 'id',
+  practice = false,
 ) {
   const key = [userId, caseId, hearingId].join('/');
+  startFailure = undefined;
   if (active) throw new Error('capture_in_use');
   const elapsed = startedAt ? Math.max(0, (Date.now() - Date.parse(startedAt)) / 1000) : 0;
   active = { key, state: 'connecting', elapsed, runningSince: 0 };
@@ -53,11 +68,13 @@ export async function connectCapture(
         if (active.runningSince) active.elapsed += (now - active.runningSince) / 1000;
         active.runningSince = state === 'recording' || state === 'offline' ? now : 0;
         active.state = state;
+        if (state === 'guest_limit') { release?.(); release = undefined; }
       },
       (turn) => {
         if (active?.key === key) active.partial = turn;
       },
-      language
+      language,
+      practice,
     );
   } catch (error) {
     release?.();
