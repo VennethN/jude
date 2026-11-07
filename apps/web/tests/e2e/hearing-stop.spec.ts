@@ -43,7 +43,6 @@ for (const width of [1440, 390]) test(`ending a hearing retries saved audio with
   });
   await page.goto(`/case/${record.id}/hearings/${hearing.id}`);
   await page.getByRole('button', { name: 'Hubungkan mikrofon', exact: true }).click();
-  await page.getByRole('button', { name: 'Aktifkan mikrofon', exact: true }).click();
   await expect.poll(() => received).toBeGreaterThan(0);
   await page.getByRole('button', { name: 'Akhiri sidang', exact: true }).click();
   await page.getByRole('button', { name: 'Akhiri dan tinjau', exact: true }).click();
