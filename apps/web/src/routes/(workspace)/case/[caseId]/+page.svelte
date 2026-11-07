@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { goto, invalidateAll } from '$app/navigation';
+  import { page } from '$app/state';
+  import { goto, invalidateAll, replaceState } from '$app/navigation';
   import {
     ArrowDownToLine,
     ArrowRight,
@@ -8,7 +9,6 @@
     CalendarDays,
     ChevronRight,
     CircleAlert,
-    Ellipsis,
     FilePlus2,
     FileText,
     GitFork,
@@ -73,6 +73,13 @@
   }
   let dialog = $state<null | 'menu' | 'edit' | 'remove'>(null),
     message = $state('');
+  $effect(() => {
+    const { judeCaseMenu, ...rest } = page.state as { judeCaseMenu?: boolean };
+    if (judeCaseMenu) {
+      replaceState(page.url, rest);
+      dialog = 'menu';
+    }
+  });
   async function action(path: string, method: string) {
     try {
       await api('/api/cases/' + c.id + path, method);
@@ -97,11 +104,7 @@
           : en
             ? 'Private case'
             : 'Perkara privat'}</span
-      >{#if c.reference}<span>{c.reference}</span>{/if}<button
-        class="icon-button"
-        onclick={() => (dialog = 'menu')}
-        aria-label={en ? 'Case menu' : 'Menu perkara'}><Ellipsis size={19} /></button
-      >
+      >{#if c.reference}<span>{c.reference}</span>{/if}
     </div>
     <h1>{c.title}</h1>
     {#if c.summary[data.lang]}<p class="summary">{c.summary[data.lang]}</p>{/if}
@@ -410,14 +413,7 @@
     font-size: 0.83rem;
     font-variant-numeric: tabular-nums;
   }
-  .file-id > .icon-button {
-    margin-left: auto;
-    height: 36px;
-    min-height: 36px;
-    width: 40px;
-    min-width: 40px;
-    background: transparent;
-  }
+
   .case-type {
     padding: 2px 8px;
     background: var(--wash);
