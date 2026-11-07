@@ -44,7 +44,7 @@
 	.price-bar h2,.compare h2,.faq h2 { font-size:clamp(2.3rem,3.8vw,3.8rem); }
 	.price-bar p,.faq p { margin-top:11px; color:#526052; font-size:.9rem; line-height:1.65; }
 	.compare { padding-block:14px 50px; }
-	.table-wrap { margin-top:25px; }
+	.table-wrap { position:relative; margin-top:25px; }
 	table { border-collapse:separate; border-spacing:0; width:100%; font:.87rem/1.4 var(--pub-record); }
 	th,td { text-align:center; padding:13px 10px; border-bottom:1px solid #d2d4c8; }
 	th:first-child { text-align:left; font-weight:400; }
