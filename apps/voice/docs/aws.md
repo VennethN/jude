@@ -14,7 +14,7 @@ The image runs `python -m jude_voice` with `PYTHONPATH=/app/apps/voice`, `VOICE_
 
 Supply the shared PostgreSQL database, S3 originals bucket and KMS key to both services. For private-case transcription, set `OPENAI_API_KEY` and provision the model described below. The service’s `GET /healthz` checks database readiness. Supervise the processes independently, and release a compatible web and voice pair together.
 
-The single-host EC2 target `release` runs the web and voice services as separate processes in one container. Voice listens on loopback in this arrangement. Caddy serves the web application over TLS. The host checks both health endpoints before starting the public proxy.
+The GitHub Actions release runs both processes in the `release-pyannote` container. Voice listens on loopback. CloudFront serves HTTPS and Caddy forwards requests to the web process. The launcher checks both database health endpoints before starting the proxy.
 
 ## Local speaker diarization
 
@@ -26,6 +26,17 @@ docker buildx build -f infra/docker/Dockerfile --platform linux/amd64 --target v
 
 For the combined EC2 host, publish the `release-pyannote` target instead. Review the model’s gated access terms with the organisation’s Hugging Face account, then download the complete snapshot at revision `3533c8cf8e369892e6b79ff1bf80f7b0286a54ee` using an authorised environment. The snapshot includes `config.yaml`, segmentation and embedding assets. The pipeline supports offline use from a local directory. [Community-1 model card](https://huggingface.co/pyannote/speaker-diarization-community-1)
 
-On the EC2 host, provision that snapshot at `/var/lib/jude/models/community-1` on encrypted storage readable by UID 1000. Set `JUDE_DIARIZATION_MODEL` to `/models/community-1` in the application secret. A service reload mounts the snapshot read-only at that path. Model access credentials used to acquire the snapshot stay in the provisioning environment. For an independently deployed voice container, configure the same read-only mount and environment value. `JUDE_DIARIZATION_TIMEOUT_MS` adjusts the worker timeout. Benchmark the intended hearing lengths before setting `app_instance_type` and `app_root_volume_gb` for the CPU pipeline.
+For GitHub Actions deployments, install the complete snapshot under `/var/lib/jude/models/community-1` on encrypted host storage. Keep the weight files within that directory and give container UID 1000 read access. Set these SecureString values in AWS Systems Manager Parameter Store.
+
+| Parameter | Value |
+| --- | --- |
+| `/jude-dev/runtime/JUDE_DIARIZATION_MODEL` | `/models/community-1` |
+| `/jude-dev/runtime/OPENAI_API_KEY` | The voice service’s OpenAI credential |
+
+The EC2 launcher mounts the snapshot read-only and loads it with networking disabled before replacing the running containers. An inaccessible or incomplete snapshot stops the release at this step. The inference worker uses the same offline mount.
+
+An absent or empty model parameter keeps replay and playback available. For opt-in Hub downloads, set the model parameter to `pyannote/speaker-diarization-community-1` and supply `/jude-dev/runtime/HF_TOKEN` as a SecureString. The voice worker retrieves the pinned revision when processing speech. Keep Hugging Face credentials on the provisioning machine for offline deployments.
+
+For the custom-domain `jude.service` deployment, set `JUDE_DIARIZATION_MODEL=/models/community-1` in its Secrets Manager application secret. For an independent voice container, configure the same read-only bind mount and model path. `JUDE_DIARIZATION_TIMEOUT_MS` sets the inference deadline in milliseconds.
 
 When supplying an image tag to the [AWS environment guide](../../web/docs/aws.md), include the selected build target. Keep the compatible image digest and model snapshot revision with the release record.
