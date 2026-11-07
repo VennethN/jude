@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { CaseDocument, Workspace } from '../domain';
+import { exampleDrafts } from '../example-labels';
 import { pasalSourceUrl } from '../legal';
 import { numberGroupedVoices } from '../speakers';
 import { workspaceFromManifest } from './manifest-case';
@@ -84,7 +85,7 @@ export async function exportArchive(org: string, caseId: string) {
     title: w.caseRecord.title,
     exportedAt: new Date().toISOString(),
   });
-  files['case.json'] = jsonBytes(w);
+  files['case.json'] = jsonBytes(w.caseRecord.label === 'synthetic' ? { ...w, ...exampleDrafts(w) } : w);
   files['legal.json'] = jsonBytes(w.legal);
   let size = files['case.json'].length;
   for (const d of w.documents) {
@@ -243,6 +244,7 @@ function parseWorkspace(raw: unknown) {
     verify: bilingual(r.verify, 'verify', 12000),
     uncertainty: r.uncertainty ? bilingual(r.uncertainty, 'uncertainty', 12000) : undefined,
     question: rowText(r.question, 'question'),
+    questionTranslation: r.questionTranslation ? bilingual(object(r.questionTranslation), 'questionTranslation', 12000) : undefined,
     said: rowText(r.said, 'said'),
     reviewed: !!r.reviewed,
     note: rowText(r.note, 'note', 12000),
@@ -415,6 +417,7 @@ function parseWorkspace(raw: unknown) {
             : { kind: choice(b.kind, ['finding', 'passage'], 'kind'), id: ref(b.id) };
         return {
           text: string(s.text, 'text', 12000),
+          textTranslation: s.textTranslation ? bilingual(object(s.textTranslation), 'textTranslation', 12000) : undefined,
           why: bilingual(s.why, 'why', 4000),
           confidence: number(s.confidence, 'confidence', 0, 1),
           basis,
@@ -422,6 +425,8 @@ function parseWorkspace(raw: unknown) {
       }),
     };
   });
+  // Older sample exports contain the original question wording only.
+  if (record.label === 'synthetic') Object.assign(w, exampleDrafts(w));
   return { w, maps, original: rows('documents') };
 }
 

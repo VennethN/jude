@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { exampleCaseLabels, exampleWorkspaceLabels } from '@jude/core/example-labels';
 import { error, redirect } from '@sveltejs/kit';
 import type { CaseSummary, Workspace } from '@jude/core/domain';
 
@@ -68,7 +69,7 @@ async function read<T>(fetcher: typeof fetch, path: string, activeScope: string)
 
 export function caseSnapshot(fetcher: typeof fetch, guard: { scope: string; id: string; version: string }) {
   return loadVersion(snapshots, guard.id, guard.version, () =>
-    read<Workspace>(fetcher, '/api/cases/' + encodeURIComponent(guard.id) + '/workspace', guard.scope),
+    read<Workspace>(fetcher, '/api/cases/' + encodeURIComponent(guard.id) + '/workspace', guard.scope).then(exampleWorkspaceLabels),
   );
 }
 
@@ -77,7 +78,7 @@ export function caseRegister(fetcher: typeof fetch, guard: { scope: string; vers
     register,
     'cases',
     guard.version,
-    async () => (await read<{ cases: CaseSummary[] }>(fetcher, '/api/cases', guard.scope)).cases,
+    async () => (await read<{ cases: CaseSummary[] }>(fetcher, '/api/cases', guard.scope)).cases.map(exampleCaseLabels),
   );
 }
 

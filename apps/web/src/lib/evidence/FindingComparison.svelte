@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { displayTitle, timecode } from '$lib/workspace/format';
+
   import { onMount } from 'svelte';
   import { FileText } from '@lucide/svelte';
   import type { Finding, Lang, Workspace } from '@jude/core/domain';
   import { sourceOf } from './records';
-  import { timecode } from '$lib/workspace/format';
   import { voice } from '$lib/workspace/hearing-detail/people';
   import Match from './Match.svelte';
   import SourceAvailability from './SourceAvailability.svelte';
@@ -45,6 +46,7 @@
     interactive = true;
   });
 </script>
+<p class="ev-meta">{en ? 'Evidence quotations retain the original wording.' : 'Kutipan bukti mempertahankan redaksi aslinya.'}</p>
 
 {#if testimony && line}
   <div
@@ -68,7 +70,7 @@
       <h3 class="label">
         <FileText size={13} aria-hidden="true" />
         {selected
-          ? selected.doc.title + ', ' + (en ? 'p.' : 'hal.') + ' ' + selected.passage.page
+          ? displayTitle(selected.doc, lang) + ', ' + (en ? 'p.' : 'hal.') + ' ' + selected.passage.page
           : en
             ? 'In the record'
             : 'Dalam berkas'}
@@ -79,7 +81,7 @@
           id={group + '-record'}
           role={sources.length > 1 ? 'tabpanel' : 'region'}
           aria-labelledby={sources.length > 1 ? group + '-tab-' + sources.indexOf(selected) : undefined}
-          aria-label={sources.length === 1 ? selected.doc.title : undefined}
+          aria-label={sources.length === 1 ? displayTitle(selected.doc, lang) : undefined}
         >
           <blockquote class="record" lang="id">
             “<Match text={selected.passage.text} term={selected.ref.match} />”
@@ -99,7 +101,7 @@
                   onclick={() => (picked = item.passage.id)}
                   onkeydown={(event) => move(event, i)}
                 >
-                  {item.doc.title.split(/\s+/).slice(0, 2).join(' ')} · {en ? 'p.' : 'hal.'}
+                  {displayTitle(item.doc, lang).split(/\s+/).slice(0, 2).join(' ')} · {en ? 'p.' : 'hal.'}
                   {item.passage.page}
                 </button>
               {/each}

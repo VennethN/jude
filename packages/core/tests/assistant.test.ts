@@ -58,7 +58,8 @@ function providers() {
   vi.spyOn(model, 'provider').mockReturnValue({ embeddings: { create: embedding } } as unknown as NonNullable<ReturnType<typeof model.provider>>);
   const structured = vi.spyOn(model, 'structured').mockImplementation(async (_task,_instruction,raw) => {
     const input = raw as {sources: {number:number;text:string}[]};
-    return {paragraphs:[{summary:'Catatan mencatat '+input.sources[0].text.slice(0,300),citations:[{evidence:1,quote:input.sources[0].text.slice(0,200)}]}]};
+    const excerpt = input.sources[0].text.slice(0,300);
+    return {paragraphs:[{summary:{id:'Catatan mencatat '+excerpt,en:'The record states '+excerpt},citations:[{evidence:1,quote:input.sources[0].text.slice(0,200)}]}]};
   });
   return { embedding, structured };
 }
@@ -69,12 +70,12 @@ test.skipIf(!!process.env.JUDE_TEST_DATABASE_URL)('SQLite retrieval is case-scop
   expect(retrieve(w,'Who delivered the containers?',[],'en')).toHaveLength(0);
   const first = await answerQuestion(w,'Who delivered the containers?',[],'en');
   expect(first).toMatchObject({mode:'ai',retrieval:'hybrid',citations:[{kind:'passage',id:c.passage}]});
-  expect(first.text).toContain('Sari menyerahkan tiga kotak');
+  expect(first.text).toMatchObject({ en: expect.stringContaining('Sari menyerahkan tiga kotak') });
   expect(p.embedding).toHaveBeenCalledTimes(2);
   await answerQuestion(w,'Who delivered the containers?',[],'en');
   expect(p.embedding).toHaveBeenCalledTimes(3); // only the question is re-embedded
   await mutateWorkspace(c.session.organization.id,c.caseId,w=>{w.passages[0].text='Budi menyerahkan dua kotak pada pukul 10.00.';});
-  expect((await answerQuestion(await c.workspace(),'Who delivered the containers?',[],'en')).text).toContain('Budi');
+  expect((await answerQuestion(await c.workspace(),'Who delivered the containers?',[],'en')).text).toMatchObject({ en: expect.stringContaining('Budi') });
   expect(p.embedding).toHaveBeenCalledTimes(5);
   const other = await fixture();
   await answerQuestion(await other.workspace(),'Who delivered the containers?',[],'en');
@@ -137,7 +138,7 @@ test('switching documents excludes previous questions and answers from the new m
 test.each(['incomplete','unverified','unavailable'] as const)('provider %s returns a diagnosed, grounded fallback',async issue=>{
   const c = await fixture(), p = providers();
   if(issue==='incomplete')p.structured.mockResolvedValue(null);
-  if(issue==='unverified')p.structured.mockResolvedValue({paragraphs:[{summary:'A claim',citations:[{evidence:1,quote:'invented quotation'}]}]});
+  if(issue==='unverified')p.structured.mockResolvedValue({paragraphs:[{summary:{id:'Pernyataan',en:'A claim'},citations:[{evidence:1,quote:'invented quotation'}]}]});
   if(issue==='unavailable')p.structured.mockRejectedValue(new Error('private provider diagnostic'));
   const answer = await answerQuestion(await c.workspace(),'kotak',[],'id');
   expect(answer).toMatchObject({mode:'sources-only',issue,citations:[{kind:'passage',id:c.passage}]});
@@ -187,7 +188,7 @@ test('a source edited during generation cannot become a stale citation',async()=
   const c=await fixture(),p=providers();
   p.structured.mockImplementation(async()=>{
     await mutateWorkspace(c.session.organization.id,c.caseId,w=>{w.passages[0].text='Budi membawa satu kotak.';});
-    return {paragraphs:[{summary:'Catatan menyebut Sari.',citations:[{evidence:1,quote:'Sari menyerahkan tiga kotak'}]}]};
+    return {paragraphs:[{summary:{id:'Catatan menyebut Sari.',en:'The record names Sari.'},citations:[{evidence:1,quote:'Sari menyerahkan tiga kotak'}]}]};
   });
   await c.workspace();
   expect((await c.client.request(c.path,'POST',{text:'kotak',withLegal:false})).status).toBe(409);
@@ -207,7 +208,7 @@ test('revoked write access during generation prevents saving the answer',async()
   const c=await fixture(),p=providers();
   p.structured.mockImplementation(async()=>{
     await transaction(db=>db.query('UPDATE case_members SET role=$1 WHERE case_id=$2 AND user_id=$3',['viewer',c.caseId,c.session.user.id]));
-    return {paragraphs:[{summary:'Catatan menyebut Sari.',citations:[{evidence:1,quote:'Sari menyerahkan tiga kotak'}]}]};
+    return {paragraphs:[{summary:{id:'Catatan menyebut Sari.',en:'The record names Sari.'},citations:[{evidence:1,quote:'Sari menyerahkan tiga kotak'}]}]};
   });
   await c.workspace();
   expect((await c.client.request(c.path,'POST',{text:'kotak',withLegal:false})).status).toBe(403);

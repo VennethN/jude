@@ -58,7 +58,7 @@ test('later testimony produces a cited finding while the first model call is sti
     if (turn.id === first.id) await heldCall;
     return {
       checkable: true, status: 'supported', said: line, title: copy, explanation: copy, verify: copy,
-      uncertainty: copy, question: 'Kapan gerbang diperiksa?',
+      uncertainty: copy, question: { id: 'Kapan gerbang diperiksa?', en: 'When was the gate checked?' },
       sources: [{ passageId: 'log-' + turn.id, match: line, relation: 'supports' }],
     };
   });

@@ -18,7 +18,7 @@
   } as const;
   let selected = $state(0);
   let source = $derived(sources[selected]);
-  let passage = $derived(around(record[source.key], source.mark));
+  let passage = $derived(around(record[source.key], source.mark[lang]));
   let ready = $state(false);
   onMount(() => {
     ready = true;
@@ -51,7 +51,7 @@
 {#if mode === 'lines'}
   <ol class="show-lines">
     {#each sources as item, index (item.key)}
-      {@const quote = deskQuote(item.key, record)}
+      {@const quote = deskQuote(item.key, record, lang)}
       <li style:--k={index}>
         <span class="sl-n" aria-hidden="true">{index + 1}</span>
         <span class="sl-meta">
@@ -61,7 +61,7 @@
             />{/if}
           {translate(lang, metadata[item.key])}
         </span>
-        <span class="sl-text" lang="id" class:typed={item.key !== 'testimony'}
+        <span class="sl-text" lang={lang} class:typed={item.key !== 'testimony'}
           >{quote[0]}<mark>{quote[1]}</mark>{quote[2]}</span
         >
       </li>
@@ -92,11 +92,12 @@
           </nav>
         {/if}
         <div class="reading excerpt" aria-live="polite" aria-atomic="true">
-          <blockquote lang="id" class:testimony={source.key === 'testimony'}>
+          <p class="translation-note">{translate(lang, "lp.translatedSample")}</p>
+          <blockquote lang={lang} class:testimony={source.key === 'testimony'}>
             {passage[0]}<mark>{passage[1]}</mark>{passage[2]}
           </blockquote>
           <a href={source.href}
-            >{lang === 'id' ? 'Buka sumber dalam perkara' : 'Open source in case'}
+            >{translate(lang, 'lp.original')}
             <ArrowUpRight size={15} aria-hidden="true" /></a
           >
         </div>
@@ -184,6 +185,11 @@
   }
   .excerpt {
     padding-top: 0.65rem;
+  }
+  .translation-note {
+    margin: 0 0 0.65rem;
+    color: var(--lp-muted);
+    font: 500 0.8rem/1.4 var(--pub-body);
   }
   .excerpt blockquote {
     margin: 0;

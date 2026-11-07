@@ -148,7 +148,7 @@ test('private messages resolve public identifiers only and save immutable, case-
   const thread = await c.send(question, { contexts }, key);
   const answer = thread.messages[1];
   expect(answer.citations).toEqual([{ kind: 'statement', id: statement.id }]);
-  expect(answer.text).toContain(secret);
+  expect(answer.text).toMatchObject({ id: expect.stringContaining(secret), en: expect.stringContaining(secret) });
   expect(answer.legal).toEqual([expect.stringMatching(/^pasal-[a-f0-9]{32}$/)]);
   expect(requests).toHaveLength(2);
   const id = answer.legal![0];
@@ -233,7 +233,7 @@ test('provider outages, missing keys and non-regulatory private questions preser
   expect(fetch).not.toHaveBeenCalled();
   const answer = (await c.send(secret + ' UU 5/2025', { contexts })).messages.at(-1)!;
   expect(new URL(String(fetch.mock.calls[0][0])).searchParams.get('q')).toBe('UU Nomor 5 Tahun 2025');
-  expect(answer.text).toContain(secret);
+  expect(answer.text).toBe('“' + secret + '” [1]');
   expect(answer.legal).toBeUndefined();
   expect((await c.workspace()).legalDiscovery).toBe('unavailable');
   expect((await c.send('Pasal 809', { contexts })).messages.at(-1)?.legal).toBeUndefined();
@@ -336,6 +336,7 @@ test.each(['verified', 'uncited', 'outage'] as const)(
       w.statements[0].phase = 'queued';
     });
     const l10n = { id: 'Periksa dokumen pendukung.', en: 'Check the supporting record.' };
+    const question = { id: 'Dapatkah Anda memeriksa tanggalnya?', en: 'Could you check the date?' };
     const ai = vi.spyOn(model, 'structured').mockImplementation(async (task) =>
       task === 'review'
         ? { accept: true }
@@ -347,7 +348,7 @@ test.each(['verified', 'uncited', 'outage'] as const)(
             explanation: l10n,
             verify: l10n,
             uncertainty: l10n,
-            question: 'Dapatkah Anda memeriksa tanggalnya?',
+            question,
             sources: [{ passageId, match: quote, relation: 'context' }],
           },
     );
@@ -391,6 +392,8 @@ test.each(['verified', 'uncited', 'outage'] as const)(
       hearingId: h.id,
       statementId: line.id,
       said,
+      question: question.id,
+      questionTranslation: question,
       sources: [{ passageId, match: quote, relation: 'context' }],
     });
     expect(result.connections).toHaveLength(1);
@@ -439,8 +442,10 @@ test('the exact constitutional question returns the primary UUD record without a
   });
   const request = 'what is the most relevant uud to this';
   const answer = (await c.send(request)).messages.at(-1)!;
-  expect(answer.text).toContain(constitutionWork.title);
-  expect(answer.text).toContain('Which right');
+  expect(answer.text).toMatchObject({
+    id: expect.stringContaining(constitutionWork.title), en: expect.stringContaining(constitutionWork.title),
+  });
+  expect(answer.text).toMatchObject({ id: expect.stringContaining('Hak, tindakan'), en: expect.stringContaining('Which right') });
   expect(answer.citations).toEqual([]);
   expect(answer.legal).toHaveLength(1);
   expect(await c.client.ok(c.base + '/legal/' + answer.legal![0])).toMatchObject({
@@ -449,10 +454,10 @@ test('the exact constitutional question returns the primary UUD record without a
   expect(fetch).toHaveBeenCalledTimes(1);
   expect(urls[0].href).not.toMatch(/private|Riana|relevant/);
   const disabled = (await c.send(request, { withLegal: false })).messages.at(-1)!;
-  expect(disabled.text).toMatch(/switched off/);
+  expect(disabled.text).toMatchObject({ en: expect.stringMatching(/switched off/) });
   expect(disabled.legal).toBeUndefined();
   const demo = await caseThread(true);
-  expect((await demo.send(request)).messages.at(-1)?.text).toMatch(/sample legal index/);
+  expect((await demo.send(request)).messages.at(-1)?.text).toMatchObject({ en: expect.stringMatching(/sample legal index/) });
   expect(fetch).toHaveBeenCalledTimes(1);
 });
 
@@ -482,11 +487,12 @@ test('English and Indonesian legal intent use only the controlled topic in the a
   const ordinary = (await c.send('Undang-undang apa yang mengatur hal ini?', { contexts: [{ kind: 'document', id: 'jobs' }] })).messages.at(-1)!;
   expect(await c.client.ok(c.base + '/legal/' + ordinary.legal![0])).toMatchObject({ type: 'UU' });
   expect(ordinary.citations).toEqual([{ kind: 'passage', id: 'jobsp' }]);
-  expect(ordinary.text).not.toContain(privateB);
+  expect(JSON.stringify(ordinary.text)).not.toContain(privateB);
   const charter = (await c.send('What is the most relevant UUD to this?', { contexts: [{ kind: 'document', id: 'school' }] })).messages.at(-1)!;
   expect(await c.client.ok(c.base + '/legal/' + charter.legal![0])).toMatchObject({ type: 'UUD', article: 'Pasal 31', sourceUrl: constitutionUrl + '/pasal-31' });
   expect(charter.citations).toEqual([{ kind: 'passage', id: 'schoolp' }]);
-  expect(charter.text).not.toContain(privateA);
+  expect(charter.text).toMatchObject({ en: expect.stringContaining(privateB), id: expect.stringContaining(privateB) });
+  expect(JSON.stringify(charter.text)).not.toContain(privateA);
   const outbound = requests.map(url => decodeURIComponent(url.href)).join(' ');
   expect(outbound).not.toMatch(/Saksi|Anonim|081278|Rahasia|dokumen|jobs|school|relevan|Riana|mengatur|menjelaskan/);
 });
@@ -496,12 +502,12 @@ test('zero matches, missing context, and provider outages have different answers
   const fetch = network(url => url.searchParams.get('q') === 'UU Nomor 997 Tahun 2025'
     ? Response.json({ total: 0, results: [] }) : new Response(null, { status: 503 }));
   const vague = (await c.send('Which law applies to this?')).messages.at(-1)!;
-  expect(vague.text).toContain('Which legal issue');
+  expect(vague.text).toMatchObject({ en: expect.stringContaining('Which legal issue') });
   expect(fetch).not.toHaveBeenCalled();
   const empty = (await c.send('Which provisions of Law No. 997 of 2025 apply?')).messages.at(-1)!;
-  expect(empty.text).toContain('no verified match');
+  expect(empty.text).toMatchObject({ en: expect.stringContaining('no verified match') });
   expect(empty.legal).toBeUndefined();
   const failed = (await c.send('Find UU No. 996 Tahun 2025')).messages.at(-1)!;
-  expect(failed.text).toContain('unavailable');
+  expect(failed.text).toMatchObject({ en: expect.stringContaining('unavailable') });
   expect(failed.legal).toBeUndefined();
 });

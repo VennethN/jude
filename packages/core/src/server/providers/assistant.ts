@@ -94,8 +94,8 @@ export async function retrieve(w: Workspace, query: string, refs: ContextRef[], 
   }
 }
 const citationInstructions = [
-  'Write clear paragraphs in the requested interface language. Keep the original language of the evidence quotes.',
-  'Use plain prose for short answers. When a longer answer benefits from structure, use concise Markdown headings in the requested language, selective bold or italic emphasis, and short bulleted or numbered lists.',
+  'Write each summary in Indonesian (summary.id) and English (summary.en) with the same meaning, formatting, and supporting sources. Keep each evidence quote verbatim in its original language.',
+  'Use plain prose for short answers. When a longer answer benefits from structure, use concise Markdown headings in each language, selective bold or italic emphasis, and short bulleted or numbered lists.',
   'Place a heading on its own line at the start of a summary that also contains supported prose. Give each distinct list item its own cited summary. Do not include Markdown links or HTML.',
   'Give each material assertion a citation to a numbered source and a short exact substring from that source.',
   'When comparing accounts, cite each side. Prefer the original testimony and documents over derivative findings.',
@@ -164,19 +164,19 @@ export async function answerQuestion(
   if (!sources.length) return { ...fallback, issue: 'insufficient' };
   const partials: AnswerParagraph[] = [];
   let validPrefix = true;
-  const acceptDelta = onPartial && readParagraphs(value => {
+  const acceptDelta = onPartial && readParagraphs(lang, value => {
     if (!validPrefix || partials.length >= 8 || !checkedParagraph(value, sources)) { validPrefix = false; return; }
     partials.push(value);
     onPartial(composeAnswer(fallback.id, partials, sources));
   }, value => {
-    if (validPrefix && partials.length < 8 && checkedParagraph(value, sources)) {
+    if (validPrefix && partials.length < 8 && checkedParagraph(value, sources, lang)) {
       onPartial(composeAnswer(fallback.id, [...partials, value], sources, true));
     }
   });
   try {
     progress?.('answering');
     const instructions = [
-      'Answer in ' + (lang === 'id' ? 'Indonesian.' : 'English.'),
+      'Write the ' + (lang === 'id' ? 'Indonesian' : 'English') + ' summary first.',
       overview ? summaryInstructions : 'Answer the specific question directly, within the selected context.',
       citationInstructions,
       'Use conversation history only to interpret the question, never as evidence.',
@@ -187,7 +187,7 @@ export async function answerQuestion(
       ...(overview && { case: { title: w.caseRecord.title, reference: w.caseRecord.reference, summary: w.caseRecord.summary[lang] }, issues: overview.issues }),
       boards: boards.map(b => ({ name: b.name, cards: b.cards, links: b.links })),
       sources: sources.map((s, i) => ({ number: i + 1, kind: s.kind, label: s.group, text: s.text.slice(0, 3600) })),
-    }, answerSchema, acceptDelta, signal);
+    }, answerSchema(lang), acceptDelta, signal);
     signal?.throwIfAborted();
     if (!answer || typeof answer !== 'object' || !('paragraphs' in answer) || !Array.isArray(answer.paragraphs)) return { ...fallback, issue: answer === null ? 'incomplete' : 'unverified' };
     const { paragraphs } = answer;

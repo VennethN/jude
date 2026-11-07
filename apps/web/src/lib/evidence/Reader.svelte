@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
@@ -185,7 +186,7 @@
   </div>
 {/snippet}
 
-<svelte:head><title>{doc.title} · Jude</title></svelte:head>
+<svelte:head><title>{displayTitle(doc, lang)} · Jude</title></svelte:head>
 <svelte:document onselectionchange={readSelection} />
 <div class="ev-page" data-tour="reader">
   <a class="ev-link" href={casePath(w) + '/documents'}
@@ -193,7 +194,8 @@
   >
   <header class="ev-head">
     <PageHeading art="page" compact>
-      <h1>{doc.title}</h1>
+      <h1>{displayTitle(doc, lang)}</h1>
+      <p class="ev-meta">{id ? 'Dokumen ditampilkan dalam bahasa aslinya.' : 'This document is shown in its original language.'}</p>
       <p>{local(doc.kind, lang)} · {doc.file} · {doc.pages} {id ? 'halaman' : 'pages'}</p>
     </PageHeading>
     <div class="ev-actions">

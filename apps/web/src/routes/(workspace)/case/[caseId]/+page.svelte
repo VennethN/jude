@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayCourt, displayTitle, formatDate, timecode } from '$lib/workspace/format';
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
@@ -22,7 +23,7 @@
     Archive,
     Trash2,
   } from '@lucide/svelte';
-  import { api } from '$lib/client';
+  import { ApiError, api } from '$lib/client';
   import { needsReview } from '@jude/core/domain';
   import FindingLink from '$lib/evidence/FindingLink.svelte';
   import CaseForm from '$lib/workspace/CaseForm.svelte';
@@ -30,7 +31,6 @@
   import HearingRow from '$lib/workspace/HearingRow.svelte';
   import { voice } from '$lib/workspace/hearing-detail/people';
   import { casePrompts } from '$lib/workspace/case-prompts';
-  import { formatDate, timecode } from '$lib/workspace/format';
   let { data } = $props();
   const w = $derived(data.workspace),
     c = $derived(w.caseRecord),
@@ -84,12 +84,12 @@
       await invalidateAll();
       await goto('/cases');
     } catch (e) {
-      message = e instanceof Error ? e.message : en ? 'Please try again.' : 'Coba lagi.';
+      message = e instanceof ApiError ? e.message : en ? 'Please try again.' : 'Coba lagi.';
     }
   }
 </script>
 
-<svelte:head><title>{c.title} · Jude</title></svelte:head>
+<svelte:head><title>{displayTitle(c, data.lang)} · Jude</title></svelte:head>
 <div class="overview">
   <header class="file-head">
     <div class="file-id" data-tour="case-file">
@@ -104,7 +104,7 @@
       >{#if c.reference}<span>{c.reference}</span>{/if}
     </div>
     <PageHeading art="folder">
-      <h1>{c.title}</h1>
+      <h1>{displayTitle(c, data.lang)}</h1>
       {#if c.summary[data.lang]}<p class="summary">{c.summary[data.lang]}</p>{/if}
     </PageHeading>
     <dl class="facts">
@@ -114,7 +114,7 @@
       </div>
       <div>
         <dt>{en ? 'Court' : 'Pengadilan'}</dt>
-        <dd>{c.court || '—'}</dd>
+        <dd>{displayCourt(c, data.lang) || '—'}</dd>
       </div>
     </dl>
     {#if !empty && !c.archived}<div class="case-actions">
@@ -306,7 +306,7 @@
           {#each w.documents.slice(0, 4) as doc (doc.id)}<a
               class="doc-row"
               href={base + '/documents/' + doc.id}
-              ><FileText size={15} /><span>{doc.title}</span><small>{doc.pages} {en ? 'pp.' : 'hlm.'}</small
+              ><FileText size={15} /><span>{displayTitle(doc, data.lang)}</span><small>{doc.pages} {en ? 'pp.' : 'hlm.'}</small
               ></a
             >{/each}
           {#if w.documents.length > 4}<a class="text-action" href={base + '/documents'}

@@ -41,7 +41,7 @@ test('English and Indonesian whole-case prompts include both records even with n
 });
 
 test('streams one-paragraph answers before completion and checks every quoted source', async () => {
-  const value = { citations: proof, summary: 'Nara recalled completion before the time recorded for signing.' };
+  const value = { citations: proof, summary: { en: 'Nara recalled completion before the time recorded for signing.', id: 'Menurut Nara pekerjaan selesai sebelum waktu tanda tangan yang tercatat.' } };
   const original = JSON.stringify({ paragraphs: [value] });
   const partials: string[] = [];
   vi.stubEnv('OPENAI_API_KEY', 'test');
@@ -54,35 +54,35 @@ test('streams one-paragraph answers before completion and checks every quoted so
     delta(original.slice(end));
     return { paragraphs: [value] };
   });
-  const result = await answerQuestion(fixture(), 'Summarize the case.', [], 'en', true, undefined, message => partials.push(String(message.text)));
+  const result = await answerQuestion(fixture(), 'Summarize the case.', [], 'en', true, undefined, message => { if (typeof message.text !== 'string') partials.push(message.text.en); });
   expect(result.mode).toBe('ai');
-  expect(result.text).toBe(value.summary + ' [1] [2]');
+  expect(result.text).toEqual({ en: value.summary.en + ' [1] [2]', id: value.summary.id + ' [1] [2]' });
   expect(result.citations?.map(s => s.id)).toEqual(['register', 'memory']);
-  expect(partials.at(-1)).toEqual(result.text);
+  expect(partials.at(-1)).toBe(value.summary.en + ' [1] [2]');
 });
 
 test('fragmented strings, nested quotations and repeated proofs retain their source numbering', () => {
   const evidence = [{ ...primary[0], text: 'Nara wrote "signed {at} the gate" in her log.' }];
   const citation = { evidence: 1, quote: '"signed {at} the gate"' };
-  const part = { citations: [citation, citation], summary: 'The log identifies the signing location.' };
+  const part = { citations: [citation, citation], summary: { id: 'Lokasi penandatanganan tercantum dalam catatan.', en: 'The log identifies the signing location.' } };
   const complete: AnswerParagraph[] = [];
   const previews: string[] = [];
-  const parse = readParagraphs(value => {
+  const parse = readParagraphs('id', value => {
     expect(checkedParagraph(value, evidence)).toBe(true);
     complete.push(value as AnswerParagraph);
   }, value => {
-    if (checkedParagraph(value, evidence)) previews.push(value.summary);
+    if (checkedParagraph(value, evidence, 'id')) previews.push(value.summary.id);
   });
   for (const ch of JSON.stringify({ paragraphs: [part] })) parse(ch);
   expect(previews.length).toBeGreaterThan(0);
   expect(complete).toEqual([part]);
   const result = composeAnswer('id', complete, evidence);
-  expect(result.text).toBe(part.summary + ' [1]');
+  expect(result.text).toEqual({ id: part.summary.id + ' [1]', en: part.summary.en + ' [1]' });
   expect(result.citations).toHaveLength(1);
 });
 
 test('neither partial previews nor the finished answer publish an invented quotation', async () => {
-  const invalid = { citations: [{ evidence: 1, quote: 'time certified independently' }], summary: 'Both times were certified by the recorder.' };
+  const invalid = { citations: [{ evidence: 1, quote: 'time certified independently' }], summary: { en: 'Both times were certified by the recorder.', id: 'Kedua waktu disahkan oleh pencatat.' } };
   vi.stubEnv('OPENAI_API_KEY', 'test');
   model.mockImplementation(async (_task, _instructions, _input, _schema, delta: (token: string) => void) => {
     for (const c of JSON.stringify({ paragraphs: [invalid] })) delta(c);

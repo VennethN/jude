@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { findingQuestion } from '$lib/workspace/format';
   import { ArrowRight, ChevronRight } from '@lucide/svelte';
   import { page } from '$app/state';
   import type { Finding, Lang, Workspace } from '@jude/core/domain';
@@ -47,7 +48,7 @@
     <span class="body">
       <span class="meta"><span>{status}</span>{#if statement}<span>{clock(statement.t)}</span>{/if}{#if hearing}<span>{lang === 'id' ? 'Sidang' : 'Hearing'} {hearing.number}</span>{/if}</span>
       <span class="finding-title">{title}</span>
-      {#if variant === 'lead' && finding.question}<span class="suggested"><b>{lang === 'id' ? 'Bisa ditanyakan' : 'You could ask'}</b> <span lang="id">{finding.question}</span></span>{/if}
+      {#if variant === 'lead' && findingQuestion(finding, lang)}<span class="suggested"><b>{lang === 'id' ? 'Bisa ditanyakan' : 'You could ask'}</b> <span lang={finding.questionTranslation ? lang : 'id'}>{findingQuestion(finding, lang)}</span></span>{/if}
     </span>
   {/if}
   {#if variant === 'lead'}<span class="quick-label">{lang === 'id' ? 'Lihat temuan' : 'View finding'}</span>{/if}

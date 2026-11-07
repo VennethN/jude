@@ -4,6 +4,15 @@ import { speakerIdentity } from '@jude/core/speakers';
 export function localized(value: string | L10n | null | undefined, lang: Lang) {
   return typeof value === 'string' ? value : value?.[lang] ?? '';
 }
+export function displayTitle(record: { title: string; displayTitle?: L10n } | undefined, lang: Lang) {
+  return record?.displayTitle?.[lang] ?? record?.title ?? '';
+}
+export function displayCourt(record: { court: string; displayCourt?: L10n }, lang: Lang) {
+  return record.displayCourt?.[lang] ?? record.court;
+}
+export function findingQuestion(finding: Finding, lang: Lang) {
+  return finding.questionTranslation?.[lang] ?? finding.question;
+}
 export function formatDate(value: string, lang: Lang, short = false) {
   const date = new Date(value.length === 10 ? value + 'T00:00:00+07:00' : value);
   if (Number.isNaN(date.getTime())) return value;
@@ -18,5 +27,5 @@ export function displaySpeaker(speakers: Speaker[], id: string, lang: Lang) {
   return speakerIdentity(speakers, id, lang).name;
 }
 export function initials(name: string) {
-  return name.replace(/^(Saksi|Terdakwa) /i, '').split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
+  return name.replace(/^(Saksi|Terdakwa|Witness|Defendant) /i, '').split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();
 }

@@ -1,10 +1,11 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { tick } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { Search, FileText, ArrowRight, Link2 } from '@lucide/svelte';
-  import { write } from '$lib/client';
+  import { ApiError, write } from '$lib/client';
   import type { Relation } from '@jude/core/domain';
   import type { PageData } from './$types';
   import Dialog from '$lib/workspace/Dialog.svelte';
@@ -55,7 +56,7 @@
     )
   );
   let resultDocs = $derived(
-    w.documents.filter((d) => d.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    w.documents.filter((d) => (displayTitle(d, lang) + ' ' + d.title).toLocaleLowerCase(lang).includes(query.trim().toLocaleLowerCase(lang)))
   );
   let hits = $derived(
     graph.nodes.filter((n) =>
@@ -100,7 +101,7 @@
       await write(apiPath(w, path), method, body);
       return true;
     } catch (error) {
-      problem = error instanceof Error ? error.message : id ? 'Perubahan gagal.' : 'Change failed.';
+      problem = error instanceof ApiError ? error.message : id ? 'Perubahan gagal.' : 'Change failed.';
       return false;
     } finally {
       busy = false;
@@ -197,7 +198,7 @@
       <div class="pick-list">
         {#each resultDocs as doc (doc.id)}<button onclick={() => choose('document:' + doc.id, true)}
             ><FileText size={17} /><span
-              ><strong>{doc.title}</strong><small>{id ? 'Seluruh dokumen' : 'Entire document'}</small></span
+              ><strong>{displayTitle(doc, lang)}</strong><small>{id ? 'Seluruh dokumen' : 'Entire document'}</small></span
             ><ArrowRight size={15} /></button
           >{/each}
         {#each hits as n (n.key)}<button onclick={() => choose(n.key, true)}

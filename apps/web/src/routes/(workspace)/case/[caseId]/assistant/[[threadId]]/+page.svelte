@@ -2,7 +2,7 @@
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { write } from '$lib/client';
+  import { ApiError, write } from '$lib/client';
   import { ArrowLeft, Search, SquarePen, Trash2 } from '@lucide/svelte';
   import type { PageData } from './$types';
   import type { ContextRef, Thread } from '@jude/core/domain';
@@ -78,7 +78,7 @@
       confirmDelete = '';
       if (active === threadId) await goto(base);
     } catch (e) {
-      problem = e instanceof Error ? e.message : id ? 'Penghapusan gagal.' : 'Could not delete.';
+      problem = e instanceof ApiError ? e.message : id ? 'Penghapusan gagal.' : 'Could not delete.';
     } finally {
       busy = false;
     }
@@ -91,7 +91,7 @@
       await write(apiPath(w, 'threads/' + encodeURIComponent(deleted) + '/restore'), 'POST');
       deleted = '';
     } catch (e) {
-      problem = e instanceof Error ? e.message : id ? 'Pemulihan gagal.' : 'Could not restore.';
+      problem = e instanceof ApiError ? e.message : id ? 'Pemulihan gagal.' : 'Could not restore.';
     } finally {
       busy = false;
     }

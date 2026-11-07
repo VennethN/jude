@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto, invalidateAll } from '$app/navigation';
   import type { CaseRecord, Lang } from '@jude/core/domain';
-  import { api } from '$lib/client';
+  import { ApiError, api } from '$lib/client';
   import Dialog from './Dialog.svelte';
   let {record,lang,close}:{record?:CaseRecord;lang:Lang;close:()=>void}=$props();
   const en=$derived(lang==='en');
@@ -9,7 +9,7 @@
   $effect(()=>{if(record){title=record.title;reference=record.reference;court=record.court;client=record.client;summary=record.summary[lang]}});
   async function submit(e:SubmitEvent){e.preventDefault();if(busy)return;busy=true;message='';try{
     const item=await api<CaseRecord>(record?'/api/cases/'+record.id:'/api/cases',record?'PATCH':'POST',{title,reference,court,client,summary:record?{...record.summary,[lang]:summary}:summary});close();await invalidateAll();if(!record)await goto('/case/'+item.id);
-  }catch(e){message=e instanceof Error?e.message:(en?'Could not save case.':'Perkara belum tersimpan.')}finally{busy=false}}
+  }catch(e){message=e instanceof ApiError?e.message:(en?'Could not save case.':'Perkara belum tersimpan.')}finally{busy=false}}
 </script>
 <Dialog title={record?(en?'Case settings':'Pengaturan perkara'):(en?'New case':'Perkara baru')} {lang} {close}>
 <form class="stack" onsubmit={submit}>

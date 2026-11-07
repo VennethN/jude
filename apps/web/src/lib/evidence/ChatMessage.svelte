@@ -143,6 +143,11 @@
         <span class="mode">{id ? 'Perkara sintetis' : 'Synthetic case'}</span>
       {/if}
     </header>
+    {#if m.mode === 'sources-only' && cited.length}
+      <p class="ev-meta">{id ? 'Kutipan berikut mempertahankan bahasa dan redaksi sumber.' : 'The quotations below retain the source language and exact wording.'}</p>
+    {:else if m.mode === 'ai' && !streaming && typeof m.text === 'string'}
+      <p class="ev-meta">{id ? 'Jawaban tersimpan · bahasa asli' : 'Saved answer · original language'}</p>
+    {/if}
     {#each notices as notice}<p class="notice">{notice}</p>{/each}
     {#if answer}
       {#if m.mode === 'ai'}

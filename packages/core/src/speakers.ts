@@ -28,7 +28,7 @@ export function speakerIdentity(speakers: Speaker[], id: string, lang: Lang) {
   const person = (raw?.alias ? speakers.find(speaker => speaker.id === raw.alias) : undefined) ?? raw;
   const number = person?.voiceNumber ?? legacyVoiceNumber(person?.id ?? id);
   const unidentified = lang === 'id' ? 'Pembicara belum dikenali' : 'Unidentified speaker';
-  const name = person?.label || raw?.label ||
+  const name = person?.displayLabel?.[lang] || person?.label || raw?.displayLabel?.[lang] || raw?.label ||
     (number === undefined ? unidentified : (lang === 'id' ? 'Suara ' : 'Voice ') + number);
   return { raw, person, name };
 }

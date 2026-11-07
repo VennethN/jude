@@ -31,6 +31,8 @@ export type Role =
 export interface Speaker {
   id: string;
   label: string;
+  /** Display-only translation for synthetic examples; the stored label stays original. */
+  displayLabel?: L10n;
   role: Role;
   /** A display number for a grouped voice that has not yet been named. */
   voiceNumber?: number;
@@ -43,6 +45,9 @@ export interface Speaker {
 export interface CaseRecord {
   id: string;
   title: string;
+  /** Display-only translations for synthetic examples, never written back to the record. */
+  displayTitle?: L10n;
+  displayCourt?: L10n;
   reference: string;
   label: "synthetic" | "private";
   summary: L10n;
@@ -95,6 +100,8 @@ export type Basis = { kind: "finding"; id: string } | { kind: "passage"; id: str
 export interface ReplySuggestion {
   /** What could be said, in the court's language. */
   text: string;
+  /** Optional translation of generated courtroom wording, never testimony. */
+  textTranslation?: L10n;
   basis: Basis;
   /** Why it is offered, in the interface's language. */
   why: L10n;
@@ -122,6 +129,8 @@ export interface CaseDocument {
   id: string;
   caseId: string;
   title: string;
+  /** Interface label only; the original document and its title remain unchanged. */
+  displayTitle?: L10n;
   kind: L10n;
   pages: number;
   file: "PDF" | "DOCX" | "TXT" | "MD";
@@ -164,6 +173,8 @@ export interface Finding {
   uncertainty?: L10n;
   /** Suggested question in the courtroom language (Indonesian). */
   question: string;
+  /** Bilingual generated draft; verbatim evidence remains in said/sources. */
+  questionTranslation?: L10n;
   /** The phrase in the testimony that the finding is about. */
   said?: string;
   sources: FindingSource[];

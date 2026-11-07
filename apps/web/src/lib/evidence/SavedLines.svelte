@@ -1,6 +1,6 @@
 <script lang="ts">
   import { Bookmark, Pencil } from '@lucide/svelte';
-  import { write } from '$lib/client';
+  import { ApiError, write } from '$lib/client';
   import type { Lang, Statement, Workspace } from '@jude/core/domain';
   import { apiPath, boardPath, sourceOf } from './records';
   let {
@@ -27,7 +27,7 @@
       if (fields.flagged === false) removed = s;
       if (fields.flagged === true) removed = null;
     } catch (e) {
-      problem = e instanceof Error ? e.message : id ? 'Gagal menyimpan.' : 'Could not save.';
+      problem = e instanceof ApiError ? e.message : id ? 'Gagal menyimpan.' : 'Could not save.';
     } finally {
       busy = false;
     }

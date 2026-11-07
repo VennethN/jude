@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
@@ -181,7 +182,7 @@
           href={href({ doc: null })}
           aria-label={id ? 'Hapus filter dokumen' : 'Clear document filter'}
         >
-          <span>{w.documents.find((d) => d.id === byD)?.title ?? (id ? 'Dokumen' : 'Document')}</span><X
+          <span>{displayTitle(w.documents.find((d) => d.id === byD), lang) || (id ? 'Dokumen' : 'Document')}</span><X
             size={14}
           /></a
         >{/if}

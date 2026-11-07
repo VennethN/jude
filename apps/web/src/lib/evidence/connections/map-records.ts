@@ -1,5 +1,5 @@
 import type { Lang, Workspace, L10n } from '@jude/core/domain';
-import { displaySpeaker } from '$lib/workspace/format';
+import { displaySpeaker, displayTitle } from '$lib/workspace/format';
 import { casePath, clock, local, meaningful, statuses } from '../records';
 import type { Kind } from '../graph';
 import { mapText, type MapKey } from './map-copy';
@@ -23,11 +23,15 @@ export function mapRecords(w: Workspace, lang: Lang) {
   const statement = (id: string) => statements.get(id);
   const finding = (id: string) => findings.get(id);
   const doc = (id: string) => documents.get(id);
+  const documentName = (id: string) => {
+    const document = doc(id);
+    return document ? displayTitle(document, lang) : undefined;
+  };
   const passage = (id: string) => passages.get(id);
   const speaker = (id: string) => speakers.get(id);
   const speakerName = (sp: ReturnType<typeof speaker>) => (sp ? displaySpeaker(w.speakers, sp.id, lang) : '');
   const shortName = (sp: ReturnType<typeof speaker>) =>
-    speakerName(sp).replace(/^(Saksi|Witness|Terdakwa)\s+/i, '');
+    speakerName(sp).replace(/^(Saksi|Witness|Terdakwa|Defendant)\s+/i, '');
   function whereOf(key: string) {
     const id = idOf(key),
       kind = kindOf(key);
@@ -40,7 +44,7 @@ export function mapRecords(w: Workspace, lang: Lang) {
     }
     if (kind === 'passage') {
       const p = passage(id);
-      return p ? [doc(p.docId)?.title, t('common.page', { n: p.page })].filter(Boolean).join(' · ') : '';
+      return p ? [documentName(p.docId), t('common.page', { n: p.page })].filter(Boolean).join(' · ') : '';
     }
     const f = finding(id),
       s = f && statement(f.statementId);
@@ -54,7 +58,7 @@ export function mapRecords(w: Workspace, lang: Lang) {
       : t('cx.group.around', {
           what:
             picked.length > 1
-              ? (doc(passage(idOf(picked[0]))?.docId ?? '')?.title ?? whereOf(picked[0]))
+              ? (documentName(passage(idOf(picked[0]))?.docId ?? '') ?? whereOf(picked[0]))
               : picked[0]
                 ? whereOf(picked[0])
                 : ''

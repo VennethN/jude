@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { findingQuestion } from '$lib/workspace/format';
   import StatusChip from './StatusChip.svelte';
   import FindingComparison from './FindingComparison.svelte';
   import FindingPager, { type FindingNavigation } from './FindingPager.svelte';
@@ -16,7 +17,7 @@
     NotebookPen,
     ChevronDown
   } from '@lucide/svelte';
-  import { write } from '$lib/client';
+  import { ApiError, write } from '$lib/client';
   import type { Finding, InspectTarget, Lang, Workspace } from '@jude/core/domain';
   import { apiPath, assistantPath, boardPath, local } from './records';
   import Inspector from './Inspector.svelte';
@@ -64,7 +65,7 @@
       );
       feedback = id ? 'Perubahan tersimpan.' : 'Changes saved.';
     } catch (e) {
-      problem = e instanceof Error ? e.message : id ? 'Gagal menyimpan.' : 'Could not save.';
+      problem = e instanceof ApiError ? e.message : id ? 'Gagal menyimpan.' : 'Could not save.';
     } finally {
       busy = false;
     }
@@ -78,14 +79,14 @@
         flagged: !line.flagged
       });
     } catch (e) {
-      problem = e instanceof Error ? e.message : id ? 'Perubahan gagal.' : 'Change failed.';
+      problem = e instanceof ApiError ? e.message : id ? 'Perubahan gagal.' : 'Change failed.';
     } finally {
       busy = false;
     }
   }
   async function copy() {
     try {
-      await navigator.clipboard.writeText(f.question);
+      await navigator.clipboard.writeText(findingQuestion(f, lang));
       feedback = id ? 'Pertanyaan disalin.' : 'Question copied.';
     } catch {
       manualCopy = true;
@@ -138,7 +139,8 @@
   <FindingComparison workspace={w} finding={f} {lang} />
   <section class="question" data-tour="finding-question">
     <h3>{id ? 'Bisa ditanyakan' : 'You could ask'}</h3>
-    <blockquote bind:this={question} lang="id">{f.question}</blockquote>
+    <blockquote bind:this={question} lang={f.questionTranslation ? lang : 'id'}>{findingQuestion(f, lang)}</blockquote>
+    {#if lang === 'en' && !f.questionTranslation}<p class="ev-meta">Saved courtroom draft · original wording</p>{/if}
     <button class="text-link" onclick={copy}><Copy size={15} />{id ? 'Salin pertanyaan' : 'Copy question'}</button>
     {#if manualCopy}<p class="ev-meta" role="status">
         {id ? 'Seleksi sudah disiapkan. Salin secara manual.' : 'The question is selected. Use your copy shortcut.'}

@@ -1,4 +1,4 @@
-import { displaySpeaker } from '$lib/workspace/format';
+import { displayTitle, displaySpeaker } from '$lib/workspace/format';
 import type {
   Board,
   Citation,
@@ -77,7 +77,7 @@ export function sourceOf(w: Workspace, ref: RecordRef, lang: Lang, board?: Board
     return {
       key: ref.kind,
       kind: ref.kind,
-      label: scope ? w.caseRecord.title : lang === 'id' ? 'Dokumen' : 'Documents',
+      label: scope ? displayTitle(w.caseRecord, lang) : lang === 'id' ? 'Dokumen' : 'Documents',
       text: '',
       href: scope ? base : base + '/documents'
     };
@@ -88,7 +88,7 @@ export function sourceOf(w: Workspace, ref: RecordRef, lang: Lang, board?: Board
   switch (ref.kind) {
     case 'document': {
       const d = w.documents.find((r) => r.id === ref.id);
-      return d && simple(d.title, local(d.kind, lang), base + '/documents/' + id);
+      return d && simple(displayTitle(d, lang), local(d.kind, lang), base + '/documents/' + id);
     }
     case 'passage': {
       const p = w.passages.find((r) => r.id === ref.id);
@@ -97,7 +97,7 @@ export function sourceOf(w: Workspace, ref: RecordRef, lang: Lang, board?: Board
         p &&
         d &&
         simple(
-          d.title + ' · ' + (lang === 'id' ? 'hal. ' : 'p. ') + p.page,
+          displayTitle(d, lang) + ' · ' + (lang === 'id' ? 'hal. ' : 'p. ') + p.page,
           p.text,
           base + '/documents/' + encodeURIComponent(d.id) + '?p=' + id
         )
@@ -149,7 +149,7 @@ export function sourceOf(w: Workspace, ref: RecordRef, lang: Lang, board?: Board
         d &&
         e &&
         simple(
-          d.title + ' · ' + (lang === 'id' ? 'hal. ' : 'p. ') + e.page,
+          displayTitle(d, lang) + ' · ' + (lang === 'id' ? 'hal. ' : 'p. ') + e.page,
           e.text,
           base +
             '/documents/' +

@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
-  import { api } from '$lib/client';
+  import { ApiError, api } from '$lib/client';
   import DocumentRemoval from '$lib/evidence/DocumentRemoval.svelte';
   import { onMount } from 'svelte';
   import {
@@ -78,7 +79,7 @@
   let term = $derived(query.trim().toLowerCase());
   let docs = $derived(
     w.documents.filter(
-      (d) => !term || (d.title + ' ' + local(d.kind, data.lang)).toLowerCase().includes(term)
+      (d) => !term || (displayTitle(d, data.lang) + ' ' + d.title + ' ' + local(d.kind, data.lang)).toLowerCase().includes(term)
     )
   );
   let passages = $derived(
@@ -96,7 +97,7 @@
       requestKeys.set(file, requestKey);
       try {
         if (file.size > 25 * 1024 * 1024)
-          throw new Error(id ? 'Batas per berkas adalah 25 MB.' : 'The limit is 25 MB per file.');
+          throw new ApiError('document_too_large', '', 413);
         const form = new FormData();
         form.set('file', file);
         form.set('title', file.name.replace(/\.[^.]+$/, '') || file.name);
@@ -107,7 +108,7 @@
         });
         const body = await response.json();
         if (!response.ok)
-          throw new Error(body.error?.message || (id ? 'Gagal mengunggah.' : 'Upload failed.'));
+          throw new ApiError(body.error?.code ?? 'request_failed', body.error?.message ?? '', response.status);
         ready = [...ready, body];
       } catch (e) {
         failed = [
@@ -115,7 +116,7 @@
           {
             file,
             key: requestKey,
-            message: e instanceof Error ? e.message : id ? 'Gagal mengunggah.' : 'Upload failed.'
+            message: e instanceof ApiError ? e.message : id ? 'Gagal mengunggah.' : 'Upload failed.'
           }
         ];
       }
@@ -211,7 +212,7 @@
       {id ? 'Membaca berkas' : 'Reading file'} · {activeFile}
     </p>{/if}
   {#each ready as d (d.id)}<div class="ev-notice ev-inline" role="status">
-      {d.title} · {id ? 'siap dibuka' : 'ready to open'}<a
+      {displayTitle(d, data.lang)} · {id ? 'siap dibuka' : 'ready to open'}<a
         class="ev-link"
         href={casePath(w) + '/documents/' + encodeURIComponent(d.id)}>{id ? 'Buka' : 'Open'}</a
       >
@@ -250,7 +251,7 @@
                     encodeURIComponent(p.id) +
                     '&view=text'}
                   ><span class="ev-cap"
-                    ><BookOpenText size={15} /> {d.title} · {id ? 'hal.' : 'p.'} {p.page}</span
+                    ><BookOpenText size={15} /> {displayTitle(d, data.lang)} · {id ? 'hal.' : 'p.'} {p.page}</span
                   >
                   <p class="ev-record"><Match text={p.text} term={query} /></p></a
                 >
@@ -283,7 +284,7 @@
           <span class="doc-tab" aria-hidden="true"><FileText size={20}/><small>{doc.file}</small></span>
           <div class="doc-body">
             <a class="doc-title" href={casePath(w) + '/documents/' + encodeURIComponent(doc.id)}>
-              <Match text={doc.title} term={query}/>
+              <Match text={displayTitle(doc, data.lang)} term={query}/>
             </a>
             <span class="ev-meta">{local(doc.kind, data.lang)}</span>
             <div class="doc-stats">
@@ -297,7 +298,7 @@
             </div>
             <span class="ev-meta">{id ? 'Ditambahkan' : 'Added'} {dateLabel(doc.added, data.lang)} · {doc.size}</span>
           </div>
-          <button class="file-action" aria-label={(id ? 'Hapus dokumen ' : 'Remove document ') + doc.title}
+          <button class="file-action" aria-label={(id ? 'Hapus dokumen ' : 'Remove document ') + displayTitle(doc, data.lang)}
             title={id ? 'Hapus dokumen' : 'Remove document'} disabled={!interactive || busy}
             onclick={() => (deleting = doc)}><Trash2 size={16}/></button>
         </li>

@@ -21,9 +21,10 @@ export const handle: Handle = async ({ event, resolve }) => {
     }
   }
   event.locals.session = await sessionFromToken(event.cookies.get('jude_session'));
+  event.locals.lang = (event.cookies.get('jude_lang') ?? event.locals.session?.prefs.lang) === 'en' ? 'en' : 'id';
   const response = await resolve(event, {
     transformPageChunk: ({ html }) =>
-      html.replace('%lang%', event.cookies.get('jude_lang') === 'en' ? 'en' : 'id'),
+      html.replace('%lang%', event.locals.lang),
   });
   response.headers.set('X-Content-Type-Options', 'nosniff');
   response.headers.set('Referrer-Policy', 'same-origin');

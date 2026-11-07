@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { findingQuestion } from '$lib/workspace/format';
   import { onMount, tick } from 'svelte';
   import { ArrowRight, ArrowUpRight, ChevronDown, ChevronUp, ClipboardCopy, FileText, X } from '@lucide/svelte';
   import type { Finding, Lang, Reply, Workspace } from '@jude/core/domain';
@@ -121,8 +122,9 @@
     </div>
     <section class="question">
       <h3>{en ? 'You could ask' : 'Bisa ditanyakan'}</h3>
-      <p lang="id">{finding.question}</p>
-      <button class="text-action" onclick={() => copy(finding.question)}><ClipboardCopy size={13}/>{en ? 'Copy question' : 'Salin pertanyaan'}</button>
+      <p lang={finding.questionTranslation ? lang : 'id'}>{findingQuestion(finding, lang)}</p>
+      {#if en && !finding.questionTranslation}<small>Saved courtroom draft · original wording</small>{/if}
+      <button class="text-action" onclick={() => copy(findingQuestion(finding, lang))}><ClipboardCopy size={13}/>{en ? 'Copy question' : 'Salin pertanyaan'}</button>
     </section>
     {#if statement || source}<div class="source-pair">
       {#if statement && speaker}<section class="comparison">
@@ -145,14 +147,15 @@
       {#each [...reply.suggestions].sort((a, b) => b.confidence - a.confidence) as option}
         {@const basis = option.basis.kind === 'procedure' ? undefined : sourceOf(w, option.basis, lang)}
         <li>
-          <p>{option.text}</p>
+          <p lang={option.textTranslation ? lang : 'id'}>{option.textTranslation?.[lang] ?? option.text}</p>
+          {#if !option.textTranslation}<small>{en ? 'Saved courtroom draft · original wording' : 'Draf persidangan tersimpan · redaksi asli'}</small>{/if}
           <small>{local(option.why, lang)}</small>
           <div>
             {#if basis}<a href={basis.href}>{basis.label}<ArrowUpRight size={12} /></a>{:else}<span
                 >{en ? 'Court procedure' : 'Tata cara persidangan'}</span
               >{/if}<span>{Math.round(option.confidence * 100)}% · {en ? 'fit' : 'kecocokan'}</span>
           </div>
-          <button class="text-action" onclick={() => copy(option.text)}
+          <button class="text-action" onclick={() => copy(option.textTranslation?.[lang] ?? option.text)}
             ><ClipboardCopy size={14} />{en ? 'Copy response' : 'Salin tanggapan'}</button
           >
         </li>

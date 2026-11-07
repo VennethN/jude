@@ -408,7 +408,7 @@ function questionContext(w: Workspace, refs: ContextRef[], lang: Lang, direct?: 
   return { query, source };
 }
 
-function lawReply(lookup: Lookup, lang: Lang, query: Search | undefined, category: string | undefined, source?: Source) {
+function lawReplyText(lookup: Lookup, lang: Lang, query: Search | undefined, category: string | undefined, source?: Source) {
   const en = lang === 'en';
   const name = lookup.refs[0];
   let text: string;
@@ -456,8 +456,7 @@ function lawReply(lookup: Lookup, lang: Lang, query: Search | undefined, categor
     const quote = source.text.slice(0, 300);
     text += '\n\n' + (en ? 'From the case record' : 'Dari berkas perkara') + ' [1]\n“' + quote + '”' + (quote.length < source.text.length ? '…' : '');
   }
-  return { id: randomUUID(), role: 'assistant', mode: 'sources-only', text,
-    citations: source ? [{ kind: source.kind, id: source.id }] : [] } satisfies ChatMessage;
+  return text;
 }
 
 /** Answer explicit legal questions even when the question's words do not occur in case evidence. */
@@ -476,5 +475,10 @@ export async function answerLawQuestion(w: Workspace, text: string, refs: Contex
       if (base.refs.length) lookup = { outcome: 'charter-only', refs: base.refs };
     }
   }
-  return { answer: lawReply(lookup, lang, query, category, source), discoveries: lookup.refs };
+  const answer: ChatMessage = {
+    id: randomUUID(), role: 'assistant', mode: 'sources-only',
+    text: { id: lawReplyText(lookup, 'id', query, category, source), en: lawReplyText(lookup, 'en', query, category, source) },
+    citations: source ? [{ kind: source.kind, id: source.id }] : [],
+  };
+  return { answer, discoveries: lookup.refs };
 }

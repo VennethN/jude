@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
   import { ArrowLeft, ArrowRight, Maximize2, Minus, Plus, Search } from '@lucide/svelte';
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
@@ -211,7 +212,7 @@
       place(
         'document',
         d.id,
-        d.title,
+        displayTitle(d, lang),
         '',
         false,
         passagesOf(d.id).map((p) => ({ kind: 'passage' as const, id: p.id }))
@@ -806,7 +807,7 @@
         icon: 'passage' as Kind,
         speakerId: undefined,
         n,
-        title: pa ? (doc(pa.docId)?.title ?? '') : '',
+        title: pa ? displayTitle(doc(pa.docId), lang) : '',
         sub: pa ? t('common.page', { n: pa.page }) : '',
         heading: '',
         text: pa?.text ?? '',
