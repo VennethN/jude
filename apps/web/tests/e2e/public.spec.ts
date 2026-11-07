@@ -26,11 +26,11 @@ for (const width of [390, 1440]) {
     await assertIndonesian();
     await switchLanguage('en');
     await expect(page.getByRole('heading', { level: 1 })).toContainText('Stay with the testimony.');
-    await expect(page.locator('.sheet blockquote')).toContainText('half past nine at night');
+    await expect(page.locator('.sheet blockquote')).toContainText('9:30 PM');
     await expect(page.locator('.sheet .earlier .quote')).toContainText('arrived at the warehouse shortly after 20:00 WIB');
     await expect(page.locator('.sheet .sample')).toHaveText('Synthetic example · English translation');
-    await expect(page.locator('.gather .statement-text')).toContainText('half past nine at night');
-    await expect(page.locator('.gather .shift')).toContainText('Mr Yusuf, the afternoon-shift security guard');
+    await expect(page.locator('.gather .statement-text')).toContainText('9:30 PM');
+    await expect(page.locator('.gather .shift')).toContainText('Mr Yusuf, the security guard on the afternoon shift');
     await expect(page.locator('.gather .law')).toContainText('Article 374 of the Indonesian Criminal Code (KUHP)');
     // Translated source cards grow rather than clipping timestamps or legal references.
     for (const card of await page.locator('.source-slip .slip-text').all()) {
@@ -42,8 +42,8 @@ for (const width of [390, 1440]) {
     await expect(page.locator('.p-log')).toContainText('White box truck');
     await expect(page.locator('.p-talk')).toContainText('HEARING 2 TRANSCRIPT');
     await expect(page.locator('.p-cctv')).toContainText('EAST GATE · WAREHOUSE B');
-    await expect(page.locator('.transcript')).toContainText('Where do you work, and since when?');
-    await expect(page.locator('.transcript .raised mark')).toHaveText('half past nine at night');
+    await expect(page.locator('.transcript')).toContainText('Where do you work, and when did you start?');
+    await expect(page.locator('.transcript .raised mark')).toHaveText('9:30 PM');
     await expect(page.locator('.page-sheet')).toContainText('WITNESS EXAMINATION RECORD (BAP)');
     await expect(page.locator('.page-sheet')).toContainText('Question: What are your duties at Warehouse B?');
     await expect(page.locator('.page-sheet')).toContainText('I could not clearly see who was driving');
@@ -56,7 +56,7 @@ for (const width of [390, 1440]) {
     await expect(page.locator('.page-sample')).toHaveAttribute('href', '/demo/documents/d1?p=d1p4');
     await page.locator('.desk-picker > summary').click();
     await page.getByRole('button', { name: 'Access log', exact: true }).click();
-    await expect(page.locator('.reading blockquote')).toContainText('The access card in the name of R. Hartati');
+    await expect(page.locator('.reading blockquote')).toContainText('An access card registered to R. Hartati');
     await expect(page.locator('.reading blockquote mark')).toHaveText('20:07:41');
     await expect(page.locator('.reading a')).toHaveText('View Indonesian original');
     await expect(page.locator('.reading a')).toHaveAttribute('href', '/demo/documents/d3?p=d3p2');
