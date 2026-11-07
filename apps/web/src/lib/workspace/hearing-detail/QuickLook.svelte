@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { ArrowUpRight, BookOpenText, ChevronLeft, ChevronRight, ClipboardCopy, X } from '@lucide/svelte';
+  import { ArrowRight, ArrowUpRight, ChevronDown, ChevronUp, ClipboardCopy, FileText, Play, X } from '@lucide/svelte';
   import type { Finding, Lang, Reply, Workspace } from '@jude/core/domain';
   import Dialog from '../Dialog.svelte';
   import SheetHandle from '../SheetHandle.svelte';
   import Match from '$lib/evidence/Match.svelte';
+  import StatusChip from '$lib/evidence/StatusChip.svelte';
   import SourceAvailability from '$lib/evidence/SourceAvailability.svelte';
-  import { casePath, local, sourceOf, statuses } from '$lib/evidence/records';
+  import { casePath, local, sourceOf } from '$lib/evidence/records';
   import { timecode } from '../format';
   import { voice } from './people';
   let {
@@ -16,6 +17,7 @@
     finding,
     reply,
     findings,
+    play,
     select,
     close
   }: {
@@ -25,6 +27,7 @@
     finding?: Finding;
     reply?: Reply;
     findings: Finding[];
+    play?: (time:number) => void;
     select: (id: string) => void;
     close: () => void;
   } = $props();
@@ -33,6 +36,17 @@
     statement = $derived(w.statements.find((s) => s.id === subject?.statementId)),
     first = $derived(finding?.sources[0]),
     source = $derived(first ? sourceOf(w, { kind: 'passage', id: first.passageId }, lang) : undefined);
+  const kind = $derived(finding ? (en ? 'Finding' : 'Temuan') : (en ? 'Response' : 'Tanggapan'));
+  const speaker = $derived(statement ? voice(w.speakers, statement.speakerId, lang) : undefined);
+  function excerpt(text: string, match?: string) {
+    const at = match ? text.toLocaleLowerCase().indexOf(match.toLocaleLowerCase()) : -1;
+    if (at < 0 || !match) return text;
+    const before = [...text.slice(0,at).matchAll(/\S+/gu)];
+    const after = [...text.slice(at+match.length).matchAll(/\S+/gu)];
+    const start = before.length > 8 ? before.at(-8)!.index : 0;
+    const end = after.length > 8 ? at + match.length + after[7].index + after[7][0].length : text.length;
+    return (start ? '…' : '') + text.slice(start,end) + (end < text.length ? '…' : '');
+  }
   let previous = $derived(finding ? findings.findIndex((f) => f.id === finding?.id) : -1);
   let heading = $state<HTMLHeadingElement>(), status = $state('');
   onMount(() => {
@@ -77,50 +91,53 @@
 
 <svelte:window onkeydown={keys} />
 {#snippet content()}
-  <div class="look-head">
+  <header class="look-head">
     {#if !inline}<SheetHandle dismiss={close}/>{/if}
-    <span class="folio"><BookOpenText size={16} />{en ? 'Quick look' : 'Lihat sekilas'}</span>
+    <strong>{kind}</strong>
     <div>
-      {#if finding && findings.length > 1}<button
+      {#if finding && findings.length > 1}<span class="sequence">{previous+1} {en ? 'of' : 'dari'} {findings.length}</span><button
           class="icon-button"
           aria-label={en ? 'Previous finding' : 'Temuan sebelumnya'}
           disabled={previous <= 0}
-          onclick={() => step(-1)}><ChevronLeft size={16} /></button
+          onclick={() => step(-1)}><ChevronUp size={16} /></button
         ><button
           class="icon-button"
           aria-label={en ? 'Next finding' : 'Temuan berikutnya'}
           disabled={previous >= findings.length - 1}
-          onclick={() => step(1)}><ChevronRight size={16} /></button
+          onclick={() => step(1)}><ChevronDown size={16} /></button
         >{/if}<button
         class="icon-button"
-        aria-label={en ? 'Close quick look' : 'Tutup tampilan sekilas'}
+        aria-label={finding ? (en ? 'Close finding' : 'Tutup temuan') : (en ? 'Close response' : 'Tutup tanggapan')}
         onclick={close}><X size={17} /></button
       >
     </div>
-  </div>
+  </header>
+  <div class="brief-body" class:loud={finding?.status === 'potential_inconsistency'}>
   {#if finding}
-    <p class="folio note">{statuses[finding.status][lang]}{statement ? ' · ' + timecode(statement.t) : ''}</p>
-    <h2 id="brief-title" tabindex="-1" bind:this={heading}>{local(finding.title, lang)}</h2>
+    <div class="headline">
+      <div class="statusline"><StatusChip status={finding.status} {lang}/>
+        {#if statement}<time>{timecode(statement.t)}</time>{/if}
+        {#if finding.reviewed}<span class="reviewed">{en ? 'Reviewed' : 'Sudah dicek'}</span>{/if}
+      </div>
+      <h2 id="brief-title" tabindex="-1" bind:this={heading}>{local(finding.title, lang)}</h2>
+    </div>
     <section class="question">
       <h3>{en ? 'You could ask' : 'Bisa ditanyakan'}</h3>
       <p>{finding.question}</p>
-      <button class="text-action" onclick={() => copy(finding.question)}
-        ><ClipboardCopy size={14} />{en ? 'Copy question' : 'Salin pertanyaan'}</button
-      >
+      <button class="text-action" onclick={() => copy(finding.question)}><ClipboardCopy size={13}/>{en ? 'Copy question' : 'Salin pertanyaan'}</button>
     </section>
-    {#if statement}<section class="comparison">
-        <h3>{en ? 'In court' : 'Di sidang'} · {voice(w.speakers, statement.speakerId, lang).name}</h3>
-        <p>“<Match text={statement.text} term={finding.said} />”</p>
+    {#if statement || source}<div class="source-pair">
+      {#if statement && speaker}<section class="comparison">
+        <h3><span class="speaker-dot" data-tone={speaker.role} aria-hidden="true">{speaker.letters}</span>{en ? 'In court' : 'Di sidang'} · {speaker.name}</h3>
+        <p>“<Match text={excerpt(statement.text,finding.said)} term={finding.said}/>”</p>
+        {#if play}<button class="text-action" onclick={() => play?.(statement!.t)}><Play size={13}/>{en ? 'Play from here' : 'Putar dari sini'}</button>{/if}
       </section>{/if}
-    {#if source}<section class="comparison record">
-        <h3><a href={source.href}>{source.label} <ArrowUpRight size={12} /></a></h3>
-        <p>“<Match text={first?.match || source.text} />”</p>
+      {#if source}<section class="comparison written"><h3><a href={source.href}><FileText size={13}/>{source.label}<ArrowUpRight size={12}/></a></h3>
+        <p>“<Match text={excerpt(source.text,first?.match)} term={first?.match}/>”</p>
       </section>{/if}
-    <SourceAvailability {finding} {lang} /><a
-      class="button"
-      href={casePath(w) + '/findings/' + encodeURIComponent(finding.id)}
-      >{en ? 'Details in Findings' : 'Detail di Temuan'}<ArrowUpRight size={15} /></a
-    >
+    </div>{/if}
+    <SourceAvailability {finding} {lang}/>
+    <a class="button primary detail-link" href={casePath(w) + '/findings/' + encodeURIComponent(finding.id)}>{en ? 'Details in Findings' : 'Detail di Temuan'}<ArrowRight size={15}/></a>
   {:else if reply}
     <p class="folio note">
       {en ? 'For counsel' : 'Untuk kuasa hukum'}{statement ? ' · ' + timecode(statement.t) : ''}
@@ -146,120 +163,58 @@
     </ol>
   {/if}
   {#if status}<p class="small muted" role="status">{status}</p>{/if}
+  </div>
 {/snippet}
-{#if inline}<aside class="quick" aria-label={en ? 'Quick look' : 'Lihat sekilas'}>{@render content()}</aside>
-{:else}<Dialog title={en ? 'Quick look' : 'Lihat sekilas'} {lang} {close} side>
+{#if inline}<aside class="quick" aria-label={kind}>{@render content()}</aside>
+{:else}<Dialog title={kind} {lang} {close} side>
   <div class="quick overlay">{@render content()}</div>
 </Dialog>{/if}
 
 <style>
-  .quick {
-    align-self: start;
-    min-width: 0;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    color: var(--ink);
-    padding: 1.2rem;
-    border-radius: 0.5rem;
-  }
-  aside.quick {
-    position: sticky;
-    top: var(--hearing-sticky,68px);
-  }
+  .quick { display:flex; flex-direction:column; min-width:0; color:var(--ink-strong,var(--ink)); background:var(--surface); }
+  aside.quick { position:sticky; top:calc(var(--hearing-sticky) + var(--player-height) + 12px); min-height:360px; max-height:calc(100dvh - var(--hearing-sticky) - var(--player-height) - 25px); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
   :global(dialog.side:has(.quick.overlay)) { width:min(560px,100%); }
-  .quick.overlay { border:0; padding:20px; }
-  .look-head { position:relative; }
+  .quick.overlay { height:100%; }
+  .look-head,.look-head > div,.statusline,.comparison h3,.comparison h3 a,.text-action,.suggestions li>div { display:flex; align-items:center; gap:6px; }
+  .look-head { position:relative; flex:none; min-height:54px; padding:8px 8px 8px 18px; border-bottom:1px solid var(--line); }
+  .look-head strong { flex:1; font:600 14px/1.4 var(--sans); }
+  .look-head .icon-button { min-height:36px; width:36px; padding:0; border:0; background:transparent; }
+  .look-head .icon-button:last-child { margin-left:3px; border-left:1px solid var(--line); border-radius:0; }
+  .look-head .icon-button:hover { background:var(--surface-2,var(--wash)); }
+  .look-head .icon-button:disabled { opacity:.4; }
+  .sequence,.statusline time { color:var(--muted); font:400 12.5px/1.45 var(--sans); font-variant-numeric:tabular-nums; }
+  .brief-body { display:grid; grid-auto-rows:max-content; align-content:start; gap:16px; min-width:0; overflow:auto; padding:20px 22px 24px; overscroll-behavior:contain; }
+  .headline { display:grid; gap:8px; }
+  .statusline { gap:6px 10px; flex-wrap:wrap; }
+  .reviewed { padding:3px 7px; background:var(--selected,var(--wash)); border-radius:4px; font:600 11px var(--sans); }
+  .quick h2 { margin:0; font:400 clamp(20px,2vw,24px)/1.22 var(--display); letter-spacing:-.005em; text-wrap:pretty; }
+  .quick h2:focus { outline:none; }
+  .question,.comparison { display:grid; gap:6px; align-content:start; }
+  .question { padding:14px 16px 12px; background:var(--selected,var(--wash)); border-radius:12px; }
+  .question h3,.comparison h3,.note { margin:0; color:var(--muted); font:600 11.5px/1.5 var(--sans); letter-spacing:.01em; }
+  .question p { margin:0; color:var(--ink-strong,var(--ink)); font:400 18.5px/1.38 var(--display); text-wrap:pretty; }
+  .text-action { justify-self:start; gap:5px; min-height:28px; border:0; padding:1px 0; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; color:var(--ink-strong,var(--ink)); background:transparent; font:600 12px/1.45 var(--sans); }
+  .text-action:hover,.written a:hover { text-decoration-color:currentColor; }
+  .source-pair { display:grid; border:1px solid var(--line); border-radius:12px; background:var(--surface-2,var(--wash)); overflow:hidden; }
+  .loud .source-pair { border-color:color-mix(in srgb,var(--alert) 34%,var(--line)); }
+  .comparison { padding:12px 14px; min-width:0; }
+  .comparison + .comparison { border-top:1px solid var(--line); }
+  .loud .comparison + .comparison { border-color:color-mix(in srgb,var(--alert) 22%,var(--line)); }
+  .comparison p { margin:0; overflow-wrap:anywhere; color:var(--ink-strong,var(--ink)); font:400 15px/1.5 var(--sans); }
+  .written p { font-family:var(--mono); }
+  .written a { color:var(--muted); text-decoration:underline; text-decoration-color:transparent; text-underline-offset:3px; }
+  .speaker-dot { flex:none; display:grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--tone,var(--role-unknown)); color:white; font:600 8px var(--sans); }
+  .speaker-dot[data-tone=witness] { background:var(--role-witness); }
+  .speaker-dot[data-tone=counsel] { background:var(--role-counsel); }
+  .speaker-dot[data-tone=judge],.speaker-dot[data-tone=judge_member] { background:var(--role-judge); }
+  .speaker-dot[data-tone=opposing] { background:var(--role-opposing); }
+  .detail-link { min-height:42px; font-size:13px; }
+  .trigger,.suggestions li { padding:10px 0; border-top:1px solid var(--line); }
+  .trigger,.suggestions p { margin:0; line-height:1.5; }
+  .suggestions { padding-left:18px; }
+  .suggestions li > div { justify-content:space-between; flex-wrap:wrap; margin-top:5px; }
   @media(max-width:719px) {
-    .quick.overlay { padding:0 16px 22px; }
-    .quick.overlay .look-head { padding-top:20px; }
-  }
-  .look-head,
-  .look-head > div,
-  .folio,
-  .text-action,
-  .suggestions li > div {
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-  }
-  .look-head {
-    justify-content: space-between;
-    padding-bottom: 0.65rem;
-    border-bottom: 1px solid var(--line);
-  }
-  .look-head button {
-    width: 36px;
-    min-height: 36px;
-  }
-  .folio,
-  h3,
-  .suggestions small,
-  .suggestions li > div {
-    font: 600 0.75rem/1.45 var(--sans);
-    color: var(--muted);
-  }
-  .note {
-    color: var(--accent);
-    margin: 1rem 0 0.35rem;
-  }
-  .quick h2 {
-    font: 400 2rem/1.07 var(--display);
-    margin: 0 0 0.9rem;
-  }
-  .question {
-    background: var(--wash);
-    padding: 0.8rem;
-    border-radius: 0.35rem;
-  }
-  .question p {
-    font: 400 1.25rem/1.3 var(--display);
-    margin: 0.35rem 0;
-  }
-  .text-action {
-    padding: 0.35rem 0;
-    min-height: 36px;
-    color: var(--ink);
-    background: none;
-    border: 0;
-    font: 650 0.75rem var(--sans);
-    cursor: pointer;
-  }
-  .comparison {
-    padding: 0.95rem 0;
-    border-bottom: 1px solid var(--line);
-  }
-  .comparison p {
-    margin: 0.4rem 0 0;
-    font-size: 0.92rem;
-    line-height: 1.5;
-  }
-  .record p {
-    font-family: var(--mono);
-    color: var(--accent);
-  }
-  .quick .button {
-    margin-top: var(--hearing-sticky,68px);
-  }
-  .trigger {
-    margin: 0.75rem 0;
-    padding: 0.75rem 0;
-    border-block: 1px solid var(--line);
-    line-height: 1.5;
-  }
-  .suggestions {
-    padding-left: 1.3rem;
-  }
-  .suggestions li {
-    padding: 0.75rem 0;
-    border-top: 1px solid var(--line);
-  }
-  .suggestions p {
-    margin: 0 0 0.35rem;
-    line-height: 1.5;
-  }
-  .suggestions li > div {
-    flex-wrap: wrap;
-    justify-content: space-between;
-    margin-top: 0.4rem;
+    .quick.overlay .look-head { min-height:70px; padding:18px 10px 7px 18px; }
+    .look-head .icon-button,.text-action { min-height:44px; }
   }
 </style>

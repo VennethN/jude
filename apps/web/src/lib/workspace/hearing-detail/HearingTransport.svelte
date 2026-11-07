@@ -6,11 +6,11 @@
   import { voice } from './people';
 
   let { hearing, lines, speakers, findings, lang, current, duration, playing, rate, error,
-    seek, toggle, setRate, openFinding }: {
+    seek, toggle, setRate, openFinding, height = $bindable(0) }: {
     hearing: Hearing; lines: Statement[]; speakers: Speaker[]; findings: Finding[]; lang: Lang;
     current: number; duration: number; playing: boolean; rate: number; error: boolean;
     seek: (time: number) => void; toggle: () => void; setRate: (rate: number) => void;
-    openFinding: (id: string) => void;
+    openFinding: (id: string) => void; height?: number;
   } = $props();
   const en = $derived(lang === 'en');
   const currentLine = $derived(lines.findLast((line) => line.t <= current));
@@ -18,7 +18,7 @@
     (en ? 'Transcript replay · no original audio' : 'Transkrip contoh · tanpa rekaman audio'));
 </script>
 
-<section class="player" aria-label={label} data-tour="hearing player">
+<section class="player" bind:clientHeight={height} aria-label={label} data-tour="hearing player">
   <div class="controls">
     <button class="transport" aria-label={en ? 'Back 10 seconds' : 'Mundur 10 detik'} onclick={() => seek(Math.max(0, current - 10))}><RotateCcw size={17}/></button>
     <button class="transport play" aria-label={playing ? (en ? 'Pause' : 'Jeda') : (en ? 'Play' : 'Putar')} disabled={error} onclick={toggle}>{#if playing}<Pause size={18}/>{:else}<Play size={18}/>{/if}</button>

@@ -6,8 +6,8 @@ test('jump from a hearing finding to the exact line and retain a bookmark and sp
 }) => {
   await page.goto('/demo/hearings/h2?f=f1');
   await expect(page.locator('#line-s208')).toHaveClass(/chosen/);
-  await expect(page.getByRole('complementary', { name: 'Lihat sekilas' })).toContainText('20.00 WIB');
-  await page.getByRole('button', { name: 'Tutup tampilan sekilas' }).click();
+  await expect(page.getByRole('complementary', { name: 'Temuan', exact:true })).toContainText('20.00 WIB');
+  await page.getByRole('button', { name: 'Tutup temuan' }).click();
   await page.locator('#line-s208 .flag').click();
   await expect(page.locator('#line-s208 .flag')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('#line-s208 .name').click();
@@ -139,7 +139,7 @@ test('the hearing player keeps time across speeds and findings return to their s
   await expect(slider).toHaveValue(frozen);
   const finding = page.locator('.finding-index a[href$="/f1"]');
   await finding.click();
-  const quick = page.getByRole('complementary',{name:'Lihat sekilas'});
+  const quick = page.getByRole('complementary',{name:'Temuan',exact:true});
   await expect(quick).toBeVisible();
   await quick.getByRole('link',{name:'Detail di Temuan'}).click();
   await expect(page).toHaveURL(/\/findings\/f1/);
@@ -169,4 +169,41 @@ test('the phone intake can file a real appointment and filters the library by te
   await expect(page.getByRole('heading',{name:/Pemeriksaan tambahan/})).toBeVisible();
   await expect(page.getByText('Sidang ini belum dimulai.')).toBeVisible();
   await expect(page.getByText(/11:45 WIB/)).toBeVisible();
+});
+
+test('the finding reaches the desk gutter and retains both source excerpts on a night-mode phone', async ({page}) => {
+  await page.setViewportSize({width:1484,height:786});
+  await page.goto('/demo/hearings/h2?f=f1&s=s208');
+  const finding = page.getByRole('complementary',{name:'Temuan',exact:true});
+  await expect(finding).toBeVisible();
+  for (const width of [1484,1280]) {
+    await page.setViewportSize({width,height:786});
+    const right = await finding.evaluate(node => node.getBoundingClientRect().right);
+    expect(width - right).toBeGreaterThan(24);
+    expect(width - right).toBeLessThan(45);
+    await expect(finding.locator('.source-pair .comparison')).toHaveCount(2);
+    expect(await finding.locator('.source-pair').evaluate(node => node.scrollHeight-node.clientHeight)).toBeLessThanOrEqual(1);
+  }
+  await page.setViewportSize({width:390,height:844});
+  const sheet = page.getByRole('dialog',{name:'Temuan',exact:true});
+  await expect(sheet).toBeVisible();
+  const box = await sheet.boundingBox();
+  expect(box?.width).toBe(390);
+  expect(box?.y).toBe(10);
+  const before = await sheet.locator('#brief-title').textContent();
+  await page.keyboard.press('j');
+  await expect(sheet.locator('#brief-title')).not.toHaveText(before!);
+  await page.keyboard.press('k');
+  await expect(sheet.locator('#brief-title')).toHaveText(before!);
+  await page.keyboard.press('Escape');
+  await expect(sheet).toHaveCount(0);
+  await expect.poll(()=>page.evaluate(()=>document.activeElement?.getAttribute('href'))).toMatch(/\/findings\/f1$/);
+  await page.getByRole('button',{name:'Opsi tampilan sidang'}).click();
+  const options = page.getByRole('dialog');
+  await options.getByRole('button',{name:'Mode malam ruang sidang'}).click();
+  await expect(options.getByRole('button',{name:'Tampilan kertas'})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.locator('#line-s208 .finding-link').click();
+  await expect(sheet.locator('.quick')).toHaveCSS('background-color','rgb(18, 29, 24)');
+  await expect(sheet.locator('.comparison.written p mark')).toContainText('20.00 WIB');
 });
