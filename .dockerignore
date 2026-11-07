@@ -29,3 +29,6 @@ tests
 **/*.safetensors
 **/*.ckpt
 **/*.pt
+
+# Local AWS endpoints, database credentials, and TLS certificates.
+.local-access/
