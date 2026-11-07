@@ -1,4 +1,4 @@
-import guestPractice from './guest-practice.json';
+import guestPractice from './guest-practice.json' with { type: 'json' };
 
 export type Lang = "id" | "en";
 /** Text shown in the interface language. Verbatim testimony and documents stay plain strings. */

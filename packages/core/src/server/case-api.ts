@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { CoreRequest } from './request';
 import type { ChatMessage, ContextRef, SessionInfo, Thread, Workspace } from '../domain';
 import { isGuestPractice, needsReview } from '../domain';
-import guestPractice from '../guest-practice.json';
+import guestPractice from '../guest-practice.json' with { type: 'json' };
 import { billing, checkQuota, meter } from './billing';
 import {
   changeIn,
