@@ -54,7 +54,25 @@ test('replay on a phone without a microphone and start a scheduled example after
   await expect(form.getByRole('button', { name: 'Mulai sidang' })).toBeDisabled();
   await form.getByRole('checkbox', { name: /Hakim ketua/ }).check();
   await form.getByRole('button', { name: 'Mulai sidang' }).click();
-  await expect(page.locator('[data-sid="replay-h4-0"]')).toBeVisible({ timeout: 12000 });
+  const partial = page.locator('[data-partial-id="replay-h4-0"]');
+  await expect(partial).toBeVisible({timeout:10000});
+  await expect(partial.locator('.name')).toHaveText('Hakim Ketua');
+  await partial.evaluate(node => node.setAttribute('data-preserved-test', 'first-speaker'));
+  const early = await partial.locator('.words').textContent();
+  await expect.poll(() => partial.locator('.words').textContent()).not.toBe(early);
+  await page.getByRole('button',{name:'Jeda',exact:true}).click();
+  const paused = await partial.locator('.words').textContent();
+  await page.waitForTimeout(450);
+  await expect(partial.locator('.words')).toHaveText(paused!);
+  await expect(partial).not.toHaveClass(/speaking/);
+  await expect(partial.locator('.caret')).toHaveCSS('animation-name','none');
+  await page.getByRole('button',{name:'Lanjutkan',exact:true}).click();
+  const finalized = page.locator('[data-sid="replay-h4-0"]');
+  await expect(finalized).toBeVisible({timeout:12000});
+  await expect(finalized).toHaveAttribute('data-preserved-test','first-speaker');
+  await expect(partial).toHaveCount(0);
+  await expect(finalized.locator('.when')).toHaveText('00:00:06');
+  await expect(page.locator('[data-partial-id="replay-h4-1"] .name')).toHaveText(/Penasihat Hukum|Kuasa Hukum/,{timeout:6000});
   await page.getByRole('button', { name: /Giliran Anda/ }).click();
   await expect(page.getByRole('dialog')).toContainText('Tanggapan Anda');
   await expect(page.getByRole('dialog').getByRole('link').first()).toHaveAttribute('href', /\/findings\//);
@@ -100,4 +118,55 @@ test('an imported recording seeks to linked testimony and plays only when reques
   await expect
     .poll(() => audio.evaluate((element) => (element as HTMLAudioElement).currentTime))
     .toBeGreaterThan(2);
+});
+
+test('the hearing player keeps time across speeds and findings return to their source statement', async ({ page }) => {
+  await page.goto('/demo/hearings/h2');
+  const player = page.locator('.player');
+  await expect(player).toContainText('Transkrip contoh · tanpa rekaman audio');
+  await expect(page.locator('audio')).toHaveCount(0);
+  const width = await player.evaluate(element => element.getBoundingClientRect().width);
+  expect(width).toBeGreaterThan(900);
+  const slider = player.getByRole('slider');
+  await player.getByRole('button', { name: 'Maju 10 detik' }).click();
+  await expect(slider).toHaveAttribute('aria-valuetext','00:00:10');
+  await player.getByRole('combobox', { name: 'Kecepatan putar' }).selectOption('2');
+  await player.getByRole('button', { name: 'Putar', exact:true }).click();
+  await expect.poll(() => slider.inputValue()).not.toBe('10');
+  await player.getByRole('button', { name: 'Jeda', exact:true }).click();
+  const frozen = await slider.inputValue();
+  await page.waitForTimeout(350);
+  await expect(slider).toHaveValue(frozen);
+  const finding = page.locator('.finding-index a[href$="/f1"]');
+  await finding.click();
+  const quick = page.getByRole('complementary',{name:'Lihat sekilas'});
+  await expect(quick).toBeVisible();
+  await quick.getByRole('link',{name:'Detail di Temuan'}).click();
+  await expect(page).toHaveURL(/\/findings\/f1/);
+  await page.goBack();
+  await expect(quick).toBeVisible();
+  await expect(page).toHaveURL(/[?&]s=s208/);
+  await expect(page.locator('#line-s208')).toHaveClass(/chosen/);
+});
+
+test('the phone intake can file a real appointment and filters the library by testimony', async ({ page }) => {
+  await page.setViewportSize({ width:390, height:844 });
+  await page.goto('/demo/hearings');
+  await page.getByRole('searchbox',{name:'Cari sidang'}).fill('setengah sepuluh');
+  await expect(page.locator('.library-row')).toHaveCount(1);
+  await expect(page.locator('.match-line')).toHaveAttribute('href', /hearings\/h2\?s=/);
+  await page.getByRole('button',{name:'Sidang baru'}).click();
+  const intake = page.getByRole('dialog');
+  await expect(intake.getByRole('button',{name:/Unggah audio/})).toBeDisabled();
+  const box = await intake.boundingBox();
+  expect(box?.width).toBe(390);
+  expect((box?.y ?? 0) + (box?.height ?? 0)).toBeCloseTo(844,0);
+  await intake.getByRole('button',{name:/Jadwalkan sidang/}).click();
+  await intake.getByRole('textbox',{name:'Judul sidang'}).fill('Pemeriksaan tambahan');
+  await intake.getByLabel('Tanggal',{exact:true}).fill('2030-11-14');
+  await intake.getByLabel('Waktu (WIB)').fill('11:45');
+  await intake.getByRole('button',{name:'Jadwalkan sidang'}).click();
+  await expect(page.getByRole('heading',{name:/Pemeriksaan tambahan/})).toBeVisible();
+  await expect(page.getByText('Sidang ini belum dimulai.')).toBeVisible();
+  await expect(page.getByText(/11:45 WIB/)).toBeVisible();
 });

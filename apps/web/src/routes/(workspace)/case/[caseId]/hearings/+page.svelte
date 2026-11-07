@@ -85,11 +85,11 @@
       <h1>{en ? 'Hearings' : 'Sidang'}</h1>
       <p>
         {en
-          ? 'The testimony, recordings and transcripts filed in this case.'
-          : 'Keterangan, rekaman, dan transkrip yang tersimpan dalam perkara ini.'}
+          ? 'A complete record of every examination. Record live, upload audio or import a transcript.'
+          : 'Catatan lengkap setiap pemeriksaan. Rekam langsung, unggah audio, atau impor transkrip.'}
       </p>
     </div>
-    {#if !w.caseRecord.archived}<div class="toolbar">
+    {#if !w.caseRecord.archived}<div class="toolbar" data-tour="hearings-new">
         {#if live}<a class="button" href={base + '/' + live.id}
             ><Mic size={15} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a
           >{:else if data.transcription || w.caseRecord.label === 'synthetic'}<button
@@ -114,7 +114,7 @@
         >{filtered.length} {en ? 'of' : 'dari'} {w.hearings.length} {en ? 'hearings' : 'sidang'}</span
       >
     </div>
-    <div class="rows">
+    <div class="rows" data-tour="hearings-list">
       {#each filtered as { h, match } (h.id)}<HearingRow
           {w}
           {h}
@@ -223,10 +223,7 @@
     margin-bottom: 22px;
   }
   .library-head h1 {
-    font:
-      400 clamp(2.3rem, 4cqi, 3.2rem)/1.1 Rufina,
-      Georgia,
-      serif;
+    font:400 40px/1.16 var(--display);
     letter-spacing: -0.035em;
   }
   .library-head p,
@@ -241,8 +238,7 @@
     flex-wrap: wrap;
   }
   .filters {
-    border-block: 1px solid var(--line);
-    padding: 12px 0;
+    gap:10px 12px; margin-bottom:10px;
   }
   .search {
     flex: 1 1 250px;
@@ -280,6 +276,7 @@
     margin: 0;
     font-size: 0.8rem;
   }
+  .toolbar :global(svg.lucide-mic) { color:var(--alert,var(--accent)); }
   .empty {
     display: grid;
     justify-items: start;
@@ -303,7 +300,14 @@
   .notice button:first-of-type {
     margin-left: auto;
   }
+  .filter { border-radius:999px; }
+  .search,.search input,.filter { min-height:36px; }
+  .library-head { align-items:center; }
+  .library-head p { max-width:66ch; font-size:14px; }
+  section.empty { justify-items:center; text-align:center; padding:56px 20px; background:var(--surface); border:1px solid var(--line); border-radius:12px; }
   @container (max-width:500px) {
+    .library-head h1 { font-size:30px; }
+    .search,.search input,.filter { min-height:44px; }
     .toolbar {
       width: 100%;
     }
