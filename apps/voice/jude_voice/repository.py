@@ -525,6 +525,7 @@ class Repository:
         permission,
         idempotency_key=None,
         language="id",
+        voice_samples=None,
     ):
         if language not in {"id", "en"}:
             invalid()
@@ -600,7 +601,9 @@ class Repository:
                 graph.put("hearings", hearing)
                 for segment in segments:
                     sid = str(uuid4())
-                    voice = _anonymous(graph, hid, sid, segment.get("speaker"))
+                    voice = _anonymous(graph, hid, sid, segment.get("speaker") if voice_samples is None else None)
+                    if voice_samples is not None:
+                        voice_samples.append({"speaker": voice, "start": segment["start"], "end": segment["end"]})
                     graph.put(
                         "statements",
                         {
@@ -894,7 +897,7 @@ class Repository:
             )
             return {"id": turn_id, "statementId": None}
 
-    def save_stream_result(self, session, case_id, hearing_id, *, lease, epoch, result_id, segments):
+    def save_stream_result(self, session, case_id, hearing_id, *, lease, epoch, result_id, segments, voice_samples=None):
         """Atomically save a final trusted result in absolute hearing seconds.
 
         Stream epoch/result IDs deduplicate provider retries. Already-covered audio
@@ -948,10 +951,15 @@ class Repository:
             for index, span in enumerate(recovered):
                 sid = base if index == 0 else f"{base}-segment-{index + 1}"
                 absolute = {"start": span["start"], "end": span["end"]}
+                native = f"transcribe:{epoch}:{span['speaker']}" if span.get("speaker") else None
+                # AWS can reuse one label for different people. Acoustic recognition
+                # evaluates every statement instead of trusting that label forever.
+                voice = _anonymous(graph, hearing_id, sid, native if voice_samples is None else None)
+                if voice_samples is not None:
+                    voice_samples.append({"speaker": voice, **absolute})
                 graph.put("statements", {
                     "id": sid, "hearingId": hearing_id,
-                    "speakerId": _anonymous(graph, hearing_id, sid,
-                                            f"transcribe:{epoch}:{span['speaker']}" if span.get("speaker") else None),
+                    "speakerId": voice,
                     "t": span["start"], "streamSpan": absolute,
                     "text": span["text"], "phase": "queued",
                 })
@@ -967,7 +975,7 @@ class Repository:
                         (case_id, hearing_id, capture["id"], sid,
                          start - capture["start_seconds"], end - capture["start_seconds"]),
                     )
-                    retained = retained or (bool(capture["object_key"]) and not span.get("speaker"))
+                    retained = retained or (voice_samples is None and bool(capture["object_key"]) and not span.get("speaker"))
             ordered = sorted(receipt_segments.values(), key=lambda span: (span["start"], span["statementId"]))
             receipt = {"id": result_id, "statementId": ordered[0]["statementId"] if ordered else None, "segments": ordered}
             graph.tx.execute(

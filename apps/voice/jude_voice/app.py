@@ -32,7 +32,7 @@ from .providers import (
     transcription_available,
     wav_header,
 )
-from .repository import Repository, VoiceError, anonymous_id
+from .repository import Repository, VoiceError
 from .speakers import run_worker
 from .transcribe import TranscribeStream
 from .voiceprints import VoiceprintWorker
@@ -179,6 +179,7 @@ async def upload(case_id: str, request: Request):
             return failure(
                 422, "validation", "The file must have readable speech and fit within 30 minutes."
             )
+        observations = [] if matcher else None
         result = await asyncio.to_thread(
             repo.add_recording,
             session,
@@ -193,11 +194,12 @@ async def upload(case_id: str, request: Request):
             permission=True,
             idempotency_key=key,
             language=language,
+            voice_samples=observations,
         )
         if matcher and samples:
-            for label, pcm, rate in samples:
-                matcher.submit((session, case_id), result["id"],
-                               anonymous_id(result["id"], "", label), pcm, rate)
+            for index, pcm, rate in samples:
+                if index < len(observations):
+                    matcher.submit((session, case_id), result["id"], observations[index]["speaker"], pcm, rate)
         return JSONResponse(result, status_code=201)
 
 
