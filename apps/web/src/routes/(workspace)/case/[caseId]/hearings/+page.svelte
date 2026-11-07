@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto, invalidateAll } from '$app/navigation';
-  import { ListChecks, Mic, Plus, Search, Speech, Trash2, Undo2, X } from '@lucide/svelte';
+  import { Mic, Plus, Search, ShieldCheck, Speech, Trash2, Undo2, X } from '@lucide/svelte';
   import { needsReview, type Hearing } from '@jude/core/domain';
   import { api } from '$lib/client';
   import Dialog from '$lib/workspace/Dialog.svelte';
@@ -91,10 +91,10 @@
     </div>
     {#if !w.caseRecord.archived}<div class="toolbar" data-tour="hearings-new">
         {#if live}<a class="button" href={base + '/' + live.id}
-            ><Mic size={15} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a
+            ><Mic size={16} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a
           >{:else if data.transcription || w.caseRecord.label === 'synthetic'}<button
             class="button"
-            onclick={() => open('live')}><Mic size={15} />{en ? 'Record live' : 'Rekam langsung'}</button
+            onclick={() => open('live')}><Mic size={16} />{en ? 'Record live' : 'Rekam langsung'}</button
           >{/if}<button class="button primary" onclick={() => open()}
           ><Plus size={16} />{en ? 'New hearing' : 'Sidang baru'}</button
         >
@@ -109,7 +109,7 @@
           aria-label={en ? 'Search hearings' : 'Cari sidang'}
         /></label
       ><button class="filter" aria-pressed={reviewOnly} onclick={() => (reviewOnly = !reviewOnly)}
-        ><ListChecks size={15} />{en ? 'Needs review' : 'Perlu ditinjau'}</button
+        ><ShieldCheck size={14} />{en ? 'Needs review' : 'Perlu ditinjau'}</button
       ><span class="result" role="status"
         >{filtered.length} {en ? 'of' : 'dari'} {w.hearings.length} {en ? 'hearings' : 'sidang'}</span
       >
@@ -148,7 +148,7 @@
         >{manage ? (en ? 'Done' : 'Selesai') : en ? 'Manage hearings' : 'Kelola sidang'}</button
       >{/if}
   {:else}<section class="empty">
-      <Speech size={24} />
+      <span class="empty-icon"><Speech size={22} aria-hidden="true" /></span>
       <h2>{en ? 'Your first hearing starts here.' : 'Sidang pertama Anda dimulai di sini.'}</h2>
       <p>
         {en
@@ -201,13 +201,13 @@
 <style>
   .library {
     container-type: inline-size;
+    --library-control-height: 36px;
   }
   .library-head,
   .toolbar,
   .filters,
   .search,
   .filter,
-  .result,
   .notice,
   .notice button,
   .remove {
@@ -218,45 +218,87 @@
   .library-head {
     justify-content: space-between;
     align-items: flex-end;
-    gap: 18px;
+    gap: 16px 28px;
     flex-wrap: wrap;
-    margin-bottom: 22px;
+    padding-top: 1px;
+    margin-bottom: 28px;
   }
   .library-head h1 {
-    font:400 40px/1.16 var(--display);
-    letter-spacing: -0.035em;
+    font: 400 40px/1.08 var(--display);
+    letter-spacing: -0.012em;
+    color: var(--ink-strong);
   }
-  .library-head p,
-  .empty p,
-  .result {
-    font-size: 0.9rem;
+  .library-head p {
+    max-width: 62ch;
+    margin-top: 8px;
+    font: 400 14.5px/1.55 var(--sans);
+    text-wrap: pretty;
     color: var(--muted);
-    margin-top: 7px;
+  }
+  .empty p {
+    max-width: 46ch;
+    color: var(--muted);
   }
   .toolbar,
   .filters {
     flex-wrap: wrap;
   }
+  .toolbar {
+    max-width: 100%;
+    gap: 8px;
+  }
+  .toolbar .button {
+    gap: 7px;
+    min-height: var(--library-control-height);
+    padding: 0 14px;
+    border-radius: 6px;
+    font: 500 13px/1.2 var(--sans);
+    box-shadow: 0 1px 1px rgb(16 33 25 / 4%);
+  }
+  .toolbar .button:not(.primary) {
+    color: var(--ink-strong);
+    border-color: var(--line-strong);
+  }
+  .toolbar :global(.lucide-mic) {
+    color: var(--live);
+  }
   .filters {
-    gap:10px 12px; margin-bottom:10px;
+    gap: 10px 12px;
+    margin-bottom: 10px;
   }
   .search {
-    flex: 1 1 250px;
-    min-height: 42px;
+    flex: 1 1 280px;
+    gap: 8px;
     padding: 0 11px;
-    border: 1px solid var(--line);
-    border-radius: 7px;
+    min-height: var(--library-control-height);
+    border: 1px solid var(--line-strong);
+    border-radius: 6px;
     background: var(--surface);
     color: var(--muted);
+  }
+  .search > :global(svg) {
+    flex: none;
   }
   .search input {
     width: 100%;
     min-width: 0;
-    min-height: 42px;
+    min-height: calc(var(--library-control-height) - 2px);
+    padding: 0;
     background: transparent;
     border: 0;
+    color: var(--ink);
+    font: 400 14px/1.4 var(--sans);
   }
-  .filter,
+  .search input::placeholder {
+    color: var(--muted);
+  }
+  .search:focus-within {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .search input:focus-visible {
+    outline: none;
+  }
   .manage,
   .notice button,
   .remove {
@@ -268,24 +310,71 @@
     font-size: 0.85rem;
     padding: 5px 10px;
   }
+  .filter {
+    min-height: var(--library-control-height);
+    gap: 7px;
+    padding: 0 14px;
+    border: 1px solid var(--line-strong);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--ink);
+    font: 500 12px/1.55 var(--sans);
+  }
+  .filter:hover {
+    background: var(--sunken);
+  }
   .filter[aria-pressed='true'] {
-    background: var(--forest);
-    color: var(--on-forest);
+    border-color: var(--primary);
+    background: var(--primary);
+    color: var(--primary-ink);
   }
   .result {
-    margin: 0;
-    font-size: 0.8rem;
+    font: 400 13px/1.55 var(--sans);
+    font-variant-numeric: tabular-nums;
+    color: var(--muted);
   }
-  .toolbar :global(svg.lucide-mic) { color:var(--alert,var(--accent)); }
   .empty {
     display: grid;
     justify-items: start;
     gap: 12px;
     padding: 30px 0;
   }
+  section.empty {
+    justify-items: center;
+    gap: 10px;
+    text-align: center;
+    padding: 56px 20px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .empty-icon {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: var(--selected);
+    color: var(--ink-strong);
+  }
+  .empty h2 {
+    font-size: 26px;
+    color: var(--ink-strong);
+  }
   .manage {
-    margin-top: 17px;
+    display: block;
+    margin: 8px 0 0 auto;
+    min-height: var(--library-control-height);
+    padding: 0 2px;
+    color: var(--muted);
+    border-color: transparent;
     background: transparent;
+    text-decoration: underline;
+    text-underline-offset: 0.22em;
+  }
+  .manage:hover,
+  .manage[aria-pressed='true'] {
+    color: var(--ink-strong);
   }
   .remove {
     color: var(--accent);
@@ -300,26 +389,14 @@
   .notice button:first-of-type {
     margin-left: auto;
   }
-  .filter { border-radius:999px; }
-  .search,.search input,.filter { min-height:36px; }
-  .library-head { align-items:center; }
-  .library-head p { max-width:66ch; font-size:14px; }
-  section.empty { justify-items:center; text-align:center; padding:56px 20px; background:var(--surface); border:1px solid var(--line); border-radius:12px; }
-  @container (max-width:500px) {
-    .library-head h1 { font-size:30px; }
-    .search,.search input,.filter { min-height:44px; }
-    .toolbar {
-      width: 100%;
-    }
-    .search {
-      flex-basis: 100%;
-    }
-    .result {
-      margin-left: auto;
-    }
-    .library-head {
-      align-items: start;
-      gap: 14px;
-    }
+  @container (max-width: 932px) {
+    .library-head h1 { font-size: 36px; }
+  }
+  @container (max-width: 596px) {
+    .library-head { padding-top: 3px; }
+    .library-head h1 { font-size: 30px; }
+  }
+  @media (pointer: coarse), (max-width: 640px) {
+    .library { --library-control-height: 44px; }
   }
 </style>
