@@ -9,7 +9,7 @@
 
 <div class="practice-prompt">
   <h3>{en ? 'Try saying this as Rina' : 'Coba ucapkan sebagai Rina'}</h3>
-  <blockquote>{en ? '“I’m Rina Hartati. I first entered the East Gate at 9:30 p.m.”' : '“Saya Rina Hartati. Saya baru masuk Gerbang Timur pukul setengah sepuluh malam.”'}</blockquote>
+  <blockquote>{en ? '“I’m Rina Hartati. On March 14, I first entered the East Gate at nine thirty in the evening.”' : '“Saya Rina Hartati. Pada 14 Maret, saya pertama kali masuk Gerbang Timur pukul sembilan malam lewat tiga puluh menit.”'}</blockquote>
   {#if passage && document}
     <a href={'/case/' + workspace.caseRecord.id + '/documents/' + document.id + '?p=' + encodeURIComponent(passage.id)}>
       {en ? 'East Gate access log' : 'Log akses Gerbang Timur'} · 20:07:41 <ArrowUpRight size={13}/>

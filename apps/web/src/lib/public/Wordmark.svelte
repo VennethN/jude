@@ -1,6 +1,6 @@
 <script lang="ts">
   import BrandLockup from '$lib/BrandLockup.svelte';
-  let { home = '/', label = 'Jude', monochrome = true }: {
+  let { home = '/', label = 'Jude.', monochrome = true }: {
     home?: string;
     label?: string;
     monochrome?: boolean;
