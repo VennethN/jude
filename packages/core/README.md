@@ -77,7 +77,7 @@ OpenAI calls use a server-side `OPENAI_API_KEY` and optional `OPENAI_PROJECT_ID`
 Run the service regression suite from the repository root.
 
 ```sh
-pnpm exec vitest run tests/server.test.ts
+pnpm test -- packages/core/tests/server.test.ts
 ```
 
 The suite uses fresh, isolated local storage. Set `JUDE_TEST_DATABASE_URL` to a disposable PostgreSQL database to run the same checks there. Tests create new organisations and cases. They exercise session isolation, multiple workspaces, grants and revocation, concurrent quotas, optimistic board saves, original-file authorization, PDF and DOCX indexing, transcript import, queue recovery and archive round trips.

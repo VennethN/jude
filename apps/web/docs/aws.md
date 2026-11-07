@@ -68,7 +68,7 @@ repository=$(terraform -chdir=infra/terraform output -raw app_registry)
 registry=${repository%%/*}
 revision=$(git rev-parse HEAD)
 aws ecr get-login-password --region ap-southeast-3 | docker login --username AWS --password-stdin "$registry"
-docker buildx build --platform linux/amd64 --tag "$repository:$revision" --push .
+docker buildx build -f infra/docker/Dockerfile --platform linux/amd64 --tag "$repository:$revision" --push .
 aws ecr describe-images --region ap-southeast-3 --repository-name "${repository#*/}" --image-ids "imageTag=$revision" --query 'imageDetails[0].imageDigest' --output text
 ```
 
@@ -86,7 +86,7 @@ Inside the SSM session, use `sudo systemctl status jude`, `sudo journalctl -u ju
 The `web` Docker target contains the SvelteKit build and its Node entry point. Start it with `node apps/web/server.mjs` from the workspace root. It listens on `PORT` (3000 by default). Supply the same database, origins, storage configuration and runtime secrets as the combined service. `/healthz` checks database readiness. Set `VOICE_ORIGIN` to an internal voice HTTP origin to enable proxied live endpoints and WebSockets.
 
 ```sh
-docker buildx build --platform linux/amd64 --target web --tag jude-web:release --load .
+docker buildx build -f infra/docker/Dockerfile --platform linux/amd64 --target web --tag jude-web:release --load .
 ```
 
 The independent voice process, Docker target, and streaming route are described in the [voice deployment guide](../../voice/docs/aws.md).

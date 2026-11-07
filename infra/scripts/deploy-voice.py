@@ -68,7 +68,7 @@ def build():
         f"aws s3 cp s3://{bucket}/{key} /opt/jude/source.tar.gz --region {REGION} --only-show-errors",
         "tar -xzf /opt/jude/source.tar.gz -C /opt/jude/source",
         "cd /opt/jude/source",
-        "docker build --target release-pyannote -t jude:current . > /opt/jude/build.log 2>&1 || { tail -100 /opt/jude/build.log; exit 1; }",
+        "docker build -f infra/docker/Dockerfile --target release-pyannote -t jude:current . > /opt/jude/build.log 2>&1 || { tail -100 /opt/jude/build.log; exit 1; }",
         "echo 'Linux web and pyannote voice image built successfully'"], "Build Jude web and Python voice " + sha[:12])
 
 
