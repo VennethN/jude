@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { cases, documents, speakers, statements, passages } from '../src/server/seed';
+import { cases, documents, speakers, statements, passages, findings } from '../src/server/seed';
 import type { Workspace } from '../src/domain';
 import { exampleCaseLabels, exampleWorkspaceLabels } from '../../../apps/web/src/lib/workspace/example-labels';
-import { displayTitle, displayCourt, displaySpeaker } from '../../../apps/web/src/lib/workspace/format';
+import { displayTitle, displayCourt, displaySpeaker, findingQuestion } from '../../../apps/web/src/lib/workspace/format';
 
 const workspace: Workspace = {
-  version: 1, caseRecord: cases[0], documents, speakers, statements, passages,
-  hearings: [], findings: [], connections: [], boards: [], threads: [], legal: [], replies: [],
+  version: 1, caseRecord: cases[0], documents, speakers, statements, passages, findings,
+  hearings: [], findings, connections: [], boards: [], threads: [], legal: [], replies: [],
 };
 describe('synthetic interface labels', () => {
   it('translates display labels without changing any original record or evidence', () => {
@@ -20,6 +20,11 @@ describe('synthetic interface labels', () => {
     expect(displaySpeaker(view.speakers, 'rina', 'en')).toBe('Witness Rina Hartati');
     expect(displaySpeaker(view.speakers, 'rina', 'id')).toBe('Saksi Rina Hartati');
     expect(view.caseRecord.title).toBe(cases[0].title);
+    for (const finding of view.findings) {
+      expect(findingQuestion(finding, 'en')).not.toBe(finding.question);
+      expect(findingQuestion(finding, 'id')).toBe(finding.question);
+      expect(finding.said).toBe(original.findings.find(f => f.id === finding.id)?.said);
+    }
     expect(view.statements).toBe(workspace.statements);
     expect(view.passages).toBe(workspace.passages);
     expect(workspace).toEqual(original);

@@ -304,6 +304,10 @@ describe('case API', () => {
     expect(original.headers.get('content-type')).toContain('wordprocessingml');
     expect([...new Uint8Array(await original.arrayBuffer()).slice(0, 2)]).toEqual([80, 75]);
     await a.ok(source + '/findings/f1', 'PATCH', { reviewed: true, note: 'Reviewed source' });
+    await mutateWorkspace(session.organization.id, session.demo!.caseId, current => {
+      const finding = current.findings.find(f => f.id === 'f1')!;
+      finding.questionTranslation = { id: finding.question, en: 'When did you arrive at the gate?' };
+    });
     const zip = await a.request(source + '/export');
     expect(zip.status).toBe(200);
     const f = new FormData();
@@ -312,6 +316,7 @@ describe('case API', () => {
     const w = await a.ok<Workspace>('cases/' + imported.id + '/workspace');
     const finding = w.findings.find((item) => item.note === 'Reviewed source')!;
     expect(finding.reviewed).toBe(true);
+    expect(finding.questionTranslation).toEqual({ id: finding.question, en: 'When did you arrive at the gate?' });
     expect(w.statements.some((s) => s.id === finding.statementId)).toBe(true);
     expect(w.passages.some((p) => p.id === finding.sources[0].passageId)).toBe(true);
     expect(w.threads.filter((t) => t.sample)).toHaveLength(4);

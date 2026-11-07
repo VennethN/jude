@@ -1,11 +1,16 @@
 import { expect, test, type Page } from '@playwright/test';
 
 async function language(page: Page, current: 'id' | 'en', next: 'id' | 'en') {
+  const originalURL = page.url();
+  if (await page.getByRole('dialog', { name: current === 'id' ? 'Temuan' : 'Finding', exact: true }).isVisible()) {
+    await page.keyboard.press('Escape');
+  }
   await page.getByRole('button', { name: current === 'id' ? 'Menu ruang kerja' : 'Workspace menu', exact: true }).click();
   await page.getByRole('button', { name: current === 'id' ? 'Preferensi' : 'Preferences', exact: true }).click();
   await page.locator('#ui-language').selectOption(next);
   await expect(page.locator('html')).toHaveAttribute('lang', next);
   await page.keyboard.press('Escape');
+  if (page.url() !== originalURL) await page.goto(originalURL);
 }
 
 for (const width of [1440, 390]) {
@@ -31,6 +36,14 @@ for (const width of [1440, 390]) {
     await page.goto(base + '/hearings/h2?s=s208');
     await expect(page.locator('body')).toContainText('Witness Rina Hartati');
     await expect(page.locator('body')).toContainText('Saya sampai di gudang jam setengah sepuluh malam, Pak.');
+    await page.goto(base + '/findings/f1');
+    await expect(page.locator('[data-tour="finding-question"] blockquote')).toHaveText('You said you arrived at half past nine. Was that when you tapped your card at the gate, or when you started your shift after visiting the stall?');
+    await expect(page.locator('[data-tour="finding-detail"]')).toContainText('Evidence quotations retain the original wording.');
+    await expect(page.locator('[data-tour="finding-detail"]')).toContainText('Saya sampai di gudang');
+    await language(page, 'en', 'id');
+    await expect(page.locator('[data-tour="finding-question"] blockquote')).toHaveText(original.findings.find((f: { id: string }) => f.id === 'f1').question);
+    await expect(page.locator('[data-tour="finding-detail"]')).toContainText('Kutipan bukti mempertahankan redaksi aslinya.');
+    await language(page, 'id', 'en');
     const after = await (await page.request.get(`/api/cases/${caseId}/workspace`)).json();
     expect(after.caseRecord).toEqual(original.caseRecord);
     expect(after.documents).toEqual(original.documents);
@@ -47,3 +60,20 @@ for (const width of [1440, 390]) {
     await expect(page.locator('#case-main')).toContainText('BAP Saksi Rina Hartati');
   });
 }
+
+test('request failures follow the chosen language instead of the server message', async ({ page }) => {
+  await page.goto('/demo');
+  await page.getByRole('button', { name: 'Tidak sekarang', exact: true }).click();
+  const base = new URL(page.url()).pathname;
+  await page.goto(base + '/findings/f1');
+  await page.route('**/api/cases/*/findings/f1', route => route.fulfill({
+    status: 403, contentType: 'application/json',
+    body: JSON.stringify({ error: { code: 'forbidden', message: 'Untranslated provider detail' } }),
+  }));
+  await page.getByRole('button', { name: 'Tandai diperiksa', exact: true }).click();
+  await expect(page.locator('[data-tour="finding-detail"]')).toContainText('Anda tidak memiliki izin untuk tindakan ini.');
+  await expect(page.locator('body')).not.toContainText('Untranslated provider detail');
+  await language(page, 'id', 'en');
+  await page.getByRole('button', { name: 'Mark checked', exact: true }).click();
+  await expect(page.locator('[data-tour="finding-detail"]')).toContainText('You do not have permission for this action.');
+});

@@ -3,7 +3,7 @@
 
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
-  import { api } from '$lib/client';
+  import { ApiError, api } from '$lib/client';
   import DocumentRemoval from '$lib/evidence/DocumentRemoval.svelte';
   import { onMount } from 'svelte';
   import {
@@ -97,7 +97,7 @@
       requestKeys.set(file, requestKey);
       try {
         if (file.size > 25 * 1024 * 1024)
-          throw new Error(id ? 'Batas per berkas adalah 25 MB.' : 'The limit is 25 MB per file.');
+          throw new ApiError('document_too_large', '', 413);
         const form = new FormData();
         form.set('file', file);
         form.set('title', file.name.replace(/\.[^.]+$/, '') || file.name);
@@ -108,7 +108,7 @@
         });
         const body = await response.json();
         if (!response.ok)
-          throw new Error(body.error?.message || (id ? 'Gagal mengunggah.' : 'Upload failed.'));
+          throw new ApiError(body.error?.code ?? 'request_failed', body.error?.message ?? '', response.status);
         ready = [...ready, body];
       } catch (e) {
         failed = [
@@ -116,7 +116,7 @@
           {
             file,
             key: requestKey,
-            message: e instanceof Error ? e.message : id ? 'Gagal mengunggah.' : 'Upload failed.'
+            message: e instanceof ApiError ? e.message : id ? 'Gagal mengunggah.' : 'Upload failed.'
           }
         ];
       }

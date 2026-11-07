@@ -23,7 +23,7 @@
     Archive,
     Trash2,
   } from '@lucide/svelte';
-  import { api } from '$lib/client';
+  import { ApiError, api } from '$lib/client';
   import { needsReview } from '@jude/core/domain';
   import FindingLink from '$lib/evidence/FindingLink.svelte';
   import CaseForm from '$lib/workspace/CaseForm.svelte';
@@ -84,7 +84,7 @@
       await invalidateAll();
       await goto('/cases');
     } catch (e) {
-      message = e instanceof Error ? e.message : en ? 'Please try again.' : 'Coba lagi.';
+      message = e instanceof ApiError ? e.message : en ? 'Please try again.' : 'Coba lagi.';
     }
   }
 </script>

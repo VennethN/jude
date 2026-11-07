@@ -195,6 +195,7 @@
   <header class="ev-head">
     <div>
       <h1>{displayTitle(doc, lang)}</h1>
+      <p class="ev-meta">{id ? 'Dokumen ditampilkan dalam bahasa aslinya.' : 'This document is shown in its original language.'}</p>
       <p>{local(doc.kind, lang)} · {doc.file} · {doc.pages} {id ? 'halaman' : 'pages'}</p>
     </div>
     <div class="ev-actions">

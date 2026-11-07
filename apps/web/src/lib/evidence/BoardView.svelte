@@ -176,7 +176,7 @@
         problem = id
           ? 'Papan berubah di tempat lain. Periksa perubahan lalu ulangi.'
           : 'The board changed elsewhere. Review it and try again.';
-      } else problem = e instanceof Error ? e.message : id ? 'Penyimpanan gagal.' : 'Save failed.';
+      } else problem = e instanceof ApiError ? e.message : id ? 'Penyimpanan gagal.' : 'Save failed.';
     } finally {
       busy = false;
     }
@@ -209,7 +209,7 @@
         }
         selected = '';
       } catch (e) {
-        problem = e instanceof Error ? e.message : id ? 'Perubahan gagal.' : 'Change failed.';
+        problem = e instanceof ApiError ? e.message : id ? 'Perubahan gagal.' : 'Change failed.';
       } finally {
         busy = false;
       }
@@ -232,7 +232,7 @@
       feedback = id ? 'Papan dipulihkan.' : 'Board restored.';
     } catch (e) {
       problem =
-        e instanceof Error ? e.message : id ? 'Papan belum dipulihkan.' : 'Could not restore the board.';
+        e instanceof ApiError ? e.message : id ? 'Papan belum dipulihkan.' : 'Could not restore the board.';
     } finally {
       busy = false;
     }
@@ -274,7 +274,7 @@
       feedback = id ? 'Tersimpan.' : 'Saved.';
     } catch (e) {
       problem =
-        e instanceof Error ? e.message : id ? 'Bukti belum tersimpan.' : 'Could not save the evidence.';
+        e instanceof ApiError ? e.message : id ? 'Bukti belum tersimpan.' : 'Could not save the evidence.';
     } finally {
       busy = false;
     }

@@ -12,6 +12,9 @@ export function displayCourt(record: { court: string; displayCourt?: L10n }, lan
 export function speakerLabel(speaker: Speaker | undefined, lang: Lang) {
   return speaker?.displayLabel?.[lang] ?? speaker?.label ?? '';
 }
+export function findingQuestion(finding: Finding, lang: Lang) {
+  return finding.questionTranslation?.[lang] ?? finding.question;
+}
 export function formatDate(value: string, lang: Lang, short = false) {
   const date = new Date(value.length === 10 ? value + 'T00:00:00+07:00' : value);
   if (Number.isNaN(date.getTime())) return value;

@@ -98,6 +98,8 @@ export type Basis = { kind: "finding"; id: string } | { kind: "passage"; id: str
 export interface ReplySuggestion {
   /** What could be said, in the court's language. */
   text: string;
+  /** Optional translation of generated courtroom wording, never testimony. */
+  textTranslation?: L10n;
   basis: Basis;
   /** Why it is offered, in the interface's language. */
   why: L10n;
@@ -169,6 +171,8 @@ export interface Finding {
   uncertainty?: L10n;
   /** Suggested question in the courtroom language (Indonesian). */
   question: string;
+  /** Bilingual generated draft; verbatim evidence remains in said/sources. */
+  questionTranslation?: L10n;
   /** The phrase in the testimony that the finding is about. */
   said?: string;
   sources: FindingSource[];

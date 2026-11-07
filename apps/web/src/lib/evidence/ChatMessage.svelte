@@ -92,6 +92,11 @@
         <span class="mode">{id ? 'Perkara sintetis' : 'Synthetic case'}</span>
       {/if}
     </header>
+    {#if m.mode === 'sources-only'}
+      <p class="ev-meta">{id ? 'Kutipan berikut mempertahankan bahasa dan redaksi sumber.' : 'The quotations below retain the source language and exact wording.'}</p>
+    {:else if typeof m.text === 'string'}
+      <p class="ev-meta">{id ? 'Jawaban tersimpan · bahasa asli' : 'Saved answer · original language'}</p>
+    {/if}
     {#if answer}
       <p class="answer">
         {#each segments as { value, number, entry }}{#if entry?.source}{@const label =

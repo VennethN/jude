@@ -5,7 +5,7 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { Search, FileText, ArrowRight, Link2 } from '@lucide/svelte';
-  import { write } from '$lib/client';
+  import { ApiError, write } from '$lib/client';
   import type { Relation } from '@jude/core/domain';
   import type { PageData } from './$types';
   import Dialog from '$lib/workspace/Dialog.svelte';
@@ -101,7 +101,7 @@
       await write(apiPath(w, path), method, body);
       return true;
     } catch (error) {
-      problem = error instanceof Error ? error.message : id ? 'Perubahan gagal.' : 'Change failed.';
+      problem = error instanceof ApiError ? error.message : id ? 'Perubahan gagal.' : 'Change failed.';
       return false;
     } finally {
       busy = false;

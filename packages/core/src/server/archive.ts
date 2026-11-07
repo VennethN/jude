@@ -238,6 +238,7 @@ function parseWorkspace(raw: unknown) {
     verify: bilingual(r.verify, 'verify', 12000),
     uncertainty: r.uncertainty ? bilingual(r.uncertainty, 'uncertainty', 12000) : undefined,
     question: rowText(r.question, 'question'),
+    questionTranslation: r.questionTranslation ? bilingual(r.questionTranslation, 'questionTranslation', 12000) : undefined,
     said: rowText(r.said, 'said'),
     reviewed: !!r.reviewed,
     note: rowText(r.note, 'note', 12000),
@@ -407,6 +408,7 @@ function parseWorkspace(raw: unknown) {
             : { kind: choice(b.kind, ['finding', 'passage'], 'kind'), id: ref(b.id) };
         return {
           text: string(s.text, 'text', 12000),
+          textTranslation: s.textTranslation ? bilingual(s.textTranslation, 'textTranslation', 12000) : undefined,
           why: bilingual(s.why, 'why', 4000),
           confidence: number(s.confidence, 'confidence', 0, 1),
           basis,

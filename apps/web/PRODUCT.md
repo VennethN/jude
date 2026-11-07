@@ -6,6 +6,12 @@
 
 Web, in Bahasa Indonesia and English. Source records stay in their original language.
 
+## Interface language and source wording
+
+All product-owned navigation, labels, explanations, status and error messages, and generated question drafts follow the selected Indonesian or English interface language. Synthetic examples carry translations for their display labels and suggested questions, including examples already saved.
+
+Keep verbatim testimony, original document text and scans, official legal identifiers (BAP, KUHP, KUHAP, article/case numbers), proper names, and user-authored titles, notes and messages unchanged. These are source or authored records, not interface copy. Explain this boundary beside evidence and in language preferences. Never silently translate or overwrite evidence. Saved courtroom drafts without a verified translation remain explicitly identified as original wording. Copying a translated suggestion copies the language shown.
+
 ## Users
 
 Counsel preparing Indonesian criminal cases and following testimony in a hearing. A lawyer may have only a few seconds to find the passage behind a question.

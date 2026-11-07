@@ -1,12 +1,13 @@
+import { requestErrorText } from './request-errors';
 import { invalidateAll } from '$app/navigation';
 
 export class ApiError extends Error {
   constructor(
     public code: string,
-    message: string,
+    readonly serverMessage: string,
     public status: number,
   ) {
-    super(message);
+    super(requestErrorText(code, typeof document !== 'undefined' && document.documentElement.lang === 'en' ? 'en' : 'id'));
   }
 }
 

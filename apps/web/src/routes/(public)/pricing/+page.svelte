@@ -92,7 +92,7 @@
       <div>
         <a href="#plans">{id ? 'Paket' : 'Plans'}</a><a href="#pr-compare"
           >{id ? 'Perbandingan' : 'Comparison'}</a
-        ><a href="#pr-faq">FAQ</a>
+        ><a href="#pr-faq">{id ? 'Tanya jawab' : 'FAQ'}</a>
       </div>
       <PlanAction
         plan={pro}

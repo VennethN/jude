@@ -2,7 +2,7 @@
  import { goto, invalidateAll } from '$app/navigation';
  import { CalendarDays, ChevronRight, FileAudio, FileUp, Mic } from '@lucide/svelte';
  import type { Hearing, Lang, Workspace } from '@jude/core/domain';
- import { api } from '$lib/client';
+ import { ApiError, api } from '$lib/client';
  import Dialog from './Dialog.svelte';
  import SheetHandle from './SheetHandle.svelte';
  import { timecode } from './format';
@@ -14,7 +14,7 @@
  $effect(()=>{flow=scheduled?'live':['live','schedule','import','audio'].includes(initial)?initial as Flow:'';title=scheduled?.title[lang]??'';date=scheduled?.date??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta'}).format(new Date())});
  const otherLive=$derived(w.hearings.find(item=>item.mode==='live' && item.id!==scheduled?.id));
  const choices=$derived([{id:'live' as const,icon:Mic,title:en?'Record live':'Rekam langsung',hint:en?'Transcribe an open hearing with permission.':'Transkripsikan sidang terbuka dengan izin.'},{id:'audio' as const,icon:FileAudio,title:en?'Upload audio':'Unggah audio',hint:en?'Transcribe a saved recording.':'Transkripsikan rekaman yang tersimpan.'},{id:'import' as const,icon:FileUp,title:en?'Import transcript':'Impor transkrip',hint:en?'Review speaker turns before filing.':'Periksa giliran pembicara sebelum disimpan.'},{id:'schedule' as const,icon:CalendarDays,title:en?'Schedule hearing':'Jadwalkan sidang',hint:en?'Set a hearing date and time.':'Tetapkan tanggal dan waktu sidang.'}]);
- function fail(e:unknown){message=e instanceof Error?e.message:(en?'Could not complete this action.':'Tindakan belum selesai.')}
+ function fail(e:unknown){message=e instanceof ApiError?e.message:(en?'Could not complete this action.':'Tindakan belum selesai.')}
  async function preview(f?:File){if(!f)return;file=f;uploadKey=crypto.randomUUID();if(flow!=='import')return;const body=new FormData();body.append('file',f);busy=true;message='';try{const r=await api<{title:string;date:string;turns:typeof draft}>(prefix+'/import/preview','POST',body);draft=r.turns;title=r.title;date=r.date}catch(e){fail(e)}finally{busy=false}}
  async function submit(e:SubmitEvent){e.preventDefault();if(busy)return;busy=true;message='';try{let h:Hearing;
    if(flow==='audio'){const form=new FormData();form.set('file',file!);form.set('title',title);form.set('date',date);form.set('lang',language);form.set('recordingPermission',String(permission&&!closed));h=await api<Hearing>('/api/live/'+w.caseRecord.id+'/upload','POST',form,{'Idempotency-Key':uploadKey})}

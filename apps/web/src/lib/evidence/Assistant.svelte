@@ -263,7 +263,7 @@
     } catch (e) {
       limit = e instanceof ApiError && e.status === 402;
       problem =
-        e instanceof Error
+        e instanceof ApiError
           ? e.message
           : id
             ? 'Jawaban belum tersedia. Coba lagi.'

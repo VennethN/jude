@@ -3,7 +3,7 @@
   import { goto, invalidateAll } from '$app/navigation';
   import { Mic, Plus, Search, ShieldCheck, Speech, Trash2, Undo2, X } from '@lucide/svelte';
   import { needsReview, type Hearing } from '@jude/core/domain';
-  import { api } from '$lib/client';
+  import { ApiError, api } from '$lib/client';
   import Dialog from '$lib/workspace/Dialog.svelte';
   import HearingForm from '$lib/workspace/HearingForm.svelte';
   import HearingRow from '$lib/workspace/HearingRow.svelte';
@@ -71,7 +71,7 @@
       await invalidateAll();
     } catch (e) {
       error =
-        e instanceof Error ? e.message : en ? 'Could not save the change.' : 'Perubahan belum tersimpan.';
+        e instanceof ApiError ? e.message : en ? 'Could not save the change.' : 'Perubahan belum tersimpan.';
     } finally {
       busy = false;
     }

@@ -708,6 +708,9 @@
             ><option value="id">Bahasa Indonesia</option><option value="en">English</option></select
           >
         </form>
+        <p class="small muted">{en
+          ? 'Jude’s controls and explanations follow this language. Verbatim testimony, source documents, official legal references, names and your own notes keep their original wording.'
+          : 'Kontrol dan penjelasan Jude mengikuti bahasa ini. Keterangan verbatim, dokumen sumber, rujukan hukum resmi, nama, dan catatan Anda tetap menggunakan redaksi aslinya.'}</p>
         <label class="field"
           >{en ? 'Appearance' : 'Tampilan'}<select
             value={prefs.theme ?? 'paper'}

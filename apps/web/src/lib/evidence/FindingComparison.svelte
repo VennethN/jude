@@ -46,6 +46,7 @@
     interactive = true;
   });
 </script>
+<p class="ev-meta">{en ? 'Evidence quotations retain the original wording.' : 'Kutipan bukti mempertahankan redaksi aslinya.'}</p>
 
 {#if testimony && line}
   <div

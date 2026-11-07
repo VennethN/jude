@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { ChatMessage, Citation, ContextRef, Lang, Workspace } from '../../domain';
+import type { ChatMessage, Citation, ContextRef, Lang, L10n, Workspace } from '../../domain';
 import { objectSchema, safeLanguage, str, structured } from './openai';
 import { mergeEvidenceRanks, semanticMatches } from './semantic-retrieval';
 
@@ -45,11 +45,11 @@ export async function retrieve(w:Workspace,query:string,refs:ContextRef[],lang:L
   const used = new Set(merged.map(key));
   return [...merged, ...fallback.filter(s=>!used.has(key(s)))].slice(0,16);
 }
-const paragraph=objectSchema({summary:str,evidence: {type:'integer'},quote:str});
-interface AnswerPart{summary:string;evidence:number;quote:string}
+const paragraph=objectSchema({summary:objectSchema({id:str,en:str}),evidence: {type:'integer'},quote:str});
+interface AnswerPart{summary:L10n;evidence:number;quote:string}
 function checkedParts(value:unknown,sources:Source[]):value is {paragraphs:AnswerPart[]} {
   if(!value||typeof value!=='object'||!('paragraphs' in value)||!Array.isArray(value.paragraphs)||!value.paragraphs.length||value.paragraphs.length>8)return false;
-  return value.paragraphs.every((p:AnswerPart)=>p&&Number.isInteger(p.evidence)&&typeof p.summary==='string'&&p.summary.length<=1200&&safeLanguage(p.summary)&&!/[“”"\[\]]/.test(p.summary)&&typeof p.quote==='string'&&p.quote.trim().length>=4&&sources[p.evidence-1]?.text.includes(p.quote));
+  return value.paragraphs.every((p:AnswerPart)=>p&&Number.isInteger(p.evidence)&&p.summary&&['id','en'].every(lang=>{const text=p.summary[lang as Lang];return typeof text==='string'&&text.length<=1200&&safeLanguage(text)&&!/[“”"\[\]]/.test(text)})&&typeof p.quote==='string'&&p.quote.trim().length>=4&&sources[p.evidence-1]?.text.includes(p.quote));
 }
 export async function answerQuestion(w:Workspace,question:string,contexts:ContextRef[],lang:Lang,allowModel=true,orgId?:string):Promise<ChatMessage>{
   const sources=await retrieve(w,question,contexts,lang,allowModel ? orgId : undefined), first=sources.slice(0,5);
@@ -57,12 +57,14 @@ export async function answerQuestion(w:Workspace,question:string,contexts:Contex
   if(!allowModel||!sources.length||w.caseRecord.label==='synthetic'||!process.env.OPENAI_API_KEY)return fallback;
   try{
     const boards=contexts.flatMap(r=>r.kind==='board' ? w.boards.filter(b=>b.id===r.id) : []);
-    const answer=await structured('assistant','Answer in '+(lang==='id'?'Indonesian':'English')+'. Each paragraph may state one qualified comparison or observation and must reference one numbered source plus a short exact, verbatim quote from it. Keep the summary free of quotations and citation markers. Return no paragraphs if evidence is insufficient.',{question,boards:boards.map(b=>({name:b!.name,cards:b!.cards,links:b!.links})),sources:sources.map((s,i)=>({number:i+1,text:s.text,source:s.group}))},objectSchema({paragraphs:{type:'array',items:paragraph}}));
+    const answer=await structured('assistant','Write every summary in both Indonesian (summary.id) and English (summary.en), conveying the same meaning. Keep each quote verbatim in its original language. Each paragraph may state one qualified comparison or observation and must reference one numbered source plus a short exact, verbatim quote from it. Keep the summary free of quotations and citation markers. Return no paragraphs if evidence is insufficient.',{question,boards:boards.map(b=>({name:b!.name,cards:b!.cards,links:b!.links})),sources:sources.map((s,i)=>({number:i+1,text:s.text,source:s.group}))},objectSchema({paragraphs:{type:'array',items:paragraph}}));
     if(!checkedParts(answer,sources))return fallback;
-    const citations:Citation[]=[];const text=answer.paragraphs.map(p=>{
+    const citations:Citation[]=[];const parts=answer.paragraphs.map(p=>{
       const {kind,id}=sources[p.evidence-1];let n=citations.findIndex(c=>c.kind===kind&&c.id===id);if(n<0){n=citations.length;citations.push({kind,id})}
-      return p.summary+' “'+p.quote+'” ['+(n+1)+']';
-    }).join('\n\n');
+      const quoted=' “'+p.quote+'” ['+(n+1)+']';
+      return {id:p.summary.id+quoted,en:p.summary.en+quoted};
+    });
+    const text:L10n={id:parts.map(p=>p.id).join('\n\n'),en:parts.map(p=>p.en).join('\n\n')};
     return {...fallback,mode:'ai',text,citations};
   }catch{return fallback}
 }
