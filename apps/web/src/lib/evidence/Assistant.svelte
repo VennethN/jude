@@ -314,6 +314,7 @@
           >{/if}
       </div>
     </header>{/if}
+  <div class="conversation-flow">
   {#if thread?.messages.length}
     <header class="thread-title">
       <h2 class="ev-title">{local(thread.title, lang)}</h2>
@@ -362,6 +363,7 @@
           >{id ? 'Coba lagi' : 'Try again'}</button
         >{/if}
     </div>{/if}
+  </div>
   <form
     class="composer"
     data-tour="assistant-composer"
@@ -600,6 +602,14 @@
   .log {
     margin-bottom: 1rem;
   }
+  .compact { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; border:0; border-radius:0; background:var(--surface); }
+  .compact .panel-head { flex:none; padding:12px 10px 10px 16px; }
+  .compact .panel-head h2 { font:600 15px/1.4 var(--sans); letter-spacing:-.01em; }
+  .compact .conversation-flow { flex:1; min-height:0; overflow:auto; padding:16px; overscroll-behavior:contain; }
+  .compact .welcome { padding:0 0 12px; }
+  .compact .suggestions { gap:6px; }
+  .compact .suggestions button { padding:11px 14px; border:1px solid var(--line); border-radius:8px; }
+  .compact .composer { flex:none; max-height:55%; overflow:auto; padding:12px 16px max(14px,env(safe-area-inset-bottom)); border:0; border-top:1px solid var(--line); border-radius:0; }
   .compact .welcome h2 {
     font-size: 1.75rem;
   }

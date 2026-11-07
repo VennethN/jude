@@ -37,6 +37,7 @@
   import { getCapture, pauseCapture } from '$lib/workspace/hearing-detail/active-recording.svelte';
   import { planById } from '@jude/core/plans';
   import Dialog from '$lib/workspace/Dialog.svelte';
+  import SheetHandle from '$lib/workspace/SheetHandle.svelte';
   import Search from '$lib/workspace/Search.svelte';
   import Tours from '$lib/workspace/Tours.svelte';
   import TourInvite from '$lib/workspace/TourInvite.svelte';
@@ -129,6 +130,8 @@
     panelQuestion = $state(''),
     systemDark = $state(false),
     errorMsg = $state('');
+  let viewportWidth = $state(0);
+  const dockAssistant = $derived(viewportWidth >= 1280 && prefs.assistantMode !== 'overlay');
   const theme = $derived(
     prefs.theme === 'system' ? (systemDark ? 'night' : 'paper') : (prefs.theme ?? 'paper'),
   );
@@ -178,7 +181,11 @@
     menuOpen = $state(false),
     menuAnchor = $state<HTMLDivElement>(),
     menuButton = $state<HTMLButtonElement>();
-  afterNavigate(({ to }) => {
+  afterNavigate(({ to, from }) => {
+    if (to?.url.pathname.split('/')[3] === 'assistant' ||
+        (from && to && from.url.pathname.split('/')[2] !== to.url.pathname.split('/')[2])) {
+      if (overlay === 'assistant') closeAssistant();
+    }
     chordUntil = 0;
     menuOpen = false;
     if (noticePath && noticePath !== to?.url.href) {
@@ -202,13 +209,18 @@
     await goto(base, { keepFocus: true, state: { ...page.state, judeCaseMenu: true } });
   }
   $effect(() => {
-    const { judeNotice, judeTour, judePanelQuestion, ...rest } = page.state as {
+    const { judeNotice, judeTour, judePanelQuestion, judeOpenAssistant, ...rest } = page.state as {
       judeNotice?: { text?: unknown };
       judeTour?: boolean;
       judePanelQuestion?: {caseId: string; text: string};
+      judeOpenAssistant?: {caseId: string};
     };
-    if (!judeNotice && !judeTour && !judePanelQuestion) return;
+    if (!judeNotice && !judeTour && !judePanelQuestion && !judeOpenAssistant) return;
     replaceState('', rest);
+    if (judeOpenAssistant && judeOpenAssistant.caseId === w?.caseRecord.id) {
+      panelQuestion = '';
+      overlay = 'assistant';
+    }
     if (judePanelQuestion?.caseId === w?.caseRecord.id && judePanelQuestion?.text) {
       panelQuestion = judePanelQuestion.text;
       overlay = 'assistant';
@@ -239,6 +251,12 @@
     event.stopPropagation();
   }
   function keys(event: KeyboardEvent) {
+    if (event.key === 'Escape' && overlay === 'assistant' && dockAssistant &&
+        !event.defaultPrevented && !document.querySelector('dialog:modal,.context-picker')) {
+      consume(event);
+      closeAssistant();
+      return;
+    }
     const typing = event
       .composedPath()
       .some(
@@ -270,7 +288,7 @@
         document.querySelectorAll('dialog[open]').length === 1
       ) {
         consume(event);
-        overlay = null;
+        closeAssistant();
       }
       return;
     }
@@ -323,8 +341,10 @@
   });
 </script>
 
+<svelte:window bind:innerWidth={viewportWidth}/>
 <div
   class="desk"
+  class:with-assistant={overlay === 'assistant' && dockAssistant}
   class:collapsed={prefs.railCollapsed}
   class:has-live={showLive}
   data-theme={theme}
@@ -485,7 +505,8 @@
             aria-label={en ? 'Open case assistant' : 'Buka asisten perkara'}
             title={en ? 'Open case assistant' : 'Buka asisten perkara'}
             aria-keyshortcuts="A"
-            onclick={() => (overlay = 'assistant')}
+            aria-expanded={overlay === 'assistant'}
+            onclick={() => { if (overlay === 'assistant') closeAssistant(); else { panelQuestion = ''; overlay = 'assistant'; } }}
             ><MessageSquare size={17} /><span>{en ? 'Assistant' : 'Asisten'}</span></button
           >
         {/if}
@@ -658,9 +679,13 @@
       title={en ? 'Case assistant' : 'Asisten perkara'}
       lang={data.lang}
       close={closeAssistant}
-      side
-      ><Assistant workspace={w} lang={data.lang} compact {context} initialQuestion={panelQuestion} onClose={closeAssistant} /></Dialog
-    >{/if}
+      side docked={dockAssistant}
+    >
+      <SheetHandle dismiss={closeAssistant}/>
+      <div class="assistant-wrap" data-tour="assistant-panel">
+        <Assistant workspace={w} lang={data.lang} compact {context} initialQuestion={panelQuestion} onClose={closeAssistant}/>
+      </div>
+    </Dialog>{/if}
   {#if overlay === 'prefs'}<Dialog
       title={en ? 'Preferences' : 'Preferensi'}
       lang={data.lang}
@@ -965,6 +990,9 @@
     margin-left: var(--rail-width);
     min-width: 0;
   }
+  .with-assistant .work { margin-inline-end:404px; }
+  .assistant-wrap { height:100%; min-height:0; }
+  @media (max-width:719px) { .assistant-wrap { padding-top:16px; } }
   .topbar {
     position: sticky;
     top: 0;

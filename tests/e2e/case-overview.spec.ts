@@ -16,6 +16,10 @@ test('a reader can dismiss the introduction and prepare the next hearing from th
   const before = await page.evaluate(() => scrollY);
   await prepare.click();
   const panel = page.getByRole('dialog', { name: 'Asisten perkara' });
+  await expect.poll(() => panel.evaluate(node => {
+    const r = node.getBoundingClientRect();
+    return [r.x,r.y,r.width,r.height].map(Math.round);
+  })).toEqual([0,10,390,834]);
   const question = panel.locator('.message.question .answer').filter({
     hasText: 'Pertanyaan apa yang perlu saya siapkan untuk sidang berikutnya?',
   });

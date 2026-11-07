@@ -49,7 +49,14 @@ test('case shortcuts respect focus, chords and modal ownership', async ({ page }
     await expect(page).toHaveURL(new RegExp(base + path + '$'));
   }
   await page.keyboard.press('a');
-  await expect(page.getByRole('dialog', { name: 'Asisten perkara' })).toBeVisible();
+  const assistant = page.getByRole('dialog', { name: 'Asisten perkara' });
+  await expect(assistant).toBeVisible();
+  await expect(assistant).toHaveAttribute('aria-modal', 'false');
+  const dock = await assistant.boundingBox();
+  expect(dock?.width).toBe(404);
+  expect(dock?.x).toBe(1036);
+  await page.locator('#case-main').focus();
+  await expect(page.locator('#case-main')).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.locator('#case-main').focus();
