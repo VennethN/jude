@@ -1,4 +1,16 @@
 mock_provider "aws" {
+  mock_resource "aws_db_instance" {
+    defaults = {
+      master_user_secret = [{
+        secret_arn    = "arn:aws:secretsmanager:ap-southeast-3:920373022608:secret:test-master"
+        secret_status = "active"
+        kms_key_id    = "test-key"
+      }]
+    }
+  }
+  mock_data "aws_caller_identity" {
+    defaults = { account_id = "920373022608" }
+  }
   mock_data "aws_availability_zones" {
     defaults = { names = ["ap-southeast-3a", "ap-southeast-3b"] }
   }
@@ -10,6 +22,29 @@ mock_provider "aws" {
   }
   mock_data "aws_ec2_managed_prefix_list" {
     defaults = { id = "pl-0123456789abcdef0" }
+  }
+}
+
+run "github_deploy_trust_is_main_only" {
+  command = apply
+  variables {
+    enable_application = true
+    enable_voice_host  = true
+    github_repository  = "VennethN/jude"
+  }
+  assert {
+    condition = jsondecode(aws_iam_role.github_deploy[0].assume_role_policy).Statement[0].Condition.StringEquals == {
+      "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
+      "token.actions.githubusercontent.com:sub" = "repo:VennethN/jude:ref:refs/heads/main"
+    }
+    error_message = "Deployment must accept GitHub OIDC only for this repository's main branch and AWS audience."
+  }
+  assert {
+    condition = alltrue([
+      for rule in jsondecode(aws_iam_role_policy.github_deploy[0].policy).Statement :
+      !contains(rule.Action, "ssm:GetParameter") && !contains(rule.Action, "ssm:GetParametersByPath") && !contains(rule.Action, "secretsmanager:GetSecretValue")
+    ])
+    error_message = "GitHub builds must not retrieve application runtime secrets."
   }
 }
 

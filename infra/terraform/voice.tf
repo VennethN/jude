@@ -53,6 +53,8 @@ resource "aws_iam_role_policy" "voice" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+      { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"], Resource = aws_ecr_repository.app[0].arn },
       { Effect = "Allow", Action = ["ssm:GetParametersByPath", "ssm:GetParameter", "ssm:GetParameters"], Resource = "arn:aws:ssm:ap-southeast-3:*:parameter/${local.name}/runtime/*" },
       { Effect = "Allow", Action = ["ssm:UpdateInstanceInformation", "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel", "ssmmessages:OpenControlChannel", "ssmmessages:OpenDataChannel"], Resource = "*" },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], Resource = "${aws_s3_bucket.files[0].arn}/*" },
