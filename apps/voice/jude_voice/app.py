@@ -90,7 +90,7 @@ async def provider_error(_, exc):
 async def health():
     try:
         await asyncio.to_thread(repo.ready)
-        return PlainTextResponse("ok")
+        return PlainTextResponse("ok", headers={"Cache-Control": "no-store", "X-Jude-Revision": os.getenv("JUDE_REVISION", "development")})
     except Exception:  # noqa: BLE001 - either configured database driver can fail a readiness probe
         return PlainTextResponse("unavailable", status_code=503)
 

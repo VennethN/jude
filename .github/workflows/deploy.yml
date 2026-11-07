@@ -160,6 +160,7 @@ jobs:
           context: .
           file: infra/docker/Dockerfile
           target: release-pyannote
+          build-args: JUDE_REVISION=${{ github.sha }}
           platforms: linux/amd64
           push: true
           tags: ${{ steps.ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:run-${{ github.run_id }}-${{ github.run_attempt }}
@@ -174,7 +175,11 @@ jobs:
       - name: Smoke test
         run: |
           for attempt in {1..30}; do
-            if curl --fail --silent --show-error --max-time 10 "$APP_URL/healthz"; then exit 0; fi
+            if curl --fail --silent --show-error --max-time 10 -D /tmp/jude-health.headers "$APP_URL/healthz"; then
+              revision=$(awk 'tolower($1) == "x-jude-revision:" {gsub("\r", "", $2); print $2}' /tmp/jude-health.headers)
+              if [ "$revision" = "$GITHUB_SHA" ]; then exit 0; fi
+              echo "Waiting for the expected release revision."
+            fi
             sleep 10
           done
           exit 1

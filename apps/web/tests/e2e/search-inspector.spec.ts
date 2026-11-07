@@ -58,7 +58,8 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
   });
 }
 
-test('phone sheets follow the finger and dismiss only after a full pull', async ({ browser, baseURL }) => {
+for (const kind of ['search', 'citation'] as const) {
+  test(`phone ${kind} sheet follows the finger and dismisses only after a full pull`, async ({ browser, baseURL }) => {
   const context = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' });
   try {
     const page = await context.newPage();
@@ -66,11 +67,8 @@ test('phone sheets follow the finger and dismiss only after a full pull', async 
     await page.goto('/demo/documents/d1?p=d1p4');
     await page.waitForLoadState('networkidle');
     const citation = page.locator('button.margin-mark[data-pid="d1p4"]');
-    const sheets = [
-      { trigger: page.getByRole('button', { name: 'Cari dalam perkara' }), title: 'Cari dalam berkas perkara' },
-      { trigger: citation, title: 'Kutipan berkas' },
-    ];
-    for (const { trigger, title } of sheets) {
+    const trigger = kind === 'search' ? page.getByRole('button', { name: 'Cari dalam perkara' }) : citation;
+    const title = kind === 'search' ? 'Cari dalam berkas perkara' : 'Kutipan berkas';
       if (trigger === citation) {
         const frame = page.locator('.frame').filter({has: trigger});
         const canvas = frame.locator('canvas');
@@ -106,6 +104,6 @@ test('phone sheets follow the finger and dismiss only after a full pull', async 
         });
       }
       await expect(sheet).toHaveCount(0);
-    }
   } finally { await context.close(); }
 });
+}

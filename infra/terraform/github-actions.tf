@@ -8,6 +8,16 @@ variable "github_repository" {
   }
 }
 
+variable "github_oidc_subject_prefix" {
+  description = "Exact sub_claim_prefix from GitHub's actions/oidc/customization/sub API; supports immutable owner and repository IDs."
+  type        = string
+  default     = null
+  validation {
+    condition     = var.github_oidc_subject_prefix == null ? true : can(regex("^repo:[A-Za-z0-9_.-]+(@[0-9]+)?/[A-Za-z0-9_.-]+(@[0-9]+)?$", var.github_oidc_subject_prefix))
+    error_message = "Use the exact repo:owner[@id]/repository[@id] subject prefix returned by GitHub."
+  }
+}
+
 data "aws_caller_identity" "deployment" {}
 
 locals {
@@ -24,7 +34,7 @@ resource "aws_iam_role" "github_deploy" {
       Principal = { Federated = "arn:aws:iam::${data.aws_caller_identity.deployment.account_id}:oidc-provider/token.actions.githubusercontent.com" },
       Condition = { StringEquals = {
         "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com",
-        "token.actions.githubusercontent.com:sub" = "repo:${var.github_repository}:ref:refs/heads/main"
+        "token.actions.githubusercontent.com:sub" = "${coalesce(var.github_oidc_subject_prefix, "repo:${coalesce(var.github_repository, "unconfigured")}")}:ref:refs/heads/main"
       } }
     }]
   })

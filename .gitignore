@@ -39,3 +39,6 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .ruff_cache/
+
+# Local AWS endpoints, database credentials, and TLS certificates.
+.local-access/

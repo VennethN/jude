@@ -60,7 +60,7 @@ docker run -d --name jude-app --network jude --restart unless-stopped \
   --log-opt max-size=10m --log-opt max-file=3 "$image" >/dev/null
 for attempt in {1..60}; do
   if docker exec jude-app node --input-type=module -e \
-    'const r=await Promise.all([3000,3001].map(async p=>(await fetch(`http://127.0.0.1:${p}/healthz`)).ok)); process.exit(r.every(Boolean)?0:1)' \
+    'const r=await Promise.all([3000,3001].map(async p=>{const r=await fetch(`http://127.0.0.1:${p}/healthz`,{signal:AbortSignal.timeout(3000)});return r.ok && r.headers.get("x-jude-revision")===process.env.JUDE_REVISION;})); process.exit(r.every(Boolean)?0:1)' \
     >/dev/null 2>&1; then break; fi
   if [ "$attempt" = 60 ]; then echo 'Web or voice database readiness failed' >&2; exit 1; fi
   sleep 2
