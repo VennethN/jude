@@ -1,0 +1,139 @@
+{
+  "note": "Original vendor artwork, used only to identify services. No endorsement implied. SVG originals are unmodified; PNG files are rasterized caches.",
+  "assets": {
+    "amplify": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Front-End-Web-Mobile/64/Arch_AWS-Amplify_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "d38fd389b67c4df1a22be0f1308b577bb874dbe9dd8ee065ebb69d4e5508b08f"
+    },
+    "ec2": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Compute/64/Arch_Amazon-EC2_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "5a7a0cef7a9f44ccdd544564ce9076abec3024090be0d6454504c49d149ce9ec"
+    },
+    "rds": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Databases/64/Arch_Amazon-RDS_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "1b24caf4baf274a12164053f05bf0cba331f4d5e30fdd4164000702c1ec192a6"
+    },
+    "cloudwatch": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Resource-Icons_07312026/Res_Management-Governance/Res_Amazon-CloudWatch_Logs_48.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "d395fbcdfe2a524b8cb8ea1f157be8f8cb02e29e635607acbfa9644a31ff4e12"
+    },
+    "ecr": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Containers/64/Arch_Amazon-Elastic-Container-Registry_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "bec34a867cb424de91592470a14e82556dd9b041231b5e070ca846752d1c719f"
+    },
+    "parameter-store": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Resource-Icons_07312026/Res_Management-Governance/Res_AWS-Systems-Manager_Parameter-Store_48.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "467cec947b3208eed582f11cb8502079fece17e972d0f0653fb9a4bdfd958ed3"
+    },
+    "session-manager": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Resource-Icons_07312026/Res_Management-Governance/Res_AWS-Systems-Manager_Session-Manager_48.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "8ae4af7f3000f576d5b25fedbb9d631d2ce9f87f7ba7c875813671d848026403"
+    },
+    "secrets-manager": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Security-Identity/64/Arch_AWS-Secrets-Manager_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "c3941b75fe0ad1181696c1dbbd5f9d1fe4561879e195b1e68bb6dc35a99da6b3"
+    },
+    "internet-gateway": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Resource-Icons_07312026/Res_Networking-Content-Delivery/Res_Amazon-VPC_Internet-Gateway_48.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "d31cd837a33508372a7d43a556daa0138b6e2004c94a76e2f7f8b977409659aa"
+    },
+    "ebs": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Storage/64/Arch_Amazon-Elastic-Block-Store_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "a8ee0d51f7e2359b0e4d2e6a569941ee4e9888eafd4ec49aaa503934bc70edc0"
+    },
+    "iam-role": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Resource-Icons_07312026/Res_Security-Identity/Res_AWS-Identity-Access-Management_Role_48.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "e47256f0e788e6bda40d17b0da4cf9abab170a29dfc7a22f579e13f4891407da"
+    },
+    "users": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Resource-Icons_07312026/Res_General-Icons/Res_48_Light/Res_Users_48_Light.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "70a2a73c69e9f21a46133b60a3a07e45b23f35c3f141d572e61a43945cbb4682"
+    },
+    "admin": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Resource-Icons_07312026/Res_General-Icons/Res_48_Light/Res_Authenticated-User_48_Light.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "227260556fc9756d2bd96d5b7daff43df46b9a52170a60805e2b6cd0f25c3b97"
+    },
+    "region": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Group-Icons_07312026/Region_32.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "848203d40c55e213c84c1b8a3e14c2fa92aaa793b31a5c17a5fd1737ef58b8ca"
+    },
+    "aws-cloud": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Group-Icons_07312026/AWS-Cloud-logo_32.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "63d73df1aac59dab323df732f82e196e359fb7b6370c0ca8e51e7b897cd350be"
+    },
+    "vpc": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Networking-Content-Delivery/64/Arch_Amazon-Virtual-Private-Cloud_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "4a2c292527ce28a95d9038ab7e6be818751ffef0a91aabb5de2e61045150a98d"
+    },
+    "subnet": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Group-Icons_07312026/Public-subnet_32.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "009342df9afcc20b8c6f0d82ded7620105aaa7e53eb253d74f80a9e7d3beee58"
+    },
+    "github": {
+      "source": "https://brand.github.com/GitHub_Logos.zip",
+      "archive_path": "GitHub Logos/SVG/GitHub_Invertocat_Black.svg",
+      "owner": "GitHub",
+      "sha256": "693d7abe6f899646cc2e96856723b45e95f71885a54910b2749f6decdf7e1ee1"
+    },
+    "docker": {
+      "source": "https://www.docker.com/static/Docker-Logos-1.zip",
+      "archive_path": "docker-logos/SVG/docker-mark-ocean-blue.svg",
+      "owner": "Docker",
+      "sha256": "0fd7f9164de13672bb1708ac7cc401ed439eb938ffa7358d5cb278e107904687"
+    },
+    "actions": {
+      "source": "https://raw.githubusercontent.com/primer/octicons/main/icons/workflow-24.svg",
+      "owner": "GitHub / Primer Octicons (MIT)",
+      "sha256": "31d362f1d9058cc83142a88c190024d7ba7c8df5d6ed3992674e97f90a23781f"
+    },
+    "openai": {
+      "source": "https://raw.githubusercontent.com/openai/openai-agents-python/main/docs/assets/logo.svg",
+      "owner": "OpenAI",
+      "sha256": "b94ea61d860fae6f82f43571f36f17111fcf5d348e8e9cc22ae4b441c7560011"
+    },
+    "fastapi": {
+      "source": "https://fastapi.tiangolo.com/img/icon-white.svg",
+      "owner": "FastAPI",
+      "sha256": "4df893703e4f165e5fc1f0270fe70d63aea454135ebdb98a646a2d7967ceef6e"
+    },
+    "caddy": {
+      "source": "https://caddyserver.com/resources/images/logo-light.svg",
+      "owner": "Caddy",
+      "sha256": "7cb6f7b34b040f11c04974cc67ab89abc6860ab4bf556903ce21c1e65b66cd21"
+    }
+  }
+}

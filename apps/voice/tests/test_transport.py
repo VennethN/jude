@@ -82,7 +82,7 @@ class VoiceTransportTest(unittest.TestCase):
         gap = self.client.get("/api/live/c/h/audio", headers={"Range": "bytes=48042-48045"})
         self.assertEqual(gap.content, b"\0\0ef")
 
-    def test_websocket_ack_reconnect_and_transcript_only_speaker(self):
+    def test_reconnected_recorder_acknowledges_the_committed_turn_once(self):
         active = threading.Lock()
         holders = iter(["first", "second"])
 

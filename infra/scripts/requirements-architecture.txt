@@ -1,0 +1,2 @@
+# Only required for PNG output; --svg-only uses the standard library.
+Pillow>=10.1,<13
