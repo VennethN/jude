@@ -186,7 +186,7 @@ test('idle silence avoids short turns, a pause drains the worklet tail and resum
   }
 });
 
-test('a slow provider has one in-flight turn while continuous speech is saved in eight-second windows', async ({
+test('a server without maxInFlight receives one turn while later speech is saved in eight-second windows', async ({
   page,
 }) => {
   let connection: WebSocketRoute | undefined;
@@ -209,6 +209,52 @@ test('a slow provider has one in-flight turn while continuous speech is saved in
   expect(duration(packets[1])).toBeCloseTo(8, 3);
   expect(packets[1].t).toBeCloseTo(2.4, 3);
   await page.evaluate(() => window.captureFixture.recorder.stop());
+});
+
+test('three turns reach recognition before the first ACK and further speech stays recorded', async ({ page }) => {
+  const packets: Packet[] = [];
+  let socket!: WebSocketRoute;
+  let draining = false;
+  await setup(page, ws => {
+    socket = ws;
+    ws.onMessage(raw => {
+      const packet = JSON.parse(String(raw)) as Packet;
+      packets.push(packet);
+      if (draining) acknowledge(ws, packet);
+    });
+    ws.send(JSON.stringify({ type: 'ready', maxInFlight: 3 }));
+  });
+
+  await expect.poll(() => packets.length, { timeout: 12_000 }).toBe(3);
+  for (const [index, packet] of packets.entries()) {
+    expect(packet.t).toBeCloseTo(index * 2.4, 3);
+    expect(duration(packet)).toBeCloseTo(2.4, 3);
+  }
+  const [first, second, third] = packets;
+  socket.send(JSON.stringify({ type: 'partial', id: 'mic-hearing-1-' + third.id, t: third.t, text: 'Turn three is audible.' }));
+  await expect.poll(() => page.evaluate(() => window.captureFixture.current?.text)).toBe('Turn three is audible.');
+
+  // With every slot occupied, the next eight seconds still reach durable storage.
+  await expect.poll(() => stored(page), { timeout: 12_000 }).toHaveLength(4);
+  expect(packets).toHaveLength(3);
+  await expect(page.locator('#status')).toHaveText('recording');
+  await page.evaluate(() => window.captureFixture.recorder.paused(true));
+
+  acknowledge(socket, second);
+  await expect.poll(() => packets.length).toBe(4);
+  const fourth = packets[3];
+  expect(fourth.t).toBeCloseTo(7.2, 3);
+  expect(duration(fourth)).toBeCloseTo(8, 3);
+  const pending = await stored(page);
+  expect(pending).toEqual(expect.arrayContaining([first.id, third.id, fourth.id]));
+  expect(pending).not.toContain(second.id);
+  expect(new Set(packets.map(packet => packet.id)).size).toBe(4);
+
+  draining = true;
+  for (const packet of [third, fourth, first]) acknowledge(socket, packet);
+  await expect.poll(() => stored(page)).toEqual([]);
+  await page.evaluate(() => window.captureFixture.recorder.stop());
+  await expect(page.locator('#status')).toHaveText('stopped');
 });
 
 test('a previous recorder version drains the current hearing in timestamp order', async ({ page }) => {
