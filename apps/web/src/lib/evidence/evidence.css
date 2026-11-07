@@ -92,7 +92,7 @@
 }
 .ev-button.primary {
   background: var(--forest);
-  color: var(--on-forest, #fffaf0);
+  color: var(--on-forest);
   border-color: var(--forest);
 }
 .ev-button:disabled,

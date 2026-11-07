@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from 'pdfjs-dist';
+  import { BookOpenText } from '@lucide/svelte';
   import type { Lang } from '@jude/core/domain';
 
   let {
@@ -9,6 +10,8 @@
     zoom,
     lang,
     highlight = '',
+    annotations = [],
+    select,
     ready
   }: {
     url: string;
@@ -16,6 +19,8 @@
     zoom: number;
     lang: Lang;
     highlight?: string;
+    annotations?: { id: string; text: string; loud: boolean; label: string }[];
+    select: (id: string) => void;
     ready: (pages: number, text: string) => void;
   } = $props();
 
@@ -27,15 +32,37 @@
   let rendering = $state(false);
   let height = $state(0);
   let spans = $state<{ text: string; left: number; top: number; w: number; h: number; start: number }[]>([]);
-  let focusRange = $derived.by(() => {
-    const phrase = highlight.toLocaleLowerCase().trim();
-    const text = spans
+  let searchText = $derived(
+    spans
       .map((s) => s.text)
       .join(' ')
-      .toLocaleLowerCase();
-    const start = phrase ? text.indexOf(phrase) : -1;
-    return [start, start + phrase.length];
-  });
+      .toLowerCase()
+  );
+  function rangeFor(term: string) {
+    const phrase = term.toLowerCase().trim().replace(/\s+/g, ' ');
+    const start = phrase ? searchText.indexOf(phrase) : -1;
+    return { start, end: start + phrase.length };
+  }
+  let focusRange = $derived(rangeFor(highlight));
+  let indexed = $derived.by(() =>
+    annotations.flatMap((annotation) => {
+      const { start, end } = rangeFor(annotation.text);
+      if (start < 0) return [];
+      const boxes = spans
+        .filter((s) => s.start < end && s.start + s.text.length > start)
+        .map((s) => {
+          const first = Math.max(0, start - s.start),
+            last = Math.min(s.text.length, end - s.start);
+          return {
+            left: s.left + (s.w * first) / s.text.length,
+            top: s.top,
+            width: (s.w * (last - first)) / s.text.length,
+            height: s.h
+          };
+        });
+      return boxes.length ? [{ ...annotation, boxes }] : [];
+    })
+  );
 
   onMount(() => {
     const observer = new ResizeObserver(([entry]) => {
@@ -111,8 +138,10 @@
         if (!('str' in item) || !item.str) return [];
         const [x, y] = view.convertToViewportPoint(item.transform[4], item.transform[5]);
         const h = Math.max(1, item.height * scale);
-        const span = { text: item.str, left: x, top: y - h * 0.85, w: item.width * scale, h, start: index };
-        index += item.str.length + 1;
+        const clean = item.str.replace(/\s+/g, ' ').trim();
+        if (!clean) return [];
+        const span = { text: clean, left: x, top: y - h * 0.85, w: item.width * scale, h, start: index };
+        index += clean.length + 1;
         return [span];
       });
       callback(pdf.numPages, spans.map((s) => s.text).join(' '));
@@ -138,12 +167,23 @@
     </p>{/if}
   <div class="sheet" class:failed={error} style:min-height={height ? height + 'px' : '25rem'}>
     <canvas bind:this={canvas} aria-label={(lang === 'id' ? 'Halaman ' : 'Page ') + pageNo}></canvas>
+    <div class="annotation-layer" aria-hidden="true">
+      {#each indexed as p (p.id)}{#each p.boxes as box}
+          <span
+            class:loud={p.loud}
+            style:left={box.left + 'px'}
+            style:top={box.top + 'px'}
+            style:width={box.width + 'px'}
+            style:height={box.height + 'px'}
+          ></span>
+        {/each}{/each}
+    </div>
     <div class="text-layer">
       {#each spans as span}
         <span
-          class:lit={focusRange[0] >= 0 &&
-            span.start < focusRange[1] &&
-            span.start + span.text.length > focusRange[0]}
+          class:lit={focusRange.start >= 0 &&
+            span.start < focusRange.end &&
+            span.start + span.text.length > focusRange.start}
           style:left={span.left + 'px'}
           style:top={span.top + 'px'}
           style:width={span.w + 'px'}
@@ -152,6 +192,18 @@
         >
       {/each}
     </div>
+    {#each indexed as p (p.id)}
+      <button
+        type="button"
+        class="margin-mark"
+        class:loud={p.loud}
+        style:top={Math.max(0, p.boxes[0].top - 7) + 'px'}
+        data-pid={p.id}
+        aria-label={p.label}
+        title={p.label}
+        onclick={() => select(p.id)}><BookOpenText size={15} /></button
+      >
+    {/each}
   </div>
 </div>
 
@@ -166,7 +218,7 @@
     width: max-content;
     max-width: none;
     background: white;
-    color: #191714;
+    color: var(--ink);
     margin-inline: auto;
   }
   .sheet.failed {
@@ -174,6 +226,40 @@
   }
   canvas {
     display: block;
+  }
+  .annotation-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .annotation-layer span {
+    position: absolute;
+    background: color-mix(in srgb, var(--ev-context) 12%, transparent);
+  }
+  .annotation-layer span.loud {
+    background: color-mix(in srgb, var(--ev-highlight) 24%, transparent);
+  }
+  .margin-mark {
+    position: absolute;
+    right: 0;
+    min-width: 32px;
+    min-height: 32px;
+    display: grid;
+    place-items: center;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+  }
+  .margin-mark.loud {
+    color: var(--accent);
+  }
+  @media (pointer: coarse) {
+    .margin-mark {
+      min-width: 44px;
+      min-height: 44px;
+    }
   }
   .text-layer {
     position: absolute;
@@ -190,10 +276,10 @@
     font-family: serif;
   }
   .text-layer span.lit {
-    background: rgba(226, 165, 67, 0.34);
+    background: color-mix(in srgb, var(--ev-highlight) 33%, transparent);
   }
   .text-layer span::selection {
-    background: rgba(92, 133, 162, 0.4);
+    background: color-mix(in srgb, var(--ev-context) 32%, transparent);
     color: transparent;
   }
 </style>

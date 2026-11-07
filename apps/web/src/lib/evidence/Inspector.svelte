@@ -127,7 +127,7 @@
     overflow: auto;
   }
   .inspector::backdrop {
-    background: rgb(17 28 25 / 0.36);
+    background: color-mix(in srgb, var(--ink) 36%, transparent);
   }
   .top {
     justify-content: space-between;

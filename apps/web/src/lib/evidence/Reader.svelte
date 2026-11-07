@@ -39,6 +39,19 @@
   let zoom = $state(1),
     query = $state(''),
     find = $state(false);
+  let annotations = $derived(
+    active.map((p) => ({
+      id: p.id,
+      text: p.text,
+      loud: w.findings.some(
+        (f) =>
+          !f.reviewed &&
+          (f.status === 'context_needed' || f.status === 'potential_inconsistency') &&
+          f.sources.some((s) => s.passageId === p.id)
+      ),
+      label: (id ? 'Buka kutipan ' : 'Open passage ') + (list.indexOf(p) + 1)
+    }))
+  );
   let inspect = $state<InspectTarget | null>(null);
   let copied = $state('');
   let searchResults = $derived(
@@ -93,16 +106,22 @@
         ? range.toString().trim().slice(0, 3000)
         : '';
   }
-  function sendSelection(to: 'assistant'|'board') {
+  function sendSelection(to: 'assistant' | 'board') {
     if (!selection) return;
     const passage = active.find((p) => p.text.includes(selection));
-    const draft = (id ? 'Apa yang berkaitan dengan kutipan ini? ' : 'What relates to this passage? ') + '“' + selection.slice(0, 220) + '”';
-    const excerpt = {docId: doc.id, page: number, text: selection, passageId: passage?.id};
+    const draft =
+      (id ? 'Apa yang berkaitan dengan kutipan ini? ' : 'What relates to this passage? ') +
+      '“' +
+      selection.slice(0, 220) +
+      '”';
+    const excerpt = { docId: doc.id, page: number, text: selection, passageId: passage?.id };
     if (to === 'board') {
       return goto(casePath(w) + '/findings?view=board', { state: { judeExcerpt: excerpt } });
     }
-    const context = passage ? {kind:'passage' as const,id:passage.id} : {kind:'document' as const,id:doc.id};
-    return goto(assistantPath(w, context), {state:{judeDraft:draft}});
+    const context = passage
+      ? { kind: 'passage' as const, id: passage.id }
+      : { kind: 'document' as const, id: doc.id };
+    return goto(assistantPath(w, context), { state: { judeDraft: draft } });
   }
   function onReady(pages: number) {
     count = pages;
@@ -144,7 +163,7 @@
 
 <svelte:head><title>{doc.title} · Jude</title></svelte:head>
 <svelte:document onselectionchange={readSelection} />
-<div class="ev-page" data-tour="doc-viewer">
+<div class="ev-page" data-tour="reader">
   <a class="ev-link" href={casePath(w) + '/documents'}
     ><ArrowLeft size={15} />{id ? 'Dokumen' : 'Documents'}</a
   >
@@ -171,7 +190,7 @@
     </p>{/if}
   <div class="reader-layout">
     <div class="ev-pane">
-      <div class="ev-tools reader-tools">
+      <div class="ev-tools reader-tools" data-tour="reader-tools">
         <div class="ev-inline">
           <button
             class="ev-icon"
@@ -242,12 +261,14 @@
             <h2 class="ev-meta">{id ? 'Halaman' : 'Page'} {number}</h2>
             {#if paragraphGroups.length}{#each paragraphGroups as group}{#if group.ref}<button
                     class="passage"
+                    data-pid={group.ref}
                     class:focused={selected?.id === group.ref}
                     onclick={() => (inspect = { kind: 'passage', id: group.ref! })}
                     ><Match text={group.text} term={query} /></button
                   >{:else}<p class="ev-record">{group.text}</p>{/if}{/each}{/if}
             {#each active.filter((p) => !paragraphGroups.some((g) => g.ref === p.id)) as p (p.id)}<button
                 class="passage"
+                data-pid={p.id}
                 class:focused={p.id === selected?.id}
                 onclick={() => (inspect = { kind: 'passage', id: p.id })}
                 ><Match text={p.text} term={query} /></button
@@ -268,6 +289,8 @@
             {zoom}
             {lang}
             highlight={selected?.page === number ? selected.text : query}
+            {annotations}
+            select={(id) => (inspect = { kind: 'passage', id })}
             ready={onReady}
           />{/if}
       </div>
@@ -275,8 +298,12 @@
         <div class="ev-tools">
           <span class="ev-meta">{id ? 'Teks terpilih' : 'Selected text'}</span>
           <div class="ev-actions">
-            <button class="ev-button" onclick={() => sendSelection('assistant')}>{id ? 'Tanya asisten' : 'Ask assistant'}</button>
-            <button class="ev-button" onclick={() => sendSelection('board')}>{id ? 'Taruh di papan' : 'Put on board'}</button>
+            <button class="ev-button" onclick={() => sendSelection('assistant')}
+              >{id ? 'Tanya asisten' : 'Ask assistant'}</button
+            >
+            <button class="ev-button" onclick={() => sendSelection('board')}
+              >{id ? 'Taruh di papan' : 'Put on board'}</button
+            >
           </div>
         </div>
       {/if}
@@ -297,10 +324,13 @@
                 class="excerpt ev-record">{p.text}</span
               ></button
             >
-            <div class="finding-links">{#each fs as f (f.id)}<a
-                class="ev-link"
-                href={casePath(w) + '/findings/' + encodeURIComponent(f.id)}>{statuses[f.status][lang]}</a
-              >{/each}</div>
+            <div class="finding-links">
+              {#each fs as f (f.id)}<a
+                  class="ev-link"
+                  data-fid={f.id}
+                  href={casePath(w) + '/findings/' + encodeURIComponent(f.id)}>{statuses[f.status][lang]}</a
+                >{/each}
+            </div>
             <div class="ev-actions">
               <button
                 class="ev-icon"
@@ -355,7 +385,7 @@
     display: block;
     color: var(--ink);
     font: 400 0.99rem/1.65 var(--mono);
-    background: color-mix(in srgb, #deb15f 14%, var(--surface));
+    background: color-mix(in srgb, var(--ev-highlight) 14%, var(--surface));
     text-align: start;
     cursor: pointer;
   }
@@ -364,7 +394,10 @@
     outline: 2px solid var(--accent);
     outline-offset: 0;
   }
-  .finding-links { display: grid; justify-items: start; }
+  .finding-links {
+    display: grid;
+    justify-items: start;
+  }
   .margin {
     border-inline-start: 1px solid var(--line);
     padding-inline-start: 1.1rem;
