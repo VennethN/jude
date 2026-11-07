@@ -38,3 +38,36 @@ button svg,a svg{flex:none}
 .actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.stack{display:grid;gap:16px}.muted{color:var(--muted)}.small{font-size:.85rem}.error-text{color:var(--accent);font-weight:600}.link{font-weight:600;text-decoration:underline}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important;scroll-behavior:auto!important}}
+
+:root {
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-spring: cubic-bezier(.32, .72, 0, 1);
+  --dur-press: 110ms;
+  --dur-fast: 170ms;
+  --dur: 260ms;
+  --dur-slow: 420ms;
+}
+@media (prefers-reduced-motion: no-preference) {
+  ::view-transition-old(root), ::view-transition-new(root) {
+    animation-duration: 220ms;
+    animation-timing-function: var(--ease-out);
+  }
+  :where(a, button, summary, [role='tab'], select, input, textarea) {
+    transition: background-color var(--dur-fast) var(--ease-out),
+      color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+      box-shadow var(--dur-fast) var(--ease-out), text-decoration-color var(--dur-fast) var(--ease-out);
+  }
+  :where(.button, .icon-button, .pub-button, .ev-button) {
+    transition: background-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out),
+      filter var(--dur-fast) var(--ease-out), scale var(--dur-press) var(--ease-out);
+  }
+  :where(.button, .icon-button, .pub-button, .ev-button):active:not(:disabled) { scale: .98; }
+  :where(.mobile-menu[open] .mobile-links, .menu-list, .shell-feedback > .notice) {
+    animation: open-menu var(--dur-fast) var(--ease-out);
+  }
+  @keyframes open-menu { from { opacity: 0; translate: 0 -4px; } }
+}
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(root), ::view-transition-new(root) { animation: none; }
+}

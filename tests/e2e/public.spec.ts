@@ -4,12 +4,13 @@ import { expect, test } from '@playwright/test';
 test('public example keeps the original record when the interface language changes', async ({page}) => {
 	await page.setViewportSize({width:390,height:844});
 	await page.goto('/');
-	await expect(page.getByRole('heading',{level:1})).toContainText('Ikuti keterangan.');
+	await expect(page.getByRole('heading',{level:1})).toContainText('Ikuti setiap keterangan.');
 	await expect(page.locator('figure blockquote')).toContainText('setengah sepuluh malam');
 	await page.getByLabel('Menu',{exact:true}).click();
-	await page.getByRole('button',{name:'English'}).last().click();
-	await expect(page.getByRole('heading',{level:1})).toContainText('Follow testimony.');
+	await page.locator('.mobile-links').getByRole('button',{name:/English/}).click();
+	await expect(page.getByRole('heading',{level:1})).toContainText('Stay with the testimony.');
 	await expect(page.locator('figure blockquote')).toContainText('setengah sepuluh malam');
+	await page.locator('.desk-picker > summary').click();
 	await page.getByRole('button',{name:'Access log'}).click();
 	await expect(page.getByRole('blockquote').last()).toBeVisible();
 	await expect(page.locator('.reading blockquote')).toContainText('20:07:41');

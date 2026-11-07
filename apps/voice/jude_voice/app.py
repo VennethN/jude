@@ -11,6 +11,7 @@ from datetime import date as date_type
 from pathlib import Path
 
 import httpx
+from anyio import CancelScope
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import (
     JSONResponse,
@@ -267,6 +268,31 @@ def decode_turn(turn):
     return turn["id"], float(t), pcm, turn["keep"]
 
 
+@asynccontextmanager
+async def recording_lease(session, case_id, hearing_id):
+    # A cancelled await cannot roll back a transaction already running in a thread.
+    acquisition = asyncio.create_task(asyncio.to_thread(repo.acquire, session, case_id, hearing_id))
+
+    async def release():
+        await asyncio.wait({acquisition})
+        # The acquisition error reaches the caller at entry. Only a committed holder is released.
+        if not acquisition.cancelled() and acquisition.exception() is None:
+            await asyncio.to_thread(repo.release, case_id, hearing_id, acquisition.result())
+
+    try:
+        yield await asyncio.shield(acquisition)
+    finally:
+        # AnyIO disconnect scopes repeatedly cancel awaits. Uvicorn can also cancel
+        # the asyncio task directly at shutdown. Join the release in either case.
+        with CancelScope(shield=True):
+            cleanup = asyncio.create_task(release())
+            try:
+                await asyncio.shield(cleanup)
+            except asyncio.CancelledError:
+                await cleanup
+                raise
+
+
 @app.websocket("/api/live/{case_id}/{hearing_id}/socket")
 async def socket(ws: WebSocket, case_id: str, hearing_id: str):
     if (
@@ -279,12 +305,16 @@ async def socket(ws: WebSocket, case_id: str, hearing_id: str):
         return
     try:
         session = await user(ws)
-        lease = await asyncio.to_thread(repo.acquire, session, case_id, hearing_id)
+        async with recording_lease(session, case_id, hearing_id) as lease:
+            await ws.accept()
+            await receive_turns(ws, session, case_id, hearing_id, lease)
+    except WebSocketDisconnect:
+        pass
     except VoiceError:
         await ws.close(code=1008)
-        return
-    await ws.accept()
 
+
+async def receive_turns(ws, session, case_id, hearing_id, lease):
     async def heartbeat():
         try:
             while True:
@@ -338,4 +368,3 @@ async def socket(ws: WebSocket, case_id: str, hearing_id: str):
         task.cancel()
         with suppress(asyncio.CancelledError):
             await task
-        await asyncio.to_thread(repo.release, case_id, hearing_id, lease)

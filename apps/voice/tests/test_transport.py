@@ -1,11 +1,16 @@
 """Verify the public transport and speaker worker without sending any test audio off-host."""
 
+import asyncio
+import base64
 import json
 import os
+import threading
 import unittest
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
+from anyio import CancelScope, sleep_forever
+from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 from jude_voice import app as transport
 from jude_voice.diarization import SpeakerTurn
@@ -76,6 +81,113 @@ class VoiceTransportTest(unittest.TestCase):
         self.repo.audio.return_value["turns"][1]["start_seconds"] = 1
         gap = self.client.get("/api/live/c/h/audio", headers={"Range": "bytes=48042-48045"})
         self.assertEqual(gap.content, b"\0\0ef")
+
+    def test_reconnected_recorder_acknowledges_the_committed_turn_once(self):
+        active = threading.Lock()
+        holders = iter(["first", "second"])
+
+        def acquire(*_):
+            if not active.acquire(blocking=False):
+                raise transport.VoiceError(409, "recorder_in_use", "Another recorder is connected.")
+            return next(holders)
+
+        self.repo.acquire.side_effect = acquire
+        self.repo.release.side_effect = lambda *_: active.release()
+        self.repo.turn_exists.side_effect = [False, True]
+        recognizer = MagicMock()
+
+        async def transcribe(pcm, partial):
+            await partial("heard")
+            return "heard"
+
+        recognizer.transcribe = AsyncMock(side_effect=transcribe)
+        context = MagicMock()
+        context.__aenter__.return_value = recognizer
+        pcm = b"\x00\x01" * 24000
+        with (
+            patch.object(transport, "Realtime", return_value=context),
+            patch.object(transport, "SpeakerWindow") as window,
+        ):
+            window.return_value.label.return_value = {"turn-1": "anonymous-1"}
+            def connect():
+                return self.client.websocket_connect(
+                    "/api/live/c/h/socket?lang=en", headers={"Origin": "http://testserver"}
+                )
+
+            with connect() as client:
+                self.assertEqual(client.receive_json(), {"type": "ready"})
+                turn = {"id": "turn-1", "t": 1.25, "keep": False, "pcm": base64.b64encode(pcm).decode()}
+                client.send_json(turn)
+                self.assertEqual(client.receive_json()["text"], "heard")
+                self.assertEqual(client.receive_json(), {"type": "ack", "id": "turn-1"})
+                with self.assertRaises(WebSocketDisconnect) as refused, connect():
+                    self.fail("A second microphone must not enter an active hearing")
+                self.assertEqual(refused.exception.code, 1008)
+                self.repo.release.assert_not_called()
+
+            # A browser resends its pending turn over a new connection after a dropped ack.
+            with connect() as replacement:
+                self.assertEqual(replacement.receive_json(), {"type": "ready"})
+                replacement.send_json(turn)
+                self.assertEqual(replacement.receive_json(), {"type": "ack", "id": "turn-1"})
+            window.return_value.label.assert_called_once()
+        recognizer.transcribe.assert_awaited_once()
+        self.assertEqual(self.repo.store_turn.call_args.kwargs["speaker"], "anonymous-1")
+        self.assertFalse(self.repo.store_turn.call_args.kwargs["keep"])
+        self.assertEqual(self.repo.release.call_args_list, [call("c", "h", "first"), call("c", "h", "second")])
+        self.assertFalse(active.locked())
+
+
+class LeaseCancellationTest(unittest.IsolatedAsyncioTestCase):
+    async def test_disconnect_during_handshake_releases_the_acquired_holder(self):
+        ws = MagicMock()
+        ws.headers = {"host": "testserver", "origin": "http://testserver"}
+        ws.cookies = {}
+        repo = MagicMock()
+        repo.acquire.return_value = "holder"
+
+        async def disconnect():
+            scope.cancel()
+            await sleep_forever()
+
+        ws.accept = AsyncMock(side_effect=disconnect)
+        with (
+            patch.object(transport, "repo", repo),
+            patch.object(transport, "diarization_available", return_value=True),
+            patch.dict(os.environ, {"ORIGIN": "http://testserver", "OPENAI_API_KEY": "test"}),
+            CancelScope() as scope,
+        ):
+            await transport.socket(ws, "case", "hearing")
+
+        repo.release.assert_called_once_with("case", "hearing", "holder")
+
+    async def test_cancelled_handshake_joins_an_inflight_database_acquisition(self):
+        loop = asyncio.get_running_loop()
+        started = asyncio.Event()
+        finish = threading.Event()
+        repo = MagicMock()
+
+        def acquire(*_):
+            loop.call_soon_threadsafe(started.set)
+            if not finish.wait(5):
+                raise TimeoutError("The test did not release the database transaction")
+            return "committed-holder"
+
+        async def connect():
+            async with transport.recording_lease(None, "case", "hearing"):
+                self.fail("The cancelled connection must not start recording")
+
+        repo.acquire.side_effect = acquire
+        with patch.object(transport, "repo", repo):
+            task = asyncio.create_task(connect())
+            try:
+                await asyncio.wait_for(started.wait(), 5)
+                task.cancel()
+            finally:
+                finish.set()
+            with self.assertRaises(asyncio.CancelledError):
+                await asyncio.wait_for(task, 5)
+        repo.release.assert_called_once_with("case", "hearing", "committed-holder")
 
 
 class SpeakersTest(unittest.TestCase):
