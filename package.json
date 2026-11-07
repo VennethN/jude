@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@10.33.2",
-  "engines": { "node": ">=22.13.0" },
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "vite dev",
     "build": "vite build && node scripts/build-server.mjs",
@@ -15,18 +17,16 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.1164.0",
     "@aws-sdk/client-s3": "^3.1164.0",
     "@aws-sdk/client-sesv2": "^3.1164.0",
-    "@aws-sdk/client-transcribe": "^3.1164.0",
-    "@aws-sdk/client-transcribe-streaming": "^3.1164.0",
     "@aws-sdk/s3-request-presigner": "^3.1164.0",
     "@fontsource/courier-prime": "^5.3.0",
     "@lucide/svelte": "^1.64.0",
     "fflate": "^0.8.2",
     "pdfjs-dist": "^6.5.438",
     "pg": "^8.23.1",
-    "ws": "^8.22.1"
+    "ws": "^8.22.1",
+    "openai": "^6.0.0"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
