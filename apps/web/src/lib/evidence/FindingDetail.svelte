@@ -1,6 +1,8 @@
 <script lang="ts">
-  import SourceAvailability from './SourceAvailability.svelte';
-  import { onMount, untrack } from 'svelte';
+  import StatusChip from './StatusChip.svelte';
+  import FindingComparison from './FindingComparison.svelte';
+  import FindingPager, { type FindingNavigation } from './FindingPager.svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import {
     Check,
     Pencil,
@@ -12,59 +14,45 @@
     ArrowUpRight,
     Bookmark,
     BookOpenText,
-    FileText,
-    CircleCheck,
-    ChevronDown, ChevronLeft, ChevronRight
+    NotebookPen,
+    ChevronDown
   } from '@lucide/svelte';
   import { write } from '$lib/client';
   import type { Finding, InspectTarget, Lang, Workspace } from '@jude/core/domain';
-  import { apiPath, assistantPath, boardPath, local, sourceOf, statuses } from './records';
+  import { apiPath, assistantPath, boardPath, local, sourceOf } from './records';
   import Inspector from './Inspector.svelte';
-  import Match from './Match.svelte';
-  import { timecode } from '$lib/workspace/format';
-  import { voice } from '$lib/workspace/hearing-detail/people';
 
-  let { workspace: w, lang, finding: f, navigation }: {
-    workspace: Workspace; lang: Lang; finding: Finding;
-    navigation?: { index: number; total: number; step: (delta: number) => void };
+  let {
+    workspace: w,
+    lang,
+    finding: f,
+    navigation,
+    internalPager = true
+  }: {
+    workspace: Workspace;
+    lang: Lang;
+    finding: Finding;
+    navigation?: FindingNavigation;
+    internalPager?: boolean;
   } = $props();
   let article: HTMLElement;
   let id = $derived(lang === 'id');
   let line = $derived(w.statements.find((s) => s.id === f.statementId));
   let hearing = $derived(w.hearings.find((h) => h.id === f.hearingId));
   let testimony = $derived(sourceOf(w, { kind: 'statement', id: f.statementId }, lang));
-  let speaker = $derived(line ? voice(w.speakers, line.speakerId, lang) : undefined);
-  const group = $props.id();
-  let pickedSource = $state(''),
-    interactive = $state(false);
-  let sources = $derived(
-    f.sources.flatMap((ref) => {
-      const passage = w.passages.find((p) => p.id === ref.passageId);
-      const doc = passage && w.documents.find((d) => d.id === passage.docId);
-      const source = sourceOf(w, { kind: 'passage', id: ref.passageId }, lang);
-      return passage && doc && source ? [{ ref, passage, doc, source }] : [];
-    })
-  );
-  let selected = $derived(sources.find((s) => s.ref.passageId === pickedSource) ?? sources[0]);
-  function chooseSource(event: KeyboardEvent, index: number) {
-    if (!['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const next =
-      event.key === 'Home'
-        ? 0
-        : event.key === 'End'
-          ? sources.length - 1
-          : (index + (event.key === 'ArrowRight' ? 1 : -1) + sources.length) % sources.length;
-    pickedSource = sources[next].ref.passageId;
-    document.getElementById(group + '-source-' + next)?.focus();
-  }
   let note = $state(untrack(() => f.note));
+  let noteOpen = $state(untrack(() => !!f.note));
+  async function openNote() {
+    noteOpen = true;
+    await tick();
+    notes?.focus();
+  }
   let busy = $state(false),
     feedback = $state(''),
     problem = $state(''),
     manualCopy = $state(false);
   let target = $state<InspectTarget | null>(null);
-  let notes: HTMLTextAreaElement;
+  let notes = $state<HTMLTextAreaElement>();
   let question: HTMLElement;
   async function save(check = false) {
     if (busy) return;
@@ -119,9 +107,8 @@
       e.altKey ||
       e.shiftKey ||
       target ||
-      [...document.querySelectorAll('dialog[open]')].some(dialog => !dialog.contains(article)) ||
-      (e.target instanceof HTMLElement &&
-        (e.target.isContentEditable || e.target.closest('input,textarea,select')))
+      [...document.querySelectorAll('dialog[open]')].some((dialog) => !dialog.contains(article)) ||
+      (e.target instanceof HTMLElement && (e.target.isContentEditable || e.target.closest('input,textarea,select')))
     )
       return;
     if (e.key === 'r') {
@@ -130,113 +117,74 @@
     }
     if (e.key === 'n') {
       e.preventDefault();
-      notes?.focus();
+      void openNote();
+    }
+    if (navigation && (e.key === 'j' || e.key === 'k')) {
+      e.preventDefault();
+      navigation.step(e.key === 'j' ? 1 : -1);
     }
   }
   onMount(() => {
-    interactive = true;
     if (f.isNew)
-      void write(apiPath(w, 'findings/' + encodeURIComponent(f.id)), 'PATCH', { isNew: false }).catch(
-        () => {}
-      );
+      void write(apiPath(w, 'findings/' + encodeURIComponent(f.id)), 'PATCH', { isNew: false }).catch(() => {});
   });
 </script>
 
 <svelte:window onkeydown={shortcut} />
 <article class="detail" data-tour="finding-detail" bind:this={article}>
   <div class="finding-meta">
-    <span class="ev-cap flag" data-status={f.status}><span></span>{statuses[f.status][lang]}</span>
-    {#if f.reviewed}<span class="ev-cap"><CircleCheck size={15} />{id ? 'Diperiksa' : 'Checked'}</span>{/if}
-    {#if navigation}
-      <nav class="finding-pager" aria-label={id ? 'Urutan temuan' : 'Finding navigation'}>
-        <span aria-live="polite">{navigation.index + 1} {id ? 'dari' : 'of'} {navigation.total}</span>
-        <button class="ev-icon" aria-label={id ? 'Temuan sebelumnya' : 'Previous finding'} disabled={navigation.index === 0}
-          onclick={() => navigation?.step(-1)}><ChevronLeft size={17}/></button>
-        <button class="ev-icon" aria-label={id ? 'Temuan berikutnya' : 'Next finding'} disabled={navigation.index === navigation.total - 1}
-          onclick={() => navigation?.step(1)}><ChevronRight size={17}/></button>
-      </nav>
-    {/if}
+    <StatusChip status={f.status} {lang} />
+    {#if f.reviewed}<span class="checked"><Check size={12} />{id ? 'Sudah dicek' : 'Checked'}</span>{/if}
+    {#if navigation && internalPager}<FindingPager {navigation} {lang} />{/if}
   </div>
   <h2 class="ev-title">{local(f.title, lang)}</h2>
-  {#if testimony && line}
-    <div class="evidence-pair" data-tour="finding-comparison">
-      <section class="spoken">
-        <h3>
-          <span class="speaker-disc" aria-hidden="true">{speaker?.letters}</span>{id
-            ? 'Di sidang'
-            : 'In court'}
-        </h3>
-        <blockquote>“<Match text={line.text} term={f.said} />”</blockquote>
-        <div class="source-foot">
-          <span class="byline">{speaker?.name}</span><a class="under" href={testimony.href}
-            >{timecode(line.t)} · {id ? 'Buka di sidang' : 'Open in hearing'}<ArrowUpRight size={13} /></a
-          >
-        </div>
-      </section>
-      <section class="filed">
-        <h3><FileText size={16} />{id ? 'Dalam berkas' : 'In the record'}</h3>
-        {#if selected}
-          <div
-            id={group + '-passage'}
-            role={sources.length > 1 ? 'tabpanel' : 'region'}
-            aria-labelledby={sources.length > 1 ? group + '-source-' + sources.indexOf(selected) : undefined}
-            aria-label={sources.length === 1 ? selected.doc.title : undefined}
-          >
-            <blockquote class="ev-record">
-              “<Match text={selected.passage.text} term={selected.ref.match} />”
-            </blockquote>
-            <div class="source-foot">
-              <span class="byline">{selected.doc.title}</span><a class="under" href={selected.source.href}
-                >{id ? 'Buka halaman' : 'Open page'} {selected.passage.page}<ArrowUpRight size={13} /></a
-              >
-            </div>
-          </div>
-          {#if sources.length > 1}<div
-              class="source-tabs"
-              role="tablist"
-              aria-label={id ? 'Bandingkan sumber' : 'Compare sources'}
-            >
-              {#each sources as source, i (source.ref.passageId)}<button
-                  role="tab"
-                  disabled={!interactive}
-                  id={group + '-source-' + i}
-                  aria-label={source.source.label}
-                  title={source.source.label}
-                  aria-controls={group + '-passage'}
-                  aria-selected={selected.ref.passageId === source.ref.passageId}
-                  tabindex={selected.ref.passageId === source.ref.passageId ? 0 : -1}
-                  onclick={() => (pickedSource = source.ref.passageId)}
-                  onkeydown={(event) => chooseSource(event, i)}
-                  >{source.doc.title.split(/\s+/).slice(0, 2).join(' ')} · {source.passage.page}</button
-                >{/each}
-            </div>{/if}
-        {:else if !f.unavailableSources?.length}<p class="ev-sub">
-            {id ? 'Belum ada kutipan sumber.' : 'No source passage is available.'}
-          </p>{/if}
-        <SourceAvailability finding={f} {lang} />
-      </section>
-    </div>
-  {:else}<p class="ev-notice">
-      {id ? 'Pernyataan untuk temuan ini tidak tersedia.' : 'The testimony for this finding is unavailable.'}
-    </p>{/if}
+  <FindingComparison workspace={w} finding={f} {lang} />
   <section class="question" data-tour="finding-question">
-    <h3>{id ? 'Pertanyaan untuk saksi' : 'Suggested question'}</h3>
-    <blockquote bind:this={question}>{f.question}</blockquote>
-    <button class="ev-button" onclick={copy}
-      ><Copy size={15} />{id ? 'Salin pertanyaan' : 'Copy question'}</button
-    >
+    <h3>{id ? 'Bisa ditanyakan' : 'You could ask'}</h3>
+    <blockquote bind:this={question} lang="id">{f.question}</blockquote>
+    <button class="text-link" onclick={copy}><Copy size={15} />{id ? 'Salin pertanyaan' : 'Copy question'}</button>
     {#if manualCopy}<p class="ev-meta" role="status">
-        {id
-          ? 'Seleksi sudah disiapkan. Salin secara manual.'
-          : 'The question is selected. Use your copy shortcut.'}
+        {id ? 'Seleksi sudah disiapkan. Salin secara manual.' : 'The question is selected. Use your copy shortcut.'}
       </p>{/if}
   </section>
-  <div class="ev-actions">
-    {#if testimony && hearing?.audio}<a class="ev-button" href={testimony.href + '&play=1'}
-        ><Play size={15} />{id ? 'Putar dari sini' : 'Play from here'}</a
+  <div class="ev-actions finding-actions" data-tour="finding-review">
+    <button class="ev-button" class:primary={!f.reviewed} disabled={busy} onclick={() => save(true)}
+      >{#if f.reviewed}<RotateCcw size={15} />{id ? 'Buka kembali' : 'Reopen'}{:else}<Check size={15} />{id
+          ? 'Tandai diperiksa'
+          : 'Mark checked'}{/if}</button
+    >
+    <a class="ev-button" href={assistantPath(w, { kind: 'finding', id: f.id })}
+      ><MessageSquare size={15} />{id ? 'Tanya asisten' : 'Ask assistant'}</a
+    >
+    <a class="ev-button" href={boardPath(w, { kind: 'finding', id: f.id })}
+      ><PanelsTopLeft size={15} />{id ? 'Taruh di papan temuan' : 'Put on the findings board'}</a
+    >
+  </div>
+  {#if noteOpen || f.note}
+    <div class="review-note">
+      <label class="ev-field-label"
+        >{id ? 'Catatan pemeriksaan' : 'Review note'}<textarea
+          class="ev-textarea"
+          bind:this={notes}
+          rows="3"
+          bind:value={note}
+          placeholder={id ? 'Apa yang perlu ditindaklanjuti?' : 'What needs following up?'}
+        ></textarea></label
+      >
+      <div class="note-foot">
+        {#if note !== f.note}<span role="status">{id ? 'Belum disimpan' : 'Unsaved'}</span>{/if}
+        <button class="ev-button" disabled={busy || note === f.note} onclick={() => save()}
+          ><Pencil size={14} />{id ? 'Simpan catatan' : 'Save note'}</button
+        >
+      </div>
+    </div>
+  {/if}
+  <div class="utilities">
+    {#if !noteOpen && !f.note}<button class="text-link" onclick={openNote}
+        ><NotebookPen size={14} />{id ? 'Tambah catatan' : 'Add a note'}</button
       >{/if}
-    {#if line}<button class="ev-button" disabled={busy} aria-pressed={!!line.flagged} onclick={toggleBookmark}
-        ><Bookmark size={15} />{line.flagged
+    {#if line}<button class="text-link" aria-pressed={!!line.flagged} disabled={busy} onclick={toggleBookmark}>
+        <Bookmark size={14} fill={line.flagged ? 'currentColor' : 'none'} />{line.flagged
           ? id
             ? 'Tersimpan'
             : 'Bookmarked'
@@ -244,38 +192,12 @@
             ? 'Simpan pernyataan'
             : 'Bookmark line'}</button
       >{/if}
-    <a class="ev-button" href={assistantPath(w, { kind: 'finding', id: f.id })}
-      ><MessageSquare size={15} />{id ? 'Tanya asisten' : 'Ask assistant'}</a
-    >
-    <a class="ev-button" href={boardPath(w, { kind: 'finding', id: f.id })}
-      ><PanelsTopLeft size={15} />{id ? 'Taruh di papan' : 'Put on board'}</a
-    >
+    {#if testimony && hearing?.audio}<a class="text-link" href={testimony.href + '&play=1'}
+        ><Play size={13} />{id ? 'Putar dari sini' : 'Play from here'}</a
+      >{/if}
   </div>
-  <section class="review" data-tour="finding-review">
-    <h3>{id ? 'Pemeriksaan Anda' : 'Your review'}</h3>
-    <label class="ev-field-label"
-      >{id ? 'Catatan pemeriksaan' : 'Review note'}<textarea
-        bind:this={notes}
-        class="ev-textarea"
-        rows="3"
-        bind:value={note}
-        placeholder={id ? 'Apa yang perlu ditindaklanjuti?' : 'What needs following up?'}
-      ></textarea></label
-    >
-    <div class="ev-actions">
-      <button class="ev-button primary" disabled={busy} onclick={() => save(true)}
-        >{#if f.reviewed}<RotateCcw size={16} />{id ? 'Buka kembali' : 'Reopen'}{:else}<Check size={16} />{id
-            ? 'Tandai diperiksa'
-            : 'Mark checked'}{/if}</button
-      >
-      <button class="ev-button" disabled={busy || note === f.note} onclick={() => save()}
-        ><Pencil size={15} />{id ? 'Simpan catatan' : 'Save note'}</button
-      >
-    </div>
-  </section>
   <details class="reason">
-    <summary>{id ? 'Mengapa temuan ini ditampilkan?' : 'Why is this shown?'}<ChevronDown size={16} /></summary
-    >
+    <summary>{id ? 'Mengapa temuan ini ditampilkan?' : 'Why is this shown?'}<ChevronDown size={16} /></summary>
     <div>
       <p>{local(f.explanation, lang)}</p>
       <h3>{id ? 'Yang perlu diverifikasi' : 'What to verify'}</h3>
@@ -290,227 +212,200 @@
                 ><BookOpenText size={16} />{law.article} · {law.regulation}<ArrowUpRight size={14} /></button
               >{/if}{/each}
         </section>{/if}
+      <p class="source-note">
+        {id
+          ? 'Temuan menggambarkan hubungan bukti. Penilaian kredibilitas, kesalahan, dan putusan adalah kewenangan pengadilan.'
+          : 'Findings describe evidence relationships. The court determines credibility, guilt and outcomes.'}
+      </p>
     </div>
   </details>
-  {#if feedback}<p role="status" class="ev-meta">{feedback}</p>{/if}{#if problem}<p
-      class="ev-error"
-      role="alert"
-    >
+  {#if feedback}<p role="status" class="ev-meta">{feedback}</p>{/if}{#if problem}<p class="ev-error" role="alert">
       {problem}
     </p>{/if}
 </article>
 {#if target}<Inspector workspace={w} {lang} {target} close={() => (target = null)} />{/if}
 
 <style>
-  .finding-pager { display:flex; align-items:center; flex-wrap:nowrap; gap:4px; margin-left:auto; }
-  .finding-pager span { font-size:.86rem; color:var(--muted); font-variant-numeric:tabular-nums; margin-right:4px; }
-  .finding-pager button { border:0; background:transparent; }
-  @media (pointer:coarse) { .finding-pager button { min-width:44px; min-height:44px; } }
-
   .detail {
-    background: var(--surface);
-    border: 1px solid var(--line);
-    padding: clamp(1rem, 2.6vw, 2.25rem);
-    border-radius: 0.7rem;
+    display: grid;
+    gap: 18px;
+    padding: 22px 24px 24px;
     min-width: 0;
     container: finding / inline-size;
-    line-height: 1.6;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface);
+    color: var(--ink);
+    font: 400 14px/1.55 var(--sans);
   }
-  .detail h2 {
-    margin: 0.55rem 0 1.3rem;
-    font-size: 2rem;
-  }
-  .detail h3,
-  .question h3 {
-    font: 600 0.93rem/1.35 var(--sans);
-    margin: 0.2rem 0 0.65rem;
-  }
-  .detail p {
-    max-width: 72ch;
-    margin: 0.8rem 0;
-  }
-  .flag span {
-    display: inline-block;
-    width: 9px;
-    height: 9px;
-    border-radius: 2px;
-    background: var(--ev-conflicts);
-  }
-  .flag[data-status='context_needed'] span {
-    background: var(--ev-context);
-  }
-  .flag[data-status='supported'] span {
-    background: var(--ev-supports);
-  }
-  .flag[data-status='insufficient_evidence'] span {
-    background: var(--muted);
+  :global(dialog.sheet) .detail {
+    border: 0;
+    border-radius: 0;
   }
   .finding-meta {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 0.75rem;
-    color: var(--muted);
+    flex-wrap: wrap;
+    gap: 8px 12px;
   }
-  .evidence-pair {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-    align-items: stretch;
-    gap: 1rem;
-    border-block: 1px solid var(--line);
-    padding: 1rem 0;
-    margin: 1rem 0;
+  .detail > h2 {
+    margin: -8px 0 0;
+    color: var(--ink-strong);
+    font: 400 clamp(22px, 2.2vw, 27px)/1.2 var(--display);
+    letter-spacing: -0.005em;
   }
-  .evidence-pair h3 {
-    display: flex;
-    align-items: center;
-    gap: 0.44rem;
-    color: var(--muted);
-    font-size: 0.76rem;
-    margin: 0 0 0.65rem;
-    min-height: 22px;
-  }
-  .spoken,
-  .filed {
-    min-width: 0;
-    padding: 0.85rem 0.9rem;
-    display: flex;
-    flex-direction: column;
-  }
-  .spoken {
-    padding-inline-start: 0;
-  }
-  .filed {
-    background: var(--paper);
-    border-radius: 0.25rem 0.45rem 0.25rem 0.25rem;
-  }
-  .speaker-disc {
-    display: grid;
-    place-items: center;
-    width: 23px;
-    height: 23px;
-    border-radius: 50%;
-    background: var(--wash);
-    color: var(--ink);
-    font: 650 0.59rem/1 var(--sans);
-  }
-  .spoken blockquote {
-    margin: 0;
-    font: 500 1.09rem/1.5 var(--sans);
-  }
-  .filed blockquote {
-    margin: 0;
-    font: 400 0.98rem/1.49 var(--mono);
-    overflow-wrap: anywhere;
-  }
-  .source-foot {
-    display: grid;
-    gap: 0;
-    justify-items: start;
-    margin-top: auto;
-    padding-top: 0.6rem;
-  }
-  .filed .source-foot {
-    padding-top: 0.55rem;
-  }
-  .byline {
-    font: 650 0.76rem/1.4 var(--sans);
-    color: var(--ink);
-  }
-  .under {
+  .checked {
     display: inline-flex;
     align-items: center;
-    gap: 0.23rem;
-    min-height: 32px;
-    text-decoration: underline;
-    text-underline-offset: 0.2em;
-    font: 600 0.73rem/1.45 var(--sans);
-    color: var(--accent);
+    gap: 4px;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--selected);
+    color: var(--ink-strong);
+    font-size: 12px;
+    font-weight: 600;
   }
-  .source-tabs {
+  .question {
+    display: grid;
+    gap: 6px;
+    padding: 16px 18px;
+    background: var(--selected);
+    border-radius: 12px;
+  }
+  .question h3,
+  .reason h3 {
+    margin: 0;
+    color: var(--muted);
+    font: 600 11.5px/1.55 var(--sans);
+    letter-spacing: 0.01em;
+  }
+  .question h3 {
+    color: var(--muted-on-fill);
+  }
+  .question blockquote {
+    margin: 0;
+    color: var(--ink-strong);
+    font: 400 20px/1.35 var(--display);
+  }
+  .text-link {
+    display: inline-flex;
+    align-items: center;
+    justify-self: start;
+    gap: 6px;
+    min-height: 28px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--ink-strong);
+    font: 500 13px/1.45 var(--sans);
+    text-decoration: underline;
+    text-decoration-color: var(--line-strong);
+    text-underline-offset: 4px;
+  }
+  .text-link:hover {
+    text-decoration-color: currentColor;
+  }
+  .finding-actions,
+  .utilities {
     display: flex;
     align-items: center;
-    gap: 0.3rem;
     flex-wrap: wrap;
-    border-top: 1px solid var(--line);
-    padding-top: 0.5rem;
-    margin-top: 0.4rem;
+    gap: 8px;
   }
-  .source-tabs button {
-    border: 1px solid transparent;
-    border-radius: 0.3rem;
-    min-height: 32px;
-    padding: 0.2rem 0.5rem;
-    background: transparent;
-    color: var(--muted);
-    font: 600 0.73rem/1.4 var(--sans);
-    cursor: pointer;
-    text-align: start;
+  .utilities {
+    gap: 6px 18px;
   }
-  .source-tabs button[aria-selected='true'] {
-    background: var(--surface);
-    border-color: var(--line);
-    color: var(--ink);
+  .finding-actions .ev-button,
+  .review-note .ev-button,
+  .law .ev-button {
+    min-height: 36px;
+    padding: 5px 12px;
+    gap: 6px;
+    border-color: var(--line-strong);
+    border-radius: 6px;
+    font: 500 13px/1.35 var(--sans);
+  }
+  .finding-actions .ev-button.primary {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: var(--primary-ink);
+  }
+  .review-note {
+    display: grid;
+    gap: 8px;
+  }
+  .review-note .ev-field-label {
+    margin: 0;
+  }
+  .note-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .note-foot span {
+    margin-right: auto;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--st-inconsistency-bg);
+    color: var(--st-inconsistency-ink);
+    font-size: 12px;
+    font-weight: 600;
   }
   .reason {
     border-top: 1px solid var(--line);
-    margin-top: 1rem;
+    padding-top: 12px;
   }
   .reason summary {
-    display: flex;
-    justify-content: space-between;
+    display: inline-flex;
     align-items: center;
-    gap: 0.6rem;
-    min-height: 44px;
+    justify-content: flex-start;
+    gap: 6px;
+    min-height: 32px;
+    width: fit-content;
     cursor: pointer;
-    font-weight: 600;
-    font-size: 0.88rem;
     list-style: none;
+    color: var(--ink-strong);
+    font: 600 13px/1.5 var(--sans);
   }
   .reason summary::-webkit-details-marker {
     display: none;
   }
+  .reason summary :global(svg) {
+    order: -1;
+    transform: rotate(-90deg);
+    transition: transform var(--dur-fast) var(--ease-out);
+  }
   .reason[open] summary :global(svg) {
-    transform: rotate(180deg);
+    transform: rotate(0deg);
   }
   .reason > div {
-    padding-bottom: 0.25rem;
+    display: grid;
+    gap: 8px;
+    margin-top: 10px;
   }
-  .reason > div > p {
-    color: var(--muted);
-    font-size: 0.9rem;
+  .reason p {
+    margin: 0;
   }
   .reason h3 {
-    margin-bottom: 0;
+    margin-top: 4px;
+    font-size: 12px;
   }
-  .reason h3 + p {
-    margin-top: 0.2rem;
-  }
-  .question {
-    padding: 1.1rem;
-    margin: 1.2rem 0;
-    border-radius: 0.55rem;
-    background: color-mix(in srgb, var(--accent) 6%, var(--paper));
-  }
-  .question blockquote {
-    font: 400 1.45rem/1.27 var(--display);
-    margin: 0.4rem 0 0.75rem;
-  }
-  .review,
   .law {
-    border-top: 1px solid var(--line);
-    padding-top: 1.1rem;
-    margin-top: 1.2rem;
+    display: grid;
+    justify-items: start;
+    gap: 6px;
   }
-  @container finding (max-width:559px) {
-    .evidence-pair {
-      grid-template-columns: 1fr;
-      gap: 0.45rem;
-    }
+  .source-note {
+    font-size: 12px;
+    color: var(--muted);
   }
-  @container finding (max-width:650px) {
-    .detail h2 {
-      font-size: 1.65rem;
+  @media (pointer: coarse) {
+    .finding-actions .ev-button,
+    .review-note .ev-button,
+    .law .ev-button,
+    .utilities .text-link {
+      min-height: 44px;
     }
   }
 </style>

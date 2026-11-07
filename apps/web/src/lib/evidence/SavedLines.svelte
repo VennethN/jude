@@ -7,10 +7,11 @@
     workspace: w,
     lang,
     hearing = '',
+    query = '',
     selected = ''
-  }: { workspace: Workspace; lang: Lang; hearing?: string; selected?: string } = $props();
+  }: { workspace: Workspace; lang: Lang; hearing?: string; query?: string; selected?: string } = $props();
   let id = $derived(lang === 'id');
-  let lines = $derived(w.statements.filter((s) => s.flagged && (!hearing || s.hearingId === hearing)));
+  let lines = $derived(w.statements.filter((s) => s.flagged && (!hearing || s.hearingId === hearing) && (!query.trim() || (s.text+' '+(s.note??'')).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))));
   let editing = $state(''),
     note = $state(''),
     busy = $state(false),

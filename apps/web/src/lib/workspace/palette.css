@@ -160,6 +160,10 @@
   --on-forest: var(--nav-ink);
   --wash: var(--selected);
   --muted-on-fill: color-mix(in srgb, var(--muted) 86%, var(--ink-strong));
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-kerning: normal;
 }
 
 :is(.desk, .billing-page) :is(.button, .ev-button).primary {
