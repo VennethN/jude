@@ -475,6 +475,26 @@ class VoiceRepositoryTest(unittest.TestCase):
             start=start, pcm=b"\x10\x00" * 24_000, keep=keep,
         )
 
+    def test_only_visible_recording_changes_advance_the_workspace_version(self):
+        def version():
+            return self.one("SELECT version FROM cases WHERE id='case'")["version"]
+
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        initial = version()
+        self.capture(lease, "first", start=0, keep=False)
+        self.repo.complete_capture(self.owner, "case", "hearing", lease=lease, epoch="epoch-1", turn_id="first")
+        self.assertEqual(version(), initial)
+        self.capture(lease, "retained", start=1, keep=True)
+        self.assertEqual(version(), initial + 1)
+        self.capture(lease, "later", start=2, keep=True)
+        self.assertEqual(version(), initial + 1)
+        hearing = json.loads(self.one("SELECT body FROM case_entities WHERE case_id='case' AND kind='hearings' AND id='hearing'")["body"])
+        self.assertEqual(hearing["duration"], 3)
+        self.assertTrue(hearing["audio"])
+        self.repo.save_stream_result(self.owner, "case", "hearing", lease=lease, epoch="epoch-1",
+                                     result_id="words", segments=[{"start": 1, "end": 1.5, "text": "Saya tiba.", "speaker": "0"}])
+        self.assertEqual(version(), initial + 2)
+
     def recorded_job(self):
         hearing = json.loads(self.one(
             "SELECT body FROM case_entities WHERE case_id='case' AND kind='hearings'"
