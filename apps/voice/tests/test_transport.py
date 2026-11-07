@@ -30,6 +30,16 @@ class VoiceTransportTest(unittest.TestCase):
         self.client = TestClient(transport.app)
         self.addCleanup(self.client.close)
 
+    def test_public_voice_gateway_reports_the_same_readiness_as_the_private_service(self):
+        for ready in (True, False):
+            with self.subTest(ready=ready), patch.object(transport, "diarization_available", return_value=ready):
+                private = self.client.get("/capabilities")
+                public = self.client.get("/api/live/capabilities")
+                self.assertEqual(public.status_code, 200)
+                self.assertEqual(public.json(), {"transcription": ready})
+                self.assertEqual(public.json(), private.json())
+                self.assertEqual(public.headers["cache-control"], "private, no-store")
+
     def test_upload_consent_idempotency_and_language(self):
         self.repo.previous_upload.return_value = None
         self.repo.add_recording.return_value = {"id": "recorded"}

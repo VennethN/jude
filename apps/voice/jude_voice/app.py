@@ -60,6 +60,7 @@ app.add_middleware(UploadLimit)
 
 
 @app.get("/capabilities")
+@app.get("/api/live/capabilities")
 async def capabilities():
     return {"transcription": bool(os.getenv("OPENAI_API_KEY")) and diarization_available()}
 

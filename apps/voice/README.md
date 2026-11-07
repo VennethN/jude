@@ -37,7 +37,8 @@ When the lawyer retains a live recording, a leased worker processes the saved tu
 
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /capabilities` | Tell the web service whether private speech processing is configured |
+| `GET /api/live/capabilities` | Check private transcription readiness through the same gateway that handles recordings |
+| `GET /capabilities` | Check the same readiness directly on the Python service |
 | `POST /api/live/:caseId/:hearingId/replay` | Advance a synthetic hearing using its expected cursor |
 | `WS /api/live/:caseId/:hearingId/socket` | Accept microphone audio and acknowledge saved turns |
 | `POST /api/live/:caseId/upload` | Transcribe a private audio file into a recorded hearing |
