@@ -105,9 +105,11 @@ function demoWorkspace(template: CaseRecord) {
 async function insertSeedRows(db: Database, columns: string, rows: (string | number)[][]) {
   for (let offset = 0; offset < rows.length; offset += 100) {
     const batch = rows.slice(offset, offset + 100);
-    const values: (string | number)[] = [];
-    const tuples = batch.map(row => '(' + row.map(value => '$' + values.push(value)).join(',') + ')');
-    await db.query('INSERT INTO ' + columns + ' VALUES ' + tuples.join(','), values);
+    const tuples = batch.map((row, rowIndex) => {
+      const placeholders = row.map((_, columnIndex) => '$' + (rowIndex * row.length + columnIndex + 1));
+      return '(' + placeholders.join(',') + ')';
+    });
+    await db.query('INSERT INTO ' + columns + ' VALUES ' + tuples.join(','), batch.flat());
   }
 }
 

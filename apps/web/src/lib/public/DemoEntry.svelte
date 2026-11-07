@@ -3,7 +3,9 @@
   import type { Lang } from '@jude/core/domain';
 
   let { lang, privateAccount }: { lang: Lang; privateAccount: boolean } = $props();
-  let opening = $state(false), message = $state(''), last: HTMLAnchorElement | undefined;
+  let opening = $state(false);
+  let message = $state('');
+  let last = $state<HTMLAnchorElement>();
   let controller: AbortController | undefined;
   const en = $derived(lang === 'en');
   const pending = $derived(privateAccount
@@ -59,11 +61,14 @@
       event.preventDefault();
       void enter(link);
     }
+    function restored(event: PageTransitionEvent) {
+      if (event.persisted) reset();
+    }
     document.addEventListener('click', follow, true);
-    window.addEventListener('pageshow', reset);
+    window.addEventListener('pageshow', restored);
     return () => {
       document.removeEventListener('click', follow, true);
-      window.removeEventListener('pageshow', reset);
+      window.removeEventListener('pageshow', restored);
       reset();
     };
   });
@@ -75,8 +80,31 @@
 </div>
 
 <style>
-  .demo-feedback{position:fixed;z-index:90;inset:auto auto max(1rem,env(safe-area-inset-bottom)) 50%;transform:translateX(-50%);display:flex;align-items:center;gap:1rem;width:max-content;max-width:calc(100vw - 2rem);border-radius:7px;background:var(--forest,#183e33);color:#fff6e7;font:600 .875rem/1.4 var(--sans,sans-serif);box-shadow:0 4px 18px #10271d33}
-  .demo-feedback.visible{padding:.7rem 1rem}
-  .demo-feedback:not(.visible){pointer-events:none}
-  button{border:0;border-bottom:1px solid currentColor;background:transparent;color:inherit;padding:.35rem 0;font:inherit;cursor:pointer}
+  .demo-feedback {
+    position: fixed;
+    z-index: 90;
+    inset: auto auto max(1rem, env(safe-area-inset-bottom)) 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    width: max-content;
+    max-width: calc(100vw - 2rem);
+    border-radius: 7px;
+    background: var(--forest, #183e33);
+    color: #fff6e7;
+    font: 600 .875rem/1.4 var(--sans, sans-serif);
+    box-shadow: 0 4px 18px #10271d33;
+  }
+  .demo-feedback.visible { padding: .7rem 1rem; }
+  .demo-feedback:not(.visible) { pointer-events: none; }
+  button {
+    padding: .35rem 0;
+    border: 0;
+    border-bottom: 1px solid currentColor;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+  }
 </style>
