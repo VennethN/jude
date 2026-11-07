@@ -14,6 +14,7 @@ from botocore.eventstream import ChecksumMismatch, EventStreamBuffer
 
 from jude_voice import providers
 from jude_voice import transcribe as aws
+from jude_voice.repository import _live_segments
 
 
 def result(identifier="one", partial=False, text="Dua kata.", items=None):
@@ -260,6 +261,22 @@ class TimestampRegressionTest(unittest.TestCase):
                 {"start": 0, "end": 0.15, "text": "Synthetic half past nine."},
             ],
         )
+
+    def test_backtracking_words_merge_all_overlapping_predecessors(self):
+        # Reproduced by a real synthetic streaming request: AWS returned a word
+        # starting at 16.47 after a previously emitted token ending at 16.94.
+        items = [
+            {"Content": "This", "Type": "pronunciation", "StartTime": 16.11, "EndTime": 16.94, "Speaker": "0"},
+            {"Content": "is", "Type": "pronunciation", "StartTime": 16.95, "EndTime": 17.0, "Speaker": "0"},
+            {"Content": "synthetic", "Type": "pronunciation", "StartTime": 16.47, "EndTime": 17.03, "Speaker": "0"},
+            {"Content": "audio", "Type": "pronunciation", "StartTime": 17.04, "EndTime": 18, "Speaker": "0"},
+        ]
+        event = aws.normalize_result(dict(result(text="This is synthetic audio", items=items), StartTime=16.11, EndTime=18), 20)
+        segments = _live_segments(event["segments"], 20)
+        self.assertEqual(segments[0]["words"], [
+            {"start": 16.11, "end": 17.03, "text": "This is synthetic"},
+            {"start": 17.04, "end": 18, "text": "audio"},
+        ])
 
     def test_wholly_zero_word_uses_result_bounds_without_losing_wording(self):
         items = [

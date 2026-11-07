@@ -51,7 +51,7 @@
   import VoiceDialog from './VoiceDialog.svelte';
   import type { LiveTranscriptTurn } from '../microphone';
   import { runReplay } from './replay';
-  import { getCapture, connectCapture, pauseCapture, stopCapture } from './active-recording.svelte';
+  import { getCapture, connectCapture, pauseCapture, stopCapture, drainCapture } from './active-recording.svelte';
   import { speakerShares, speakerTurns, voice } from './people';
   import './hearing.css';
 
@@ -115,8 +115,17 @@
     }, 1000);
     return () => clearInterval(timer);
   });
+  let stoppedElapsed = $state<number>();
+  $effect(() => {
+    const scope = key;
+    if (!ready || synthetic) return;
+    try {
+      const saved = localStorage.getItem('jude-voice-ending/' + scope);
+      stoppedElapsed = saved !== null && Number.isFinite(Number(saved)) ? Number(saved) : undefined;
+    } catch { stoppedElapsed = undefined; }
+  });
   let elapsed = $derived(
-    synthetic
+    stoppedElapsed !== undefined ? stoppedElapsed : synthetic
       ? Math.max(replayClock, lines.at(-1)?.t ?? 0)
       : capture
         ? capture.elapsed + (capture.runningSince ? Math.max(0, (now - capture.runningSince) / 1000) : 0)
@@ -231,6 +240,9 @@
           : en
             ? 'Replaying'
             : 'Memutar ulang'
+      : stoppedElapsed !== undefined
+        ? busy ? (en ? 'Microphone off · sending audio' : 'Mikrofon mati · mengirim audio')
+          : (en ? 'Microphone off' : 'Mikrofon mati')
       : capture
         ? {
             permission: en ? 'Waiting for microphone permission' : 'Menunggu izin mikrofon',
@@ -303,8 +315,8 @@
         : 'Mikrofon sedang digunakan di sidang atau tab lain.';
     if (reason === 'audio_pending')
       return en
-        ? 'Audio remains on this device. Reconnect the microphone to finish sending it.'
-        : 'Audio masih ada di perangkat ini. Hubungkan kembali mikrofon untuk menyelesaikan pengiriman.';
+        ? 'The microphone is off. Some audio still needs to be sent. Retry saving without turning the microphone on.'
+        : 'Mikrofon sudah mati. Sebagian audio belum selesai dikirim. Coba kirim lagi tanpa menyalakan mikrofon.';
     if (reason === 'capture_connecting')
       return en ? 'Wait for the microphone to connect.' : 'Tunggu sampai mikrofon terhubung.';
     return en
@@ -414,8 +426,14 @@
     busy = true;
     issue = '';
     try {
-      if (capture) await stopCapture(key);
+      if (!synthetic) {
+        stoppedElapsed ??= elapsed;
+        try { localStorage.setItem('jude-voice-ending/' + key, String(stoppedElapsed)); } catch {}
+        if (capture) await stopCapture(key);
+        else await drainCapture(w.caseRecord.id, h.id, account.user.id, h.language ?? 'id');
+      }
       await write(apiPath(w, 'hearings/' + encodeURIComponent(h.id) + '/end'), 'POST', {});
+      try { localStorage.removeItem('jude-voice-ending/' + key); } catch {}
       dialog = '';
       closeQuick();
     } catch (e) {
@@ -472,8 +490,9 @@
 {#snippet liveControls()}
   <div class="session-control" data-tour="live-controls">
         <div class="session-label">
-          <Radio size={17} /><b class="status-word">{liveStatus}</b>
-          {#if synthetic}<small class="compact-status">{en ? 'Replay' : 'Contoh'}</small>{/if}<span>{timecode(elapsed)}</span>
+          {#if stoppedElapsed !== undefined}<Square size={17} />{:else}<Radio size={17} />{/if}<b class="status-word">{liveStatus}</b>
+          {#if stoppedElapsed !== undefined}<small class="compact-status">{en ? 'Mic off' : 'Mikrofon mati'}</small>
+          {:else if synthetic}<small class="compact-status">{en ? 'Replay' : 'Contoh'}</small>{/if}<span>{timecode(elapsed)}</span>
         </div>
         <div class="control-actions">
           {#if synthetic && !replayDone}<button
@@ -487,23 +506,25 @@
               }}
               >{#if replayPaused}<Play size={14}/><span>{en ? 'Resume' : 'Lanjutkan'}</span>{:else}<Pause size={14}/><span>{en ? 'Pause' : 'Jeda'}</span>{/if}</button
             >
-          {:else if canRecord && !capture}<button
+          {:else if canRecord && !capture && stoppedElapsed === undefined}<button
               class="button"
+              disabled={!ready}
               onclick={() => {
                 issue = '';
                 dialog = 'capture';
               }}><Mic size={15} />{en ? 'Connect microphone' : 'Hubungkan mikrofon'}</button
             >
-          {:else if capture && canRecord}<button
+          {:else if capture && canRecord && stoppedElapsed === undefined}<button
               class="button"
-              disabled={['connecting', 'draining'].includes(capture.state)}
-              onclick={() => pauseCapture(key, capture?.state !== 'paused')}
+              disabled={busy || ['connecting', 'draining', 'error'].includes(capture.state)}
+              onclick={async () => { try { await pauseCapture(key, capture?.state !== 'paused'); } catch (e) { issue = issueFrom(e); } }}
               >{#if capture.state === 'paused'}<Play size={14} />{en ? 'Resume' : 'Lanjutkan'}{:else}<Pause
                   size={14}
                 />{en ? 'Pause' : 'Jeda'}{/if}</button
             >{/if}
-          {#if ownSession}<button class="button end" onclick={() => (dialog = 'end')}
-              ><Square size={12} />{en ? 'End hearing' : 'Akhiri sidang'}</button
+          {#if ownSession}<button class="button end" disabled={busy || !ready}
+              onclick={() => { if (stoppedElapsed !== undefined) void end(); else dialog = 'end'; }}
+              ><Square size={12} />{stoppedElapsed !== undefined ? (busy ? (en ? 'Saving…' : 'Menyimpan…') : (en ? 'Retry saving' : 'Coba kirim lagi')) : (en ? 'End hearing' : 'Akhiri sidang')}</button
             >{/if}
         </div>
       </div>
@@ -682,6 +703,9 @@
           ? en
             ? 'The example stops here. All testimony and findings remain available for review.'
             : 'Contoh berhenti di sini. Ucapan dan temuan tetap dapat diperiksa.'
+          : busy
+            ? en ? 'The microphone is off. Sending the remaining audio; no new speech is being recorded.'
+              : 'Mikrofon sudah mati. Sisa audio sedang dikirim; suara baru tidak direkam.'
           : en
             ? 'The microphone will stop and remaining audio will be sent before the transcript is filed.'
             : 'Mikrofon akan dihentikan dan sisa audio dikirim sebelum transkrip disimpan.'}
