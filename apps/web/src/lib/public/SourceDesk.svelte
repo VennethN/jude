@@ -16,15 +16,13 @@
 	<div class="desk-tabs" aria-label={isId ? 'Pilih sumber' : 'Select source'}>
 		{#each items as option,i}<button type="button" class:chosen={selected === i} aria-pressed={selected === i} onclick={() => selected = i}><Icon name={option.icon} size={17}/>{option.name[l]}</button>{/each}
 	</div>
-	<div class="desk-folder">
-		<div class="reading" aria-live="polite">
-			<header><span>{isId ? 'Contoh sintetis' : 'Synthetic example'}</span><span>{item.where[l]}</span></header>
-			<div class="reading-main">
-				<h3 lang="id">{item.title}</h3><p class="source-person">{item.person}</p>
-				<blockquote class:testimony={selected === 2} lang="id">{item.prefix}<mark>{item.mark}</mark>{item.suffix}</blockquote>
-			</div>
-			<a href={item.href}>{isId ? 'Buka sumber dalam perkara' : 'Open source in case'}<Icon name="forward" size={15}/></a>
+	<div class="reading" aria-live="polite">
+		<header><span>{isId ? 'Contoh sintetis' : 'Synthetic example'}</span><span>{item.where[l]}</span></header>
+		<div class="reading-main">
+			<h3 lang="id">{item.title}</h3><p class="source-person">{item.person}</p>
+			<blockquote class:testimony={selected === 2} lang="id">{item.prefix}<mark>{item.mark}</mark>{item.suffix}</blockquote>
 		</div>
+		<a href={item.href}>{isId ? 'Buka sumber dalam perkara' : 'Open source in case'}<Icon name="forward" size={15}/></a>
 	</div>
 </div>
 <style>
@@ -32,8 +30,7 @@
 	.desk-tabs { display:flex; flex-wrap:wrap; gap:3px; margin:0 0 -1px; }
 	.desk-tabs button { min-height:46px; display:inline-flex; gap:7px; align-items:center; border:1px solid #c6cbbd; border-bottom:0; border-radius:5px 5px 0 0; padding:8px clamp(8px,1.6vw,22px); background:#eae9df; color:#465a47; font:500 .79rem/1.25 var(--pub-body); cursor:pointer; }
 	.desk-tabs .chosen { color:#fbf7e9; background:#355b47; border-color:#355b47; }
-	.desk-folder { padding:16px 17px 21px; background:#355b47 url('/public/case-cloth.webp') center/860px; background-blend-mode:soft-light; border-radius:0 5px 5px 5px; }
-	.reading { background:#f8f3e5 url('/public/ivory-paper.webp') center/620px; padding:clamp(17px,2.4vw,32px); box-shadow:0 5px 12px #14281f37; }
+	.reading { background:#f8f3e5 url('/public/ivory-paper.webp') center/620px; border:1px solid #b9bba8; border-left:9px solid #355b47; padding:clamp(17px,2.4vw,32px); box-shadow:0 4px 9px #14281f13; }
 	header { display:flex; justify-content:space-between; gap:8px; padding-bottom:12px; border-bottom:1px solid #c7c9b8; color:#5c6758; font:.75rem/1.4 var(--pub-record); }
 	.reading-main { min-height:205px; padding:20px 0; }
 	.reading h3 { font:500 1.04rem/1.43 var(--pub-record); letter-spacing:0; }
@@ -42,5 +39,5 @@
 	blockquote.testimony { font-family:var(--pub-body); }
 	mark { background:#ecd69e; color:inherit; }
 	.reading > a { display:inline-flex; align-items:center; gap:8px; color:#35583f; min-height:44px; font:600 .83rem/1.4 var(--pub-body); }
-	@media(max-width:500px){ .desk-tabs button{font-size:.72rem;} .desk-folder{padding:10px;} }
+	@media(max-width:500px){ .desk-tabs button{font-size:max(12px,.8rem);} .reading{border-left-width:6px;} }
 </style>

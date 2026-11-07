@@ -76,7 +76,7 @@
 	.approach aside { background:#e8dece url('/public/ivory-paper.webp') center/650px; background-blend-mode:multiply; padding:clamp(24px,4.3vw,58px); color:#4b343a; }
 	.question-label { display:flex; align-items:center; gap:8px; color:#6f4652; font-size:.85rem; }
 	.approach blockquote { font:400 clamp(1.72rem,3vw,3rem)/1.16 var(--pub-display); margin:18px 0; }
-	.approach small { color:#6e615a; font-size:.72rem; }
+	.approach small { color:#6e615a; font-size:max(12px,.8rem); }
 	.closing { color:#fcf3df; background:#153328 url('/public/jude-case-files.webp') center 16%/cover; border-bottom:1px solid #6e887d; }
 	.close-inner { display:flex; align-items:center; flex-wrap:wrap; gap:35px; padding-block:65px; }
 	.close-inner h2 { font-size:clamp(2.7rem,5vw,5rem); }
