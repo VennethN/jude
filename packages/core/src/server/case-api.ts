@@ -46,6 +46,7 @@ import {
 import { jsonFields } from './request';
 import { authorizeCase, listMembers, setCaseMember } from './access';
 import { answerQuestion } from './providers/assistant';
+import { mergeEvidenceRanks, semanticMatches, type SourceRef } from './providers/semantic-retrieval';
 import { discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
 
 const groups = [
@@ -61,7 +62,7 @@ const groups = [
   'legal',
   'replies',
 ] as const;
-export function caseHits(w: Workspace, query: string) {
+export function caseHits(w: Workspace, query: string, semantic: SourceRef[] = []) {
   const term = query.toLocaleLowerCase().trim();
   if (term.length < 2) return [];
   const base = '/case/' + encodeURIComponent(w.caseRecord.id);
@@ -97,9 +98,8 @@ export function caseHits(w: Workspace, query: string) {
       url: base + '/hearings/' + s.hearingId + '?s=' + s.id,
     })),
   ];
-  return hits
-    .filter((h) => h.text.toLocaleLowerCase().includes(term))
-    .slice(0, 80)
+  const lexical = hits.filter(h => h.text.toLocaleLowerCase().includes(term));
+  return mergeEvidenceRanks(lexical, semantic, hits, 80)
     .map((h) => {
       const start = Math.max(0, h.text.toLocaleLowerCase().indexOf(term) - 45);
       return { ...h, snippet: h.text.slice(start, start + 180) };
@@ -302,6 +302,7 @@ async function postMessage(
     contexts,
     lang,
     !session.user.guest && before.workspace!.caseRecord.label === 'private',
+    org,
   );
   const discovered = withLegal
     ? await discoverLegal(before.workspace!, text, [...contexts, ...(answer.citations ?? [])])
@@ -380,7 +381,11 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
         live: w.hearings.find((h) => h.mode === 'live') ?? null,
       };
     if (resource === 'bookmarks' && !id) return w.statements.filter((s) => s.flagged);
-    if (resource === 'search' && !id) return { hits: caseHits(w, event.url.searchParams.get('q') ?? '') };
+    if (resource === 'search' && !id) {
+      const query = (event.url.searchParams.get('q') ?? '').trim().slice(0, 2000);
+      const semantic = query.length >= 3 && !session.user.guest ? await semanticMatches(w, org, query) : [];
+      return { hits: caseHits(w, query, semantic) };
+    }
     if (resource === 'evidence' && !id)
       return {
         statements: w.statements,

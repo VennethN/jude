@@ -10,8 +10,8 @@ const schema=objectSchema({checkable:{type:'boolean'},status:{type:'string',enum
 function translated(x:unknown):x is L10n {
   return !!x&&typeof x==='object'&&'en' in x&&'id' in x&&typeof x.en==='string'&&typeof x.id==='string'&&safeLanguage(x.en+' '+x.id);
 }
-export async function analyzeStatement(workspace:Workspace,line:Statement):Promise<Finding|null>{
-  const sources=retrieve(workspace,line.text,[{kind:'documents'}],'id').slice(0,10);
+export async function analyzeStatement(workspace:Workspace,line:Statement,orgId?:string):Promise<Finding|null>{
+  const sources=(await retrieve(workspace,line.text,[{kind:'documents'}],'id',orgId)).slice(0,10);
   if(!sources.length||!process.env.OPENAI_API_KEY)return null;
   try {
     const draft=await structured('analysis','Compare this exact testimony with the supplied passages. Flag only verifiable differences. A different time or location can refer to a different event. Return checkable false for procedural speech. Cite verbatim excerpts on both sides, use an Indonesian question to clarify, and describe what remains uncertain in both languages.',{line:line.text,sources},schema) as (Finding&{checkable:boolean})|null;

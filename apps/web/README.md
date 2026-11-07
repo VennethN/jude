@@ -38,7 +38,7 @@ pnpm design:check
 
 ## Services
 
-OpenAI receives server-side requests for model-generated findings and assistant answers when `OPENAI_API_KEY` is configured. Source-only retrieval and the synthetic case work without credentials. Originals are served privately from local files or AWS S3 using `JUDE_S3_BUCKET`, `JUDE_S3_KMS_KEY` and `AWS_REGION`.
+The server calls OpenAI directly. GPT-6.1 Terra generates findings and Assistant answers. With PostgreSQL and `OPENAI_API_KEY`, a background worker embeds private case evidence with `text-embedding-3-small`. Case search, the Assistant, and hearing comparisons combine lexical matches with cosine similarity. Set `JUDE_SEMANTIC_SEARCH=false` to disable embedding requests. Guest examples and SQLite use local text search. Originals are served privately from local files or AWS S3 using `JUDE_S3_BUCKET`, `JUDE_S3_KMS_KEY` and `AWS_REGION`.
 
 The Assistant’s Pasal.id control includes legal references with a question. The synthetic case searches its labelled sample records. For private workspaces, set `JUDE_PASAL_TOKEN` on the web server. The Discovery API returns regulation metadata and links to read the source on Pasal.id. [Pasal.id Discovery API](https://pasal.id/en/api)
 

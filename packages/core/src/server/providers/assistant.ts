@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { ChatMessage, Citation, ContextRef, Lang, Workspace } from '../../domain';
 import { objectSchema, safeLanguage, str, structured } from './openai';
+import { mergeEvidenceRanks, semanticMatches } from './semantic-retrieval';
 
 export interface Source extends Citation { text:string; group:string }
 const stop = new Set('a an di dan ke dari yang atas apa apakah saya saya ini itu the of to what when who how is are did was which this in with dan untuk siapa what'.split(' '));
@@ -24,18 +25,25 @@ function contextKeys(w:Workspace, refs:ContextRef[]) {
   }
   return included;
 }
-export function retrieve(w:Workspace,query:string,refs:ContextRef[],lang:Lang):Source[]{
+export async function retrieve(w:Workspace,query:string,refs:ContextRef[],lang:Lang,orgId?:string):Promise<Source[]>{
   const words=terms(query), scope=contextKeys(w,refs),isScoped=refs.length>0&&!refs.some(r=>r.kind==='case');
   const all:Source[]=[
     ...w.passages.map(p=>({kind:'passage' as const,id:p.id,text:p.text,group:(w.documents.find(d=>d.id===p.docId)?.title??'')+' p. '+p.page})),
     ...w.statements.map(s=>({kind:'statement' as const,id:s.id,text:s.text,group:w.speakers.find(p=>p.id===s.speakerId)?.label??''})),
     ...w.findings.map(f=>({kind:'finding' as const,id:f.id,text:f.explanation[lang],group:f.title[lang]}))
   ];
-  const ranked=all.filter(s=>!isScoped||scope.has(key(s))).map(source=>{
+  const candidates = all.filter(s=>!isScoped||scope.has(key(s)));
+  const ranked=candidates.map(source=>{
     const corpus=terms(source.group+' '+source.text), score=[...words].filter(v=>corpus.has(v)).length;
-    return {source,score:score+(scope.has(key(source))?4:0)};
+    return {source, lexical:score, score:score+(scope.has(key(source))?4:0)};
   });
-  return ranked.filter(v=>v.score>0).sort((a,b)=>b.score-a.score).slice(0,16).map(r=>r.source);
+  ranked.sort((a,b)=>b.score-a.score);
+  const fallback=ranked.filter(v=>v.score>0).map(r=>r.source);
+  const semantic = await semanticMatches(w, orgId, query, isScoped ? candidates.map(({kind,id})=>({kind,id})) : undefined);
+  if (!semantic.length) return fallback.slice(0,16);
+  const merged = mergeEvidenceRanks(ranked.filter(v=>v.lexical>0).map(r=>r.source), semantic, candidates, 16);
+  const used = new Set(merged.map(key));
+  return [...merged, ...fallback.filter(s=>!used.has(key(s)))].slice(0,16);
 }
 const paragraph=objectSchema({summary:str,evidence: {type:'integer'},quote:str});
 interface AnswerPart{summary:string;evidence:number;quote:string}
@@ -43,8 +51,8 @@ function checkedParts(value:unknown,sources:Source[]):value is {paragraphs:Answe
   if(!value||typeof value!=='object'||!('paragraphs' in value)||!Array.isArray(value.paragraphs)||!value.paragraphs.length||value.paragraphs.length>8)return false;
   return value.paragraphs.every((p:AnswerPart)=>p&&Number.isInteger(p.evidence)&&typeof p.summary==='string'&&p.summary.length<=1200&&safeLanguage(p.summary)&&!/[“”"\[\]]/.test(p.summary)&&typeof p.quote==='string'&&p.quote.trim().length>=4&&sources[p.evidence-1]?.text.includes(p.quote));
 }
-export async function answerQuestion(w:Workspace,question:string,contexts:ContextRef[],lang:Lang,allowModel=true):Promise<ChatMessage>{
-  const sources=retrieve(w,question,contexts,lang), first=sources.slice(0,5);
+export async function answerQuestion(w:Workspace,question:string,contexts:ContextRef[],lang:Lang,allowModel=true,orgId?:string):Promise<ChatMessage>{
+  const sources=await retrieve(w,question,contexts,lang,allowModel ? orgId : undefined), first=sources.slice(0,5);
   const fallback:ChatMessage={id:randomUUID(),role:'assistant',mode:'sources-only',text:first.map((s,i)=>'“'+s.text+'” ['+(i+1)+']').join('\n\n'),citations:first.map(({kind,id})=>({kind,id}))};
   if(!allowModel||!sources.length||w.caseRecord.label==='synthetic'||!process.env.OPENAI_API_KEY)return fallback;
   try{

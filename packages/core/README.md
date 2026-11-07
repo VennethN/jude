@@ -70,7 +70,9 @@ The background service checks expired records on startup and at least hourly. It
 
 Start `runAnalysisWorker()` from the service process and keep its returned stop function for shutdown. The database transaction that persists a private, final statement with phase `queued` also registers the analysis job. Two worker lanes lease pending jobs, renew their leases during work and recover queued statements after a restart. Database failures retry with backoff. The transcript remains available when analysis cannot produce a grounded finding.
 
-OpenAI calls use a server-side `OPENAI_API_KEY` and optional `OPENAI_PROJECT_ID`. The assistant retrieves the active case’s passages and statements, then checks citations and exact quotes before returning a model answer. With no configured model, the response can present the sources themselves. Guest and synthetic examples use their local source records. The voice service owns recording transport and transcription.
+OpenAI calls use a server-side `OPENAI_API_KEY` and optional `OPENAI_PROJECT_ID`. The default text model is `gpt-6.1-terra`. A PostgreSQL worker indexes private document passages, finalized testimony and findings with `text-embedding-3-small` in 1,536 dimensions. It backfills existing cases and reindexes changed evidence. The active case palette, Assistant and hearing analysis combine lexical and cosine ranks. Selected Assistant contexts restrict candidate sources before scoring. Numbered citations and exact quotes are checked against the original evidence.
+
+PostgreSQL can calculate exact cosine similarity over native real arrays with the application role. With the `vector` extension installed it uses pgvector’s cosine operator, including for earlier embeddings. Set `JUDE_SEMANTIC_SEARCH=false` to disable embedding requests. SQLite, guest workspaces, and unindexed cases use text matches. The organization-wide search directory uses literal matches. The voice service owns recording transport and transcription.
 
 ## Verification
 

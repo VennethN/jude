@@ -7,7 +7,7 @@ export function provider() {
   return sdk ??= new OpenAI({ apiKey:process.env.OPENAI_API_KEY, project:process.env.OPENAI_PROJECT_ID, timeout:35_000,maxRetries:1 });
 }
 export const textModel = (task: ModelTask) =>
-  process.env['OPENAI_'+task.toUpperCase()+'_MODEL'] || process.env.OPENAI_MODEL || 'gpt-4.1';
+  process.env['OPENAI_'+task.toUpperCase()+'_MODEL'] || process.env.OPENAI_MODEL || 'gpt-6.1-terra';
 export const safeLanguage = (s:string) => !/\b(liar|lying|dishonest|untruthful|not credible|is guilty|is innocent|tidak kredibel|bersalah|berbohong|pembohong)\b/i.test(s);
 export async function structured(task:ModelTask, instruction:string, input:unknown, schema:Record<string,unknown>) {
   const client=provider();
