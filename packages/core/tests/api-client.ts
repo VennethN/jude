@@ -8,7 +8,7 @@ type RequestEvent = Parameters<typeof endpoint>[0];
 export function browser() {
   const cookies = new Map<string, string>(),
     ip = randomUUID();
-  async function request(path: string, method = 'GET', data?: unknown, key?: string) {
+  async function request(path: string, method = 'GET', data?: unknown, key?: string, accept?: string) {
     const url = new URL('/api/' + path, 'http://localhost:5173'),
       headers = new Headers();
     let body: FormData | string | undefined;
@@ -18,6 +18,7 @@ export function browser() {
       body = JSON.stringify(data);
     }
     if (key) headers.set('idempotency-key', key);
+    if (accept) headers.set('accept', accept);
     const event = {
       request: new Request(url, { method, headers, body }),
       url,

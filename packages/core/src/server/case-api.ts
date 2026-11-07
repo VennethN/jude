@@ -3,7 +3,7 @@ import { removeSourceIn, restoreSourceIn, retentionMs } from './retention';
 import { retainedMarker } from './retained-evidence';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CoreRequest } from './request';
-import type { ContextRef, SessionInfo, Thread, Workspace } from '../domain';
+import type { ChatMessage, ContextRef, SessionInfo, Thread, Workspace } from '../domain';
 import { needsReview } from '../domain';
 import { billing, checkQuota, meter } from './billing';
 import {
@@ -46,6 +46,7 @@ import {
 import { jsonFields } from './request';
 import { authorizeCase, listMembers, setCaseMember } from './access';
 import { answerQuestion } from './providers/assistant';
+import { answerStream, sharedAnswer } from './answer-stream';
 import { mergeEvidenceRanks, semanticMatches, type SourceRef } from './providers/semantic-retrieval';
 import { discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
 
@@ -274,13 +275,15 @@ async function postMessage(
   threadId: string,
   f: Fields,
   key: string | null,
+  request: Request,
 ) {
   const org = session.organization.id,
     text = string(f.text ?? f.question, 'text', 6000),
     lang = choice(f.lang ?? session.prefs.lang ?? 'id', ['id', 'en'], 'lang');
   const withLegal = f.withLegal === undefined ? true : bool(f.withLegal, 'withLegal');
   const scope = caseId + '/threads/' + threadId + '/messages';
-  const before = await transaction(async (db) => {
+  if (key) string(key, 'Idempotency-Key', 100);
+  const before = await transaction<{ cached: Thread } | { workspace: Workspace; contexts: ContextRef[]; length: number }>(async (db) => {
     await orgLock(db, org);
     const w = await workspaceIn(db, org, caseId);
     const thread = required(w.threads, (t) => t.id === threadId);
@@ -294,43 +297,54 @@ async function postMessage(
     await checkQuota(db, org, 'questions', 1);
     return { workspace: w, contexts: contextsOf(w, f.contexts), length: thread.messages.length };
   });
-  if (before.cached) return before.cached;
-  const contexts = before.contexts as ContextRef[];
-  const answer = await answerQuestion(
-    before.workspace!,
-    text,
-    contexts,
-    lang,
-    !session.user.guest && before.workspace!.caseRecord.label === 'private',
-    org,
+  async function generate(publish: (message: ChatMessage) => void): Promise<Thread> {
+    if ('cached' in before) return before.cached;
+    const { workspace, contexts } = before;
+    const answer = await answerQuestion(
+      workspace,
+      text,
+      contexts,
+      lang,
+      !session.user.guest && workspace.caseRecord.label === 'private',
+      org,
+      publish,
+    );
+    if (answer.mode === 'sources-only') publish(answer);
+    const discovered = withLegal
+      ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])])
+      : [];
+    return transaction((db) =>
+      idempotent(db, org, scope, key, async () => {
+        await checkQuota(db, org, 'questions', 1);
+        const result = await changeIn(db, org, caseId, (w) => {
+          const thread = required(w.threads, (t) => t.id === threadId);
+          if (thread.messages.length !== before.length)
+            conflict('Another question was added. Reload this conversation.');
+          contextsOf(w, contexts);
+          if (answer.citations?.some((c) => !hasCitation(w, c)))
+            conflict('A cited source has changed. Ask the question again.');
+          const legal = retainLegal(w, discovered);
+          if (thread.messages.length === 0) thread.title = thread.title || text.slice(0, 80);
+          thread.sample = false;
+          thread.updated = Date.now();
+          thread.messages.push(
+            { id: randomUUID(), role: 'user', text, contexts },
+            { ...answer, ...(legal.length ? { legal } : {}), id: randomUUID(), role: 'assistant' },
+          );
+          return thread;
+        });
+        await meter(db, org, 'questions', 1);
+        return result;
+      }),
+    );
+  }
+  const cacheKey = key ? JSON.stringify([org, scope, key]) : undefined;
+  const acceptsStream = request.headers.get('accept')?.split(',').some(
+    (value) => value.trim().split(';')[0] === 'application/x-ndjson',
   );
-  const discovered = withLegal
-    ? await discoverLegal(before.workspace!, text, [...contexts, ...(answer.citations ?? [])])
-    : [];
-  return transaction((db) =>
-    idempotent(db, org, scope, key, async () => {
-      await checkQuota(db, org, 'questions', 1);
-      const result = await changeIn(db, org, caseId, (w) => {
-        const thread = required(w.threads, (t) => t.id === threadId);
-        if (thread.messages.length !== before.length)
-          conflict('Another question was added. Reload this conversation.');
-        contextsOf(w, contexts);
-        if (answer.citations?.some((c) => !hasCitation(w, c)))
-          conflict('A cited source has changed. Ask the question again.');
-        const legal = retainLegal(w, discovered);
-        if (thread.messages.length === 0) thread.title = thread.title || text.slice(0, 80);
-        thread.sample = false;
-        thread.updated = Date.now();
-        thread.messages.push(
-          { id: randomUUID(), role: 'user', text, contexts },
-          { ...answer, ...(legal.length ? { legal } : {}), id: randomUUID(), role: 'assistant' },
-        );
-        return thread;
-      });
-      await meter(db, org, 'questions', 1);
-      return result;
-    }),
-  );
+  return acceptsStream
+    ? answerStream(request.signal, (publish, signal) => sharedAnswer(cacheKey, generate, publish, signal))
+    : sharedAnswer(cacheKey, generate);
 }
 async function liveQuota(db: Database, org: string, w: Workspace) {
   if (w.caseRecord.label === 'synthetic') return;
@@ -424,7 +438,7 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
   const f = await jsonFields(event.request);
   if (!resource && method === 'PATCH') return mutateWorkspace(org, caseId, (w) => patchCase(w, f));
   if (resource === 'threads' && id && act === 'messages' && method === 'POST')
-    return postMessage(session, caseId, id, f, key);
+    return postMessage(session, caseId, id, f, key, event.request);
   const startingHearing =
     resource === 'hearings' && method === 'POST' && (f.flow === 'live' || act === 'start');
   const voiceReady = startingHearing && !session.user.guest && (await transcriptionAvailable());

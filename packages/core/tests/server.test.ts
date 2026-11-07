@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import type {
+  AnswerStreamEvent,
   Board,
   CaseDocument,
   CaseRecord,
@@ -139,12 +140,28 @@ describe('case API', () => {
       contexts: [{ kind: 'passage', id: 'd3p2' }],
       lang: 'id',
     };
-    const answer = await a.ok<Thread>(base + '/threads/' + t.id + '/messages', 'POST', msg, key);
+    const messagePath = base + '/threads/' + t.id + '/messages';
+    const live = await a.request(messagePath, 'POST', msg, key, 'application/x-ndjson');
+    expect(live.headers.get('content-type')).toContain('application/x-ndjson');
+    const frames = (await live.text()).trim().split('\n').map(line => JSON.parse(line) as AnswerStreamEvent);
+    expect(frames.map(event => event.type)).toEqual(['status', 'partial', 'complete']);
+    const preview = frames.find(event => event.type === 'partial')!.message;
+    expect(preview.mode).toBe('sources-only');
+    const answer = await a.ok<Thread>(messagePath, 'POST', msg, key);
     expect(answer.messages).toHaveLength(2);
     expect(answer.messages[1].citations?.length).toBeGreaterThan(0);
-    expect(
-      (await a.ok<Thread>(base + '/threads/' + t.id + '/messages', 'POST', msg, key)).messages,
-    ).toHaveLength(2);
+    expect(answer.messages[1].citations).toEqual(preview.citations);
+    expect(answer.messages[1].text).toEqual(preview.text);
+    expect(frames.at(-1)).toEqual({ type: 'complete', thread: answer });
+    const replay = await a.request(messagePath, 'POST', msg, key, 'application/x-ndjson');
+    expect((await replay.text()).trim().split('\n').map(line => JSON.parse(line))).toEqual([
+      { type: 'status', phase: 'reading' }, { type: 'complete', thread: answer },
+    ]);
+    const invalid = await a.request(messagePath, 'POST', { ...msg, contexts: [{ kind: 'statement', id: 'absent' }] }, undefined, 'application/x-ndjson');
+    expect(invalid.status).toBe(422);
+    const outsider = browser();
+    await outsider.ok('auth/demo', 'POST');
+    expect((await outsider.request(messagePath, 'POST', msg, key, 'application/x-ndjson')).status).toBe(404);
   });
   test('case roles apply to lists, individual reads and mutations', async () => {
     const owner = browser(),

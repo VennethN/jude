@@ -233,6 +233,13 @@ export interface Thread {
   sample?: boolean;
 }
 
+/** POST thread messages can stream complete, evidence-checked paragraphs before the final commit. */
+export type AnswerStreamEvent =
+  | { type: 'status'; phase: 'reading' }
+  | { type: 'partial'; message: ChatMessage }
+  | { type: 'complete'; thread: Thread }
+  | { type: 'error'; error: { status: number; code: string; message: string } };
+
 export type BoardKind = "finding" | "statement" | "passage" | "document" | "excerpt";
 export interface BoardRef {
   kind: BoardKind;
