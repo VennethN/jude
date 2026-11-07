@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { Bookmark, CheckCheck, ClipboardList, PanelsTopLeft, List, Search, X } from '@lucide/svelte';
@@ -112,7 +113,7 @@
 >
 <div class="ev-page findings-page" class:board bind:clientWidth={width}>
   <header class="ev-head">
-    <div>
+    <PageHeading art={board ? 'spool' : 'finding'}>
       <h1>{board ? (id ? 'Papan temuan' : 'Case board') : id ? 'Temuan' : 'Findings'}</h1>
       <p>
         {board
@@ -123,7 +124,7 @@
             ? 'Hal yang perlu Anda cek dari setiap sidang. Temuan yang sesuai sumber ada di Lainnya.'
             : 'What to check from every hearing. Findings that match their source are under Others.'}
       </p>
-    </div>
+    </PageHeading>
     <nav class="finding-views" aria-label={id ? 'Tampilan temuan' : 'Findings view'} data-tour="board-open">
       <a href={base} aria-current={!board ? 'page' : undefined}><List size={15} />{id ? 'Daftar' : 'List'}</a>
       <a
@@ -224,7 +225,7 @@
         />
         {#if active}
           {#if narrow && requested}
-            <Dialog sheet title={id ? 'Temuan' : 'Finding'} {lang} close={closeSheet}>
+            <Dialog sheet art="finding" title={id ? 'Temuan' : 'Finding'} {lang} close={closeSheet}>
               {#snippet headerActions()}{#if pager}<FindingPager
                     navigation={pager}
                     {lang}

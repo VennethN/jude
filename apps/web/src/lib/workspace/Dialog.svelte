@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
   import SheetHandle from './SheetHandle.svelte';
+  import PageHeading, { type HeadingArt } from './PageHeading.svelte';
   import { X } from '@lucide/svelte';
   import { cubicOut } from 'svelte/easing';
   import type { TransitionConfig } from 'svelte/transition';
-  let { title, close, lang = 'id', children, headerActions, wide = false, side = false, sheet = false, docked = false }: {title:string; close:()=>void; lang?:'id'|'en'; children:Snippet; headerActions?:Snippet; wide?:boolean;side?:boolean;sheet?:boolean;docked?:boolean} = $props();
+  let { title, close, lang = 'id', children, headerActions, art, wide = false, side = false, sheet = false, docked = false }: {title:string; close:()=>void; lang?:'id'|'en'; children:Snippet; headerActions?:Snippet; art?:HeadingArt; wide?:boolean;side?:boolean;sheet?:boolean;docked?:boolean} = $props();
   let dialog = $state<HTMLDialogElement>();
   let opener: HTMLElement | null = null;
   let mounted = $state(false);
@@ -45,7 +46,9 @@
   {:else}
     <div class="dialog-head">
       {#if sheet}<SheetHandle dismiss={close}/>{/if}
-      <h2 id={id}>{title}</h2>
+      {#if art}
+        <PageHeading {art} compact><h2 id={id}>{title}</h2></PageHeading>
+      {:else}<h2 id={id}>{title}</h2>{/if}
       {#if headerActions}<div class="head-actions">{@render headerActions()}</div>{/if}
       <button class="icon-button" aria-label={lang === 'id' ? 'Tutup' : 'Close'} onclick={close}><X size={19}/></button>
     </div>

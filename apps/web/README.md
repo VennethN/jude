@@ -11,7 +11,9 @@ pnpm install --frozen-lockfile
 pnpm --filter @jude/web dev
 ```
 
-Open the URL printed by Vite. Sign up or select **Coba perkara contoh**. For live replay and audio transport, install the Python voice dependencies from its README, then run both services using `pnpm dev` from the repository root. To connect a separately hosted voice service, provide its internal URL in `VOICE_ORIGIN`.
+Open the URL printed by Vite. Sign up or select **Coba perkara contoh**. For live replay and audio transport, install the Python voice dependencies from its README, then run both services using `pnpm dev` from the repository root. To use the hosted recording service from localhost, set `VOICE_ORIGIN` in the repository root `.env` to the HTTPS origin of the Jude deployment that shares your `DATABASE_URL`, then run `pnpm dev`. The browser keeps its local Jude session and sends recordings through its same-origin `/api/live/` routes. Check `GET /api/live/capabilities` for transcription readiness. The local Python service starts when the local gateway is selected.
+
+To run only web locally against the existing EC2 voice service, set `JUDE_VOICE_REMOTE=true`, `ORIGIN=http://localhost:5173`, and `VOICE_ORIGIN=https://jude-voice.15.232.90.76.sslip.io` in the root `.env`, then run `pnpm dev --host localhost --port 5173 --strictPort`. Use the same PostgreSQL database as voice so sessions and case permissions are shared; use a local absolute RDS CA path. These settings access production records. The development proxy validates the local origin before forwarding HTTP and WebSocket requests with the hosted origin. Python and the diarization model remain on EC2. Keep this development server bound to loopback.
 
 ```sh
 pnpm --filter @jude/web check

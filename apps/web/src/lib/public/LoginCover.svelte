@@ -31,6 +31,7 @@
     min-height: calc(100svh - 28px);
     padding: clamp(134px, 17vh, 170px) clamp(40px, 6vw, 112px) clamp(44px, 8vh, 96px);
     border-radius: 28px;
+    overflow: clip;
     color: var(--cover-cream);
     background-color: #153328;
     background-image:

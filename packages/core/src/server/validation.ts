@@ -29,6 +29,12 @@ export function string(value: unknown, field: string, max = 240, optional = fals
   if (typeof value !== 'string' || value.length > max || (!optional && !value.trim())) invalid(field);
   return value.trim();
 }
+export function archiveId(value: unknown, field = 'id') {
+  const id = string(value, field, 120);
+  if (!/^[a-zA-Z0-9][\w-]*$/.test(id) || ['constructor', 'prototype', '__proto__'].includes(id))
+    invalid(field);
+  return id;
+}
 export function bool(value: unknown, field: string) {
   if (typeof value !== 'boolean') invalid(field);
   return value;

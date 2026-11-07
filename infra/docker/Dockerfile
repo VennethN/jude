@@ -34,7 +34,7 @@ ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 \
     JUDE_MIGRATIONS_DIR=/app/migrations JUDE_DEMO_ASSETS_DIR=/app/apps/web/static/demo/documents
 COPY --from=web-dependencies --chown=node:node /app/ ./
 COPY --from=web-build --chown=node:node /app/apps/web/build ./apps/web/build
-COPY --chown=node:node apps/web/server.mjs ./apps/web/server.mjs
+COPY --chown=node:node apps/web/server.mjs apps/web/voice-gateway.mjs ./apps/web/
 COPY --chown=node:node packages/core/src ./packages/core/src
 COPY --chown=node:node migrations ./migrations
 COPY --chown=node:node apps/web/static/demo/documents ./apps/web/static/demo/documents

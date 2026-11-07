@@ -52,7 +52,7 @@ export async function readAnswer(
   }
 }
 
-export interface AnswerAttempt { digest: string; key: string }
+export interface AnswerAttempt { digest: string; key: string; startCount: number }
 
 function stored(slot: string): AnswerAttempt | undefined {
   try {
@@ -69,12 +69,17 @@ export function forgetAttempt(slot: string, attempt: AnswerAttempt) {
   try { if (stored(slot)?.key === attempt.key) sessionStorage.removeItem(slot); } catch { /* Storage is optional. */ }
 }
 
-export async function claimAttempt(slot: string, input: string, previous?: AnswerAttempt): Promise<AnswerAttempt> {
+export async function claimAttempt(slot: string, input: string, startCount: number, previous?: AnswerAttempt): Promise<AnswerAttempt> {
   // Keep case questions, attachments and their names out of browser storage.
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
   const digest = Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
   const saved = stored(slot);
-  const attempt = previous?.digest === digest ? previous : saved?.digest === digest ? saved : {digest, key: crypto.randomUUID()};
+  const recovered = previous?.digest === digest ? previous : saved?.digest === digest ? saved : undefined;
+  const attempt = {
+    digest,
+    key: recovered?.key ?? crypto.randomUUID(),
+    startCount: Number.isInteger(recovered?.startCount) ? recovered!.startCount : startCount,
+  };
   rememberAttempt(slot, attempt);
   return attempt;
 }

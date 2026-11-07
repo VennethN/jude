@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { goto, invalidate, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { onMount, tick, untrack } from 'svelte';
@@ -232,6 +233,7 @@
             : 'Memutar ulang'
       : capture
         ? {
+            permission: en ? 'Waiting for microphone permission' : 'Menunggu izin mikrofon',
             connecting: en ? 'Connecting' : 'Menghubungkan',
             recording: en ? 'Recording' : 'Merekam',
             offline: en ? 'Offline · buffering' : 'Luring · menyimpan lokal',
@@ -241,8 +243,8 @@
             error: en ? 'Check microphone' : 'Periksa mikrofon'
           }[capture.state]
         : en
-          ? 'Live transcript'
-          : 'Transkrip langsung'
+          ? 'Waiting for microphone'
+          : 'Menunggu mikrofon'
   );
   function weight(f: Finding) {
     return (f.isNew ? 4 : 0) + (f.status === 'potential_inconsistency' ? 2 : 1);
@@ -510,7 +512,9 @@
 <article class="hearing-detail" class:live-view={live || scheduled} class:running={live}>
   <a class="back" href={base + '/hearings'}><ArrowLeft size={15} />{en ? 'All hearings' : 'Semua sidang'}</a>
   <header class="hearing-heading">
-    <h1><span>{en ? 'Hearing' : 'Sidang'} {h.number}</span> {h.title[lang]}</h1>
+    <PageHeading art="speech" compact>
+      <h1><span>{en ? 'Hearing' : 'Sidang'} {h.number}</span> {h.title[lang]}</h1>
+    </PageHeading>
     {#if !scheduled}<div class="head-actions">
       {#if !live}<a class="button ask-hearing" href={assistantPath(w, {kind:'hearing', id:h.id})} onclick={askHearing}>
         <MessageSquare size={15}/>{en ? 'Ask assistant' : 'Tanya asisten'}
@@ -546,7 +550,7 @@
           <a class="button" href={base + '/hearings/' + activeOther.id}
             >{en ? 'Go to live hearing' : 'Buka sidang berjalan'}<ArrowRight size={15} /></a
           >
-        {:else if synthetic || (!account.user.guest && transcription && !h.closed)}<button
+        {:else if !h.closed && (synthetic || (!account.user.guest && account.plan.id !== 'basic' && transcription))}<button
             class="button primary"
             onclick={() => (dialog = 'start')}
             ><Mic size={16} />{en ? 'Start hearing' : 'Mulai sidang'}</button
@@ -556,9 +560,11 @@
               ? en
                 ? 'This hearing is closed to recording.'
                 : 'Perekaman tidak tersedia dalam sidang tertutup.'
-              : en
-                ? 'Live transcription is unavailable for this account.'
-                : 'Transkripsi langsung tidak tersedia untuk akun ini.'}
+              : account.user.guest
+                ? (en ? 'Sign in to record a private hearing.' : 'Masuk untuk merekam sidang privat.')
+                : account.plan.id === 'basic'
+                  ? (en ? 'Live recording requires Advocate Pro or higher.' : 'Rekam langsung tersedia mulai paket Advokat Pro.')
+                  : (en ? 'The voice service has not enabled transcription.' : 'Transkripsi belum aktif pada layanan suara.')}
           </p>{/if}
       </section>
     </div>

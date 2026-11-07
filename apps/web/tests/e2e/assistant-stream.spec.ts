@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { AnswerStreamEvent, ChatMessage, Thread } from '@jude/core/domain';
 
-type Stage = 'fragment' | 'paragraph' | 'all' | 'complete' | 'lost';
+type Stage = 'fragment' | 'paragraph' | 'formatting' | 'formatted' | 'all' | 'complete' | 'lost';
 interface Gate {
   keys: string[];
   path: string;
@@ -45,6 +45,12 @@ async function holdResponse(page: Page) {
             const partial = events.find(event => event.type === 'partial')?.message;
             if (!partial?.citations?.length || typeof partial.text !== 'string') throw new Error('Missing verified source');
             const first: ChatMessage = { ...partial, text: partial.text.split('\n\n')[0], citations: partial.citations.slice(0, 1) };
+            if (stage === 'formatting' || stage === 'formatted') {
+              const summary = '## Waktu akses\n\n- **Keterangan saksi';
+              const text = stage === 'formatting' ? summary : summary + '** [1]\n- Periksa _catatan asli_.';
+              controller.enqueue(encode({ type: 'partial', message: { ...first, mode: 'ai', text } }));
+              return text;
+            }
             if (stage === 'fragment') {
               const bytes = encode({ type: 'partial', message: first });
               // Split inside the UTF-8 encoding of the opening quotation mark.
@@ -65,6 +71,11 @@ async function holdResponse(page: Page) {
     };
   });
 }
+async function openWorkspace(page: Page, path: string) {
+  const hydrated = page.waitForRequest(request => new URL(request.url()).pathname.endsWith('/events'));
+  await page.goto(path);
+  await hydrated;
+}
 const release = (page: Page, stage: Stage) => page.evaluate(stage => window.answerGate.release(stage), stage);
 
 for (const { name, width, height, drawer } of [
@@ -74,7 +85,7 @@ for (const { name, width, height, drawer } of [
   test(name + ' shows the question and checked citations before the final answer arrives', async ({ page }, info) => {
     await page.setViewportSize({ width, height });
     await holdResponse(page);
-    await page.goto(drawer ? '/demo/documents' : '/demo/assistant/new');
+    await openWorkspace(page, drawer ? '/demo/documents' : '/demo/assistant/new');
     if (drawer) await page.getByRole('button', { name: 'Buka asisten perkara' }).click();
     const root = drawer ? page.getByRole('dialog', { name: 'Asisten perkara' }) : page.locator('.assistant-page');
     const log = root.getByRole('log');
@@ -110,6 +121,17 @@ for (const { name, width, height, drawer } of [
     await expect.poll(() => answer.locator('details[open] li').count()).toBeGreaterThan(1);
     await expect(log.locator('.message.question')).toHaveCount(1);
     await page.screenshot({ path: info.outputPath('checked-paragraphs.png') });
+    // Format a checked preview in place, including an unfinished emphasis span.
+    await release(page, 'formatting');
+    await expect(answer.getByRole('heading', { name: 'Waktu akses' })).toBeVisible();
+    await expect(answer.locator('.answer li strong')).toHaveText('Keterangan saksi');
+    await release(page, 'formatted');
+    await expect(answer.locator('.answer li')).toHaveCount(2);
+    await expect(answer.locator('.answer em')).toHaveText('catatan asli');
+    await expect(answer.locator('.answer li').first().getByRole('button', { name: /^Sumber 1/ }).or(
+      answer.locator('.answer li').first().getByRole('link', { name: /^Sumber 1/ }),
+    )).toBeVisible();
+    await page.screenshot({ path: info.outputPath('formatted-answer.png') });
     await release(page, 'complete');
     await expect(root.getByRole('button', { name: 'Kirim pertanyaan' })).toBeDisabled();
     await expect(log.locator('.message.question')).toHaveCount(1);
@@ -130,7 +152,7 @@ for (const { name, width, height, drawer } of [
 
 test('an interrupted delivery can be retried from a reopened drawer without a second saved question', async ({ page }) => {
   await holdResponse(page);
-  await page.goto('/demo/documents');
+  await openWorkspace(page, '/demo/documents');
   const open = page.getByRole('button', { name: 'Buka asisten perkara' });
   await open.click();
   const dialog = page.getByRole('dialog', { name: 'Asisten perkara' });
@@ -141,20 +163,34 @@ test('an interrupted delivery can be retried from a reopened drawer without a se
   await expect.poll(() => page.evaluate(() => window.answerGate.keys.length)).toBe(1);
   await release(page, 'paragraph');
   await expect(dialog.locator('.message.response')).toHaveCount(1);
+  const originalKey = await page.evaluate(() => window.answerGate.keys[0]);
   await release(page, 'lost');
   await expect(dialog.getByRole('alert')).toContainText('Sambungan terputus');
   await expect(field).toHaveValue(question);
   await expect(dialog.locator('.reading')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Tutup asisten' }).click();
+  // Reload the saved thread, including the committed answer whose receipt was lost.
+  await openWorkspace(page, page.url());
   await open.click();
   await field.fill(question);
   await field.press('Enter');
-  await expect.poll(() => page.evaluate(() => window.answerGate.keys.length)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.answerGate.keys.length)).toBe(1);
   const { keys, path } = await page.evaluate(() => ({ keys: window.answerGate.keys, path: window.answerGate.path }));
-  expect(keys[0]).toBe(keys[1]);
+  expect(keys[0]).toBe(originalKey);
+  await expect(dialog.locator('.message.question')).toHaveCount(1);
   await release(page, 'complete');
   await expect(dialog.locator('.message.question')).toHaveCount(1);
   const thread: Thread = await (await page.request.get(path)).json();
   expect(thread.messages.map(message => message.role)).toEqual(['user', 'assistant']);
   expect(thread.messages[0].contexts).toEqual([{ kind: 'documents' }]);
+
+  await dialog.getByRole('button', { name: 'Percakapan baru' }).click();
+  await field.fill(question);
+  await field.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.answerGate.keys.length)).toBe(2);
+  const fresh = await page.evaluate(() => ({ keys: window.answerGate.keys, path: window.answerGate.path }));
+  expect(fresh.keys[1]).not.toBe(keys[0]);
+  expect(fresh.path).not.toBe(path);
+  await release(page, 'complete');
+  await expect(dialog.locator('.message.question')).toHaveCount(1);
 });

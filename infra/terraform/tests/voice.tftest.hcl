@@ -56,6 +56,7 @@ run "web_and_python_share_one_ec2" {
     enable_voice_host       = true
     db_publicly_accessible  = false
     db_allowed_public_cidrs = []
+    voice_direct_hostname   = ""
   }
   assert {
     condition     = length(aws_instance.voice) == 1 && length(aws_instance.web) == 0
@@ -75,6 +76,27 @@ run "web_and_python_share_one_ec2" {
   }
 }
 
+run "direct_voice_exposes_only_https_in_addition_to_cloudfront" {
+  command = plan
+  variables {
+    enable_application    = true
+    enable_voice_host     = true
+    voice_direct_hostname = "voice.example.com"
+  }
+  assert {
+    condition = length(aws_security_group.voice_origin[0].ingress) == 2 && alltrue([
+      for rule in aws_security_group.voice_origin[0].ingress :
+      (rule.from_port == 80 && rule.to_port == 80 && try(length(rule.prefix_list_ids), 0) == 1 && try(length(rule.cidr_blocks), 0) == 0) ||
+      (rule.from_port == 443 && rule.to_port == 443 && toset(rule.cidr_blocks) == toset(["0.0.0.0/0"]))
+    ])
+    error_message = "Direct voice may expose HTTPS to all clients, without exposing SSH or application ports."
+  }
+  assert {
+    condition     = output.voice_direct_url == "https://voice.example.com" && aws_ssm_parameter.voice_direct_hostname[0].name == "/jude-dev/runtime/JUDE_VOICE_PUBLIC_HOST"
+    error_message = "The direct endpoint must match its runtime hostname."
+  }
+}
+
 run "application_disabled_has_no_host_url" {
   command = plan
   variables {
@@ -82,7 +104,7 @@ run "application_disabled_has_no_host_url" {
     enable_voice_host  = true
   }
   assert {
-    condition     = output.voice_web_url == null && length(aws_instance.voice) == 0
+    condition     = output.voice_web_url == null && output.voice_direct_url == null && length(aws_instance.voice) == 0
     error_message = "A disabled application must not index an absent distribution or expose a host URL."
   }
 }

@@ -125,8 +125,8 @@ class VoiceTransportTest(unittest.TestCase):
         self.repo.acquire.side_effect = acquire
         self.repo.release.side_effect = lambda *_: active.release()
         receipt = {"id": "turn-1", "statementId": "mic-h-turn-1"}
-        self.repo.committed_turn.side_effect = [None, receipt]
-        self.repo.store_turn.return_value = receipt
+        self.repo.begin_turn.side_effect = [None, receipt]
+        self.repo.finish_turn.return_value = receipt
         recognizer = MagicMock()
 
         async def transcribe(pcm, partial):
@@ -142,14 +142,14 @@ class VoiceTransportTest(unittest.TestCase):
             patch.object(transport, "Realtime", return_value=context),
             patch.object(transport, "SpeakerWindow") as window,
         ):
-            window.return_value.label.return_value = {"turn-1": "anonymous-1"}
+            window.return_value.label.return_value = {"mic-h-turn-1": "anonymous-1"}
             def connect():
                 return self.client.websocket_connect(
                     "/api/live/c/h/socket?lang=en", headers={"Origin": "http://testserver"}
                 )
 
             with connect() as client:
-                self.assertEqual(client.receive_json(), {"type": "ready"})
+                self.assertEqual(client.receive_json(), {"type": "ready", "maxInFlight": 3})
                 turn = {"id": "turn-1", "t": 1.25, "keep": False, "pcm": base64.b64encode(pcm).decode()}
                 client.send_json(turn)
                 for words in ("hear", "heard"):
@@ -164,20 +164,53 @@ class VoiceTransportTest(unittest.TestCase):
 
             # A browser resends its pending turn over a new connection after a dropped ack.
             with connect() as replacement:
-                self.assertEqual(replacement.receive_json(), {"type": "ready"})
+                self.assertEqual(replacement.receive_json(), {"type": "ready", "maxInFlight": 3})
                 replacement.send_json(turn)
                 self.assertEqual(replacement.receive_json(), {"type": "ack", **receipt})
             window.return_value.label.assert_called_once()
         recognizer.transcribe.assert_awaited_once()
-        self.assertEqual(self.repo.store_turn.call_args.kwargs["speaker"], "anonymous-1")
-        self.assertFalse(self.repo.store_turn.call_args.kwargs["keep"])
+        self.repo.finalize_speakers.assert_called_once_with(
+            self.repo.session.return_value, "c", "h", {"mic-h-turn-1": "anonymous-1"}
+        )
+        self.repo.finish_turn.assert_called_once()
+        self.assertFalse(self.repo.begin_turn.call_args.kwargs["keep"])
         self.assertEqual(self.repo.release.call_args_list, [call("c", "h", "first"), call("c", "h", "second")])
         self.assertFalse(active.locked())
 
+    def test_later_turn_finishes_while_an_earlier_turn_is_still_transcribing(self):
+        release = threading.Event()
+        first = b"\x01\x00" * 48
+        second = b"\x02\x00" * 48
+        self.repo.begin_turn.return_value = None
+        self.repo.finish_turn.side_effect = lambda *_, turn_id, **kwargs: {"id": turn_id, "statementId": turn_id}
+
+        async def transcribe(pcm, partial):
+            if pcm == first:
+                await partial("First turn")
+                if not await asyncio.to_thread(release.wait, 5):
+                    raise TimeoutError("The second turn did not finish independently")
+            return "Transcribed"
+
+        context = MagicMock()
+        context.__aenter__.return_value.transcribe = transcribe
+        with (
+            patch.object(transport, "Realtime", return_value=context),
+            self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client,
+        ):
+            self.assertGreater(client.receive_json()["maxInFlight"], 1)
+            try:
+                client.send_json({"id": "one", "t": 0, "keep": True, "pcm": base64.b64encode(first).decode()})
+                self.assertEqual(client.receive_json()["type"], "partial")
+                client.send_json({"id": "two", "t": 1, "keep": True, "pcm": base64.b64encode(second).decode()})
+                self.assertEqual(client.receive_json(), {"type": "ack", "id": "two", "statementId": "two"})
+            finally:
+                release.set()
+            self.assertEqual(client.receive_json(), {"type": "ack", "id": "one", "statementId": "one"})
+
     def test_ack_for_a_turn_without_a_statement_does_not_create_a_caption(self):
         receipt = {"id": "quiet", "statementId": None}
-        self.repo.committed_turn.side_effect = [None, receipt]
-        self.repo.store_turn.return_value = receipt
+        self.repo.begin_turn.side_effect = [None, receipt]
+        self.repo.finish_turn.return_value = receipt
         recognizer = MagicMock()
         recognizer.transcribe = AsyncMock(return_value="")
         context = MagicMock()
@@ -187,13 +220,13 @@ class VoiceTransportTest(unittest.TestCase):
             patch.object(transport, "SpeakerWindow") as window,
             self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client,
         ):
-            self.assertEqual(client.receive_json(), {"type": "ready"})
+            self.assertEqual(client.receive_json(), {"type": "ready", "maxInFlight": 3})
             turn = {"id": "quiet", "t": 2, "keep": True, "pcm": base64.b64encode(bytes(96)).decode()}
             for _ in range(2):
                 client.send_json(turn)
                 self.assertEqual(client.receive_json(), {"type": "ack", "id": "quiet"})
-        recognizer.transcribe.assert_awaited_once()
-        self.repo.store_turn.assert_called_once()
+        recognizer.transcribe.assert_not_awaited()
+        self.repo.finish_turn.assert_called_once()
         window.return_value.label.assert_not_called()
 
 

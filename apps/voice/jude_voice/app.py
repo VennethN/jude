@@ -22,9 +22,10 @@ from fastapi.responses import (
 )
 
 from .diarization import DiarizationError, diarization_available
+from .ingest import stream_turns
 from .limits import MAX_UPLOAD, UploadLimit
 from .providers import ProviderError, Realtime, transcribe_file, wav_header
-from .repository import Repository, VoiceError, statement_id
+from .repository import Repository, VoiceError
 from .speakers import SpeakerWindow, run_worker
 
 AUDIO_FORMATS = {".mp3", ".wav", ".mp4", ".m4a", ".mpeg", ".mpga", ".webm"}
@@ -329,53 +330,13 @@ async def socket(ws: WebSocket, case_id: str, hearing_id: str):
 
 
 async def receive_turns(ws, session, case_id, hearing_id, lease):
-    async def heartbeat():
-        try:
-            while True:
-                await asyncio.sleep(10)
-                await asyncio.to_thread(repo.renew, session, case_id, hearing_id, lease)
-        except VoiceError:
-            with suppress(RuntimeError):
-                await ws.close(code=1008)
-
-    task = asyncio.create_task(heartbeat())
-    speakers = SpeakerWindow()
     try:
-        async with Realtime("en" if ws.query_params.get("lang") == "en" else "id") as recognizer:
-            await ws.send_json({"type": "ready"})
-            while True:
-                turn_id, start, pcm, keep = decode_turn(await ws.receive_json())
-                receipt = await asyncio.to_thread(repo.committed_turn, session, case_id, hearing_id, turn_id)
-                if receipt is None:
-                    caption = {"type": "partial", "id": statement_id(hearing_id, turn_id), "t": start}
-                    text = await recognizer.transcribe(
-                        pcm, lambda words, frame=caption: ws.send_json({**frame, "text": words})
-                    )
-                    # Kept recordings get a full hearing pass when the lawyer ends the hearing.
-                    # Transcript-only sessions can use brief acoustic context until disconnect.
-                    speaker = None
-                    if text and not keep:
-                        labels = await asyncio.to_thread(speakers.label, [(turn_id, pcm)])
-                        speaker = labels.get(turn_id)
-                    receipt = await asyncio.to_thread(
-                        repo.store_turn,
-                        session,
-                        case_id,
-                        hearing_id,
-                        lease=lease,
-                        turn_id=turn_id,
-                        start=start,
-                        pcm=pcm,
-                        keep=keep,
-                        text=text,
-                        speaker=speaker,
-                    )
-                ack = {"type": "ack", "id": turn_id}
-                if receipt["statementId"] is not None:
-                    ack["statementId"] = receipt["statementId"]
-                await ws.send_json(ack)
+        await stream_turns(ws, repo, session, case_id, hearing_id, lease, decode_turn, Realtime, SpeakerWindow())
     except WebSocketDisconnect:
         pass
+    except VoiceError:
+        with suppress(RuntimeError, WebSocketDisconnect):
+            await ws.close(code=1008)
     except (ValueError, binascii.Error, KeyError):
         with suppress(RuntimeError):
             await ws.close(code=1003)
@@ -383,7 +344,3 @@ async def receive_turns(ws, session, case_id, hearing_id, lease):
         with suppress(RuntimeError, WebSocketDisconnect):
             await ws.send_json({"type": "error", "code": "transcription_interrupted"})
             await ws.close(code=1011)
-    finally:
-        task.cancel()
-        with suppress(asyncio.CancelledError):
-            await task

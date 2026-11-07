@@ -46,10 +46,11 @@ import {
 import { jsonFields } from './request';
 import { authorizeCase, caseAccess, listMembers, setCaseMember } from './access';
 import { answerQuestion, sourcePool } from './providers/assistant';
-import { ASSISTANT_QUESTION_LIMIT, type AssistantStage } from '../domain';
+import { ASSISTANT_QUESTION_LIMIT, type AssistantStage, type LegalSearchStatus } from '../domain';
 import { answerStream, sharedAnswer, cancelAnswer } from './answer-stream';
 import { mergeEvidenceRanks, semanticMatches, type SourceRef } from './providers/semantic-retrieval';
-import { discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
+import { isLawQuestion } from './providers/legal-query';
+import { answerLawQuestion, discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
 
 const groups = [
   'hearings',
@@ -300,22 +301,20 @@ async function postMessage(
   async function generate(publish: (message: ChatMessage) => void, signal?: AbortSignal, progress?: (stage: AssistantStage) => void): Promise<Thread> {
     if ('cached' in before) return before.cached;
     const { workspace, contexts } = before;
-    const answer = await answerQuestion(
-      workspace,
-      text,
-      contexts,
-      lang,
-      !session.user.guest && workspace.caseRecord.label === 'private',
-      org,
-      publish,
-      { signal, progress, history: before.history },
+    let legalStatus: LegalSearchStatus | undefined;
+    const options = { signal, status: (value: LegalSearchStatus) => { legalStatus = value; } };
+    if (withLegal && isLawQuestion(text)) progress?.('legal');
+    const legalQuestion = await answerLawQuestion(workspace, text, contexts, lang, withLegal, options);
+    const answer: ChatMessage = legalQuestion?.answer ?? await answerQuestion(
+      workspace, text, contexts, lang, !session.user.guest && workspace.caseRecord.label === 'private',
+      org, publish, { signal, progress, history: before.history },
     );
     signal?.throwIfAborted();
     if (answer.mode === 'sources-only') publish(answer);
-    if (withLegal) progress?.('legal');
-    const discovered = withLegal
-      ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])], { signal, status: status => { answer.legalStatus = status; } })
-      : [];
+    if (withLegal && !legalQuestion) progress?.('legal');
+    const discovered = legalQuestion?.discoveries ?? (withLegal
+      ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])], options) : []);
+    if (legalStatus) answer.legalStatus = legalStatus;
     signal?.throwIfAborted();
     progress?.('saving');
     return transaction((db) =>

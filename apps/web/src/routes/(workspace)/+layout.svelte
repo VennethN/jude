@@ -697,6 +697,7 @@
       </div>
     </Dialog>{/if}
   {#if overlay === 'prefs'}<Dialog
+      art="bookmark"
       title={en ? 'Preferences' : 'Preferensi'}
       lang={data.lang}
       close={() => (overlay = null)}

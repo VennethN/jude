@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { write } from '$lib/client';
@@ -100,14 +101,14 @@
 <svelte:head><title>{id ? 'Asisten perkara' : 'Case assistant'} · Jude</title></svelte:head>
 <div class="ev-page assistant-page">
   <header class="ev-head page-heading" class:in-thread={active && !invalid}>
-    <div>
+    <PageHeading art="quote">
       <h1>{id ? 'Asisten' : 'Assistant'}</h1>
       <p>
         {id
           ? 'Gabungkan konteks sidang, dokumen, dan temuan dalam satu pertanyaan. Setiap percakapan menyimpan sumber yang dipakai.'
           : 'Ask across hearings, documents and findings. Each conversation keeps the sources used to answer it.'}
       </p>
-    </div>
+    </PageHeading>
   </header>
   {#if problem}<p role="alert" class="ev-error">{problem}</p>{/if}
   {#if deleted}<div class="ev-notice ev-inline" role="status">
@@ -208,7 +209,9 @@
           ><ArrowLeft size={15} />{id ? 'Semua percakapan' : 'All conversations'}</a
         >
         <div class="conv-title">
-          <h2>{current ? local(current.title, lang) : id ? 'Percakapan baru' : 'New conversation'}</h2>
+          <PageHeading art="quote" compact narrow>
+            <h2>{current ? local(current.title, lang) : id ? 'Percakapan baru' : 'New conversation'}</h2>
+          </PageHeading>
           {#if current && refs.get(current.id)?.used.length}<div class="used">
               <small>{id ? 'Konteks yang dipakai' : 'Contexts used'}</small>
               {#each refs.get(current.id)!.used as ref (contextKey(ref))}<ContextChip

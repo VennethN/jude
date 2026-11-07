@@ -11,6 +11,8 @@ const portIndex = webArgs.indexOf('--port');
 const port = Number(portIndex < 0 ? process.env.PORT || (dev ? 5173 : 3000) : webArgs[portIndex + 1]);
 const voicePort = Number(process.env.VOICE_PORT || port + 1);
 const webDir = join(root, 'apps/web');
+const remoteVoice = dev && process.env.JUDE_VOICE_REMOTE === 'true';
+if (remoteVoice && !process.env.VOICE_ORIGIN) throw new Error('Remote voice requires VOICE_ORIGIN.');
 const env = {
   ...process.env,
   PORT: String(port),
@@ -27,8 +29,9 @@ const require = createRequire(join(webDir, 'package.json'));
 const webCommand = dev
   ? [resolve(dirname(require.resolve('vite/package.json')), 'bin/vite.js'), ...webArgs]
   : ['server.mjs'];
+const hostedVoice = dev && new URL(env.VOICE_ORIGIN).protocol === 'https:';
 const children = [
-  launchVoice(env),
+  ...(hostedVoice || remoteVoice ? [] : [launchVoice(env)]),
   spawn(process.execPath, webCommand, { cwd: webDir, env, stdio: 'inherit' }),
 ];
 let stopping = false;

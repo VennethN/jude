@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
 	import { page } from '$app/state';
-	import { ArrowRight, ArrowUpRight, Check, RotateCcw } from '@lucide/svelte';
+	import { ArrowDown, ArrowRight, ArrowUpRight, Check, RotateCcw } from '@lucide/svelte';
 	import type { Lang } from '@jude/core/domain';
 	import Icon from '../Icon.svelte';
 	import SourceDesk from '../SourceDesk.svelte';
@@ -14,8 +14,10 @@
 	import { translate, type Key } from './landing-text';
 	import './landing-story.css';
 
-	let { lang,record }: {lang:Lang;record:LandingRecord}=$props();
+	let { lang, record, signedIn }: { lang: Lang; record: LandingRecord; signedIn: boolean } = $props();
 	let t = $derived((key:Key, vars?: Record<string,number|string>) => translate(lang,key,vars));
+	const accountHref = $derived(signedIn ? '/cases' : '/login');
+	const accountLabel = $derived(t(signedIn ? 'lp.open' : 'lp.login'));
 	let root:HTMLElement, sheet:HTMLElement;
 	let playing=$state(false), offscreen=$state(false), hidden=$state(false);
 	let scrolly=$state(false), pinned=$state(false), phoneDesk=$state(false);
@@ -134,8 +136,9 @@
         </h1>
         <p class="lead">{t("lp.lead")}</p>
         <div class="actions">
-          <a class="button cream" href="/demo">{t("lp.demo")}<ArrowRight size={22} strokeWidth={1.5} /></a>
-          <a class="button outline" href="#lp-how">{t("lp.how")}</a>
+          <a class="button cream account-entry" href={accountHref}>{accountLabel}<ArrowRight size={20} strokeWidth={1.8}/></a>
+          <a class="button outline" href="/demo">{t("lp.demo")}</a>
+          <a class="story-link" href="#lp-how">{t("lp.how")}<ArrowDown size={16} strokeWidth={1.6}/></a>
         </div>
       </div>
       <img class="clay clay-gavel gavel" src="/public/clay/gavel.webp" alt="" aria-hidden="true" decoding="async" fetchpriority="low" />
@@ -454,8 +457,8 @@
           <h2 class="headline" id="lp-closing-title">{t("lp.closingTitle1")}<br />{t("lp.closingTitle2")}</h2>
           <p>{t("lp.closingLead")}</p>
           <div class="actions">
-            <a class="button cream" href="/demo">{t("lp.demo")}<ArrowRight size={22} strokeWidth={1.5} /></a>
-            <a class="button outline" href="/cases">{t("lp.open")}</a>
+            <a class="button cream account-entry" href={accountHref}>{accountLabel}<ArrowRight size={20} strokeWidth={1.8}/></a>
+            <a class="button outline" href="/demo">{t("lp.demo")}</a>
           </div>
         </div>
         <div class="clay-set" aria-hidden="true">
