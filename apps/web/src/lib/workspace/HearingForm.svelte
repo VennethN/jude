@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { isGuestPractice, guestPracticeMinutes } from '@jude/core/domain';
- import { onDestroy } from 'svelte';
- import { prepareMicrophone, type PreparedMicrophone } from './microphone-input';
+ import { isGuestPractice, guestPracticeMinutes } from '@jude/core/domain';
  import { connectStartedHearing } from './hearing-detail/active-recording.svelte';
- import { goto, invalidateAll } from '$app/navigation';
+ import { prepareMicrophone, type PreparedMicrophone } from './microphone-input';
+ import { goto } from '$app/navigation';
+ import { page } from '$app/state';
+ import { onDestroy } from 'svelte';
  import { CalendarDays, ChevronRight, FileAudio, FileUp, Mic } from '@lucide/svelte';
  import type { Hearing, Lang, SessionInfo, Workspace } from '@jude/core/domain';
  import { api, ApiError } from '$lib/client';
@@ -12,17 +13,25 @@
  import Dialog from './Dialog.svelte';
  import SheetHandle from './SheetHandle.svelte';
  import { timecode } from './format';
+ import { guardUnsavedChanges } from './unsaved-changes';
  type Flow='schedule'|'import'|'live'|'audio';
  let {workspace:w,lang,close,initial='',scheduled,transcription,account}:{workspace:Workspace;lang:Lang;close:()=>void;initial?:string;scheduled?:Hearing;transcription:boolean;account:SessionInfo}=$props();
  const en=$derived(lang==='en'), demo=$derived(w.caseRecord.label==='synthetic'), prefix=$derived('/api/cases/'+w.caseRecord.id+'/hearings');
  let uploadKey = '';
  let keep = $state(false);
- let dismissed = false;
+ let active = true;
  let pendingInput: PreparedMicrophone | undefined;
- onDestroy(() => { dismissed = true; pendingInput?.release(); });
- function dismiss(){dismissed=true;pendingInput?.release();close();}
- let flow=$state<Flow|''>(''),title=$state(''),date=$state(''),time=$state('09:00'),busy=$state(false),message=$state(''),file=$state<File>(),draft=$state<{speaker:string;time:number;text:string}[]>([]),language=$state('id');
+ let previewRequest: AbortController | undefined;
+ let previewing=$state(false),submitting=$state(false);
+ const busy=$derived(previewing||submitting);
+ let flow=$state<Flow|''>(''),title=$state(''),date=$state(''),time=$state('09:00'),message=$state(''),file=$state<File>(),draft=$state<{speaker:string;time:number;text:string}[]>([]),language=$state('id');
  let recordingConsent=$state<'closed'|'permitted'|''>('');
+ let importBaseline=$state('');
+ const importSnapshot=()=>JSON.stringify({title,date,turns:draft});
+ const confirmDiscard=guardUnsavedChanges(
+   ()=>active&&!submitting&&flow==='import'&&!!importBaseline&&importSnapshot()!==importBaseline,
+   ()=>en?'Your transcript edits have not been imported. Discard them and continue?':'Perubahan transkrip belum diimpor. Buang perubahan dan lanjutkan?'
+ );
  const closed=$derived(recordingConsent==='closed'),permission=$derived(recordingConsent==='permitted');
  const practiceTitle=$derived(en?'East Gate testimony practice':'Latihan kesaksian Gerbang Timur');
  $effect(()=>{
@@ -51,9 +60,60 @@
    { id: 'schedule' as const, icon: CalendarDays, title: en ? 'Schedule hearing' : 'Jadwalkan sidang', hint: en ? 'Set a hearing date and time.' : 'Tetapkan tanggal dan waktu sidang.', disabled: false }
  ]);
  function fail(e:unknown){message=e instanceof ApiError && e.code==='guest_live_limit' ? (en?`Your ${guestPracticeMinutes} minutes of practice audio have been used. You can still review the transcript and findings.`:`Jatah ${guestPracticeMinutes} menit audio latihan Anda sudah terpakai. Transkrip dan temuan tetap dapat ditinjau.`) : e instanceof Error?e.message:(en?'Could not complete this action.':'Tindakan belum selesai.')}
- async function preview(f?:File){if(!f)return;file=f;uploadKey=crypto.randomUUID();if(flow!=='import')return;const body=new FormData();body.append('file',f);busy=true;message='';try{const r=await api<{title:string;date:string;turns:typeof draft}>(prefix+'/import/preview','POST',body);draft=r.turns;title=r.title;date=r.date}catch(e){fail(e)}finally{busy=false}}
- async function submit(e:SubmitEvent){e.preventDefault();if(busy)return;busy=true;message='';
-   const originPath=location.pathname;
+ function cancelPreview() {
+   previewRequest?.abort();
+   previewRequest=undefined;
+   previewing=false;
+ }
+ function retire() {
+   active=false;
+   cancelPreview();
+   pendingInput?.release();
+   pendingInput=undefined;
+ }
+ function dismiss() {
+   if(!confirmDiscard())return;
+   retire();
+   close();
+ }
+ function back() {
+   if(!confirmDiscard())return;
+   cancelPreview();
+   flow='';draft=[];file=undefined;message='';importBaseline='';
+ }
+ onDestroy(retire);
+ async function preview(f?:File,input?:HTMLInputElement) {
+   if(submitting)return;
+   if(!confirmDiscard()){
+     if(input){const previous=new DataTransfer();if(file)previous.items.add(file);input.files=previous.files}
+     return;
+   }
+   cancelPreview();
+   file=f;uploadKey=f?crypto.randomUUID():'';message='';
+   if(flow!=='import')return;
+   // A preview belongs only to its selected file, including when its replacement fails.
+   draft=[];title='';importBaseline='';
+   if(!f)return;
+   const request=new AbortController();
+   previewRequest=request;previewing=true;
+   const body=new FormData();body.append('file',f);
+   try {
+     const r=await api<{title:string;date:string;turns:typeof draft}>(prefix+'/import/preview','POST',body,undefined,request.signal);
+     if(!active||previewRequest!==request)return;
+     draft=r.turns;title=r.title;date=r.date;
+     importBaseline=importSnapshot();
+   } catch(e) {
+     if(active&&previewRequest===request&&!request.signal.aborted)fail(e);
+   } finally {
+     if(previewRequest===request){previewRequest=undefined;previewing=false}
+   }
+ }
+ async function submit(e:SubmitEvent){
+   e.preventDefault();
+   if(busy||!flow||flow==='import'&&!draft.length)return;
+   submitting=true;
+   message='';
+   const originPath=page.url.pathname,caseId=w.caseRecord.id;
    const useMicrophone=flow==='live' && !demo && canRecord && permission && !closed && !otherLive;
    const input=useMicrophone ? prepareMicrophone() : undefined;
    pendingInput=input;
@@ -61,22 +121,22 @@
    try{let h:Hearing;
    if(flow==='audio'){const form=new FormData();form.set('file',file!);form.set('title',title);form.set('date',date);form.set('lang',language);form.set('recordingPermission',String(permission&&!closed));h=await api<Hearing>('/api/live/'+w.caseRecord.id+'/upload','POST',form,{'Idempotency-Key':uploadKey})}
    else {const body={title,date,time,flow,language,recordingPermission:permission,closed,turns:flow==='import'?draft:undefined};h=await api<Hearing>(scheduled?prefix+'/'+scheduled.id+'/start':prefix+(flow==='import'?'/import':''),'POST',body)}
-   if(dismissed)return;
-   const autoConnect=flow==='live' && !demo && canRecord && permission && !closed && h.mode==='live' && h.recordingPermission?.by===account.user.id;
-   const destination='/case/'+w.caseRecord.id+'/hearings/'+h.id;
-   const caseId=w.caseRecord.id, userId=account.user.id, retain=!guest && keep;
+   // A retired form must not interrupt a newer navigation by refreshing its
+   // previous route while the destination is still loading.
+   if(!active||page.url.pathname!==originPath)return;
+   const autoConnect=h.mode==='live' && h.recordingPermission?.by===account.user.id;
+   const destination='/case/'+caseId+'/hearings/'+h.id;
+   const userId=account.user.id, guestSession=guest, retain=!guestSession && keep;
    pendingInput=undefined;
-   close();await invalidateAll();
-   if(location.pathname!==originPath && location.pathname!==destination)return;
-   await goto(destination);
+   dismiss();await goto(destination,{invalidateAll:true});
    if(input && autoConnect && location.pathname===destination){
      handedOff=true;
-     connectStartedHearing(caseId,h.id,userId,retain,h.startedAt,h.language,guest,input);
+     connectStartedHearing(caseId,h.id,userId,retain,h.startedAt,h.language,guestSession,input);
    }
- }catch(e){fail(e)}finally{
+ }catch(e){if(active)fail(e)}finally{
    if(!handedOff)input?.release();
    pendingInput=undefined;
-   busy=false;
+   submitting=false;
  }}
 </script>
 <Dialog title={flow?choices.find(x=>x.id===flow)!.title:(en?'New hearing':'Sidang baru')} {lang} close={dismiss} wide={flow==='import'&&draft.length>0}>
@@ -87,20 +147,20 @@
  {#if flow==='live' && !canRecord}<p class="small muted">{recordHint}</p>{:else if flow==='audio' && !privateAudio}<p class="small muted">{uploadHint}</p>{/if}
  {#if flow==='live' && practice}<PracticePrompt workspace={w} {account} {lang}/><p class="small muted">{en ? `Your guest workspace includes ${guestPracticeMinutes} minutes of live audio in total. Your testimony is saved as text.` : `Ruang kerja tamu mencakup total ${guestPracticeMinutes} menit audio langsung. Kesaksian Anda disimpan sebagai teks.`}</p>{/if}
  {#if flow==='live' && otherLive}<p class="existing-live">{en?'Another hearing is already in progress.':'Sidang lain sedang berlangsung.'} <a href={'/case/'+w.caseRecord.id+'/hearings/'+otherLive.id}>{en?'Return to hearing':'Kembali ke sidang'} {otherLive.number}</a></p>{/if}
- {#if flow==='import'||flow==='audio'}<label class="field">{flow==='import'?(en?'Transcript file':'Berkas transkrip'):(en?'Audio file, up to 25 MB':'Berkas audio, hingga 25 MB')}<input type="file" accept={flow==='import'?'.txt,.vtt,.srt,.json,.csv,.docx,.pdf,.jude':'.wav,.m4a,.mp3,.mp4,.webm,.mpeg'} onchange={e=>preview(e.currentTarget.files?.[0])}/></label>{/if}
+ {#if flow==='import'||flow==='audio'}<label class="field">{flow==='import'?(en?'Transcript file':'Berkas transkrip'):(en?'Audio file, up to 25 MB':'Berkas audio, hingga 25 MB')}<input type="file" disabled={submitting} accept={flow==='import'?'.txt,.vtt,.srt,.json,.csv,.docx,.pdf,.jude':'.wav,.m4a,.mp3,.mp4,.webm,.mpeg'} onchange={e=>preview(e.currentTarget.files?.[0],e.currentTarget)}/></label>{/if}
  {#if flow==='import'&&demo&&!draft.length}<button type="button" class="button" onclick={()=>preview(new File(['[00:00:00] Hakim Ketua: Sidang dibuka.\n[00:00:08] Saksi: Saya tiba di Gerbang Timur.'],'Risalah contoh.txt',{type:'text/plain'}))}>{en?'Use sample transcript':'Pakai contoh risalah'}</button>{/if}
- {#if flow!=='import'||draft.length}<label class="field">{en?'Hearing title':'Judul sidang'}<input required maxlength="160" bind:value={title}/></label>
- <div class="dates"><label class="field">{en?'Date':'Tanggal'}<input type="date" required bind:value={date}/></label>{#if flow==='schedule'}<label class="field">{en?'Time (WIB)':'Waktu (WIB)'}<input type="time" required bind:value={time}/></label>{/if}</div>{/if}
- {#if flow==='import'&&draft.length}<p>{en?'Check the speakers and wording before importing.':'Periksa pembicara dan teks sebelum mengimpor.'}</p><div class="turns">{#each draft as turn,i}<div><small>{timecode(turn.time)}</small><input class="text-input" aria-label={(en?'Speaker ':'Pembicara ')+(i+1)} bind:value={turn.speaker}/><textarea class="text-input" aria-label={(en?'Testimony ':'Keterangan ')+(i+1)} bind:value={turn.text}></textarea></div>{/each}</div>{/if}
- {#if flow==='audio'||flow==='live'}<label class="field">{en?'Recognition language':'Bahasa pengenalan'}<select bind:value={language}><option value="id">Bahasa Indonesia</option><option value="en">English</option></select></label>{/if}
+ {#if flow!=='import'||draft.length}<label class="field">{en?'Hearing title':'Judul sidang'}<input disabled={submitting} required maxlength="160" bind:value={title}/></label>
+ <div class="dates"><label class="field">{en?'Date':'Tanggal'}<input type="date" disabled={submitting} required bind:value={date}/></label>{#if flow==='schedule'}<label class="field">{en?'Time (WIB)':'Waktu (WIB)'}<input type="time" disabled={submitting} required bind:value={time}/></label>{/if}</div>{/if}
+ {#if flow==='import'&&draft.length}<p>{en?'Check the speakers and wording before importing.':'Periksa pembicara dan teks sebelum mengimpor.'}</p><div class="turns">{#each draft as turn,i}<div><small>{timecode(turn.time)}</small><input disabled={submitting} class="text-input" aria-label={(en?'Speaker ':'Pembicara ')+(i+1)} bind:value={turn.speaker}/><textarea disabled={submitting} class="text-input" aria-label={(en?'Testimony ':'Keterangan ')+(i+1)} bind:value={turn.text}></textarea></div>{/each}</div>{/if}
+ {#if flow==='audio'||flow==='live'}<label class="field">{en?'Recognition language':'Bahasa pengenalan'}<select disabled={submitting} bind:value={language}><option value="id">Bahasa Indonesia</option><option value="en">English</option></select></label>{/if}
  {#if flow==='live'||flow==='audio'}{#if demo&&flow==='live'}<p class="small muted">{en?'This synthetic hearing replays example testimony.':'Sidang sintetis ini memutar ulang contoh kesaksian.'}</p>{/if}
- <label><input type="checkbox" checked={closed} onchange={e=>recordingConsent=e.currentTarget.checked?'closed':''}/> {en?'Closed hearing':'Sidang tertutup'}</label>
- <label><input type="checkbox" required checked={permission} onchange={e=>recordingConsent=e.currentTarget.checked?'permitted':''}/> {practice && flow==='live' ? (en?'I agree to send my voice for this practice. If I am in a real hearing, it is open and the presiding judge permitted recording.':'Saya setuju mengirim suara saya untuk latihan ini. Jika saya berada di sidang nyata, sidang terbuka dan hakim ketua mengizinkan perekaman.') : (en?'The presiding judge permitted recording in this open hearing.':'Hakim ketua mengizinkan perekaman dalam sidang terbuka ini.')}</label>
+ <label><input disabled={submitting} type="checkbox" checked={closed} onchange={e=>recordingConsent=e.currentTarget.checked?'closed':''}/> {en?'Closed hearing':'Sidang tertutup'}</label>
+ <label><input disabled={submitting} type="checkbox" required checked={permission} onchange={e=>recordingConsent=e.currentTarget.checked?'permitted':''}/> {practice && flow==='live' ? (en?'I agree to send my voice for this practice. If I am in a real hearing, it is open and the presiding judge permitted recording.':'Saya setuju mengirim suara saya untuk latihan ini. Jika saya berada di sidang nyata, sidang terbuka dan hakim ketua mengizinkan perekaman.') : (en?'The presiding judge permitted recording in this open hearing.':'Hakim ketua mengizinkan perekaman dalam sidang terbuka ini.')}</label>
  {#if closed}<p class="small muted" role="status">{en?'Recording is unavailable for closed hearings.':'Perekaman tidak tersedia untuk sidang tertutup.'}</p>{/if}{/if}
- {#if flow==='live' && privateAudio}<label><input type="checkbox" bind:checked={keep}/> {en?'Also retain the audio recording in this case.':'Simpan juga rekaman audio dalam perkara ini.'}</label>{/if}
+ {#if flow==='live' && privateAudio}<label><input disabled={submitting} type="checkbox" bind:checked={keep}/> {en?'Also retain the audio recording in this case.':'Simpan juga rekaman audio dalam perkara ini.'}</label>{/if}
  {#if message}<p class="error-text" role="alert">{message}</p>{/if}
  <div class="actions"><button type="submit" class="button primary" disabled={busy||flow==='import'&&!draft.length||flow==='audio'&&(!privateAudio||!file||!permission||closed)||flow==='live'&&(!canRecord||!!otherLive||!permission||closed)}>{busy?(en?'Processing…':'Memproses…'):flow==='schedule'?(en?'Schedule hearing':'Jadwalkan sidang'):flow==='import'?(en?'Confirm and import':'Konfirmasi dan impor'):flow==='audio'?(en?'Transcribe audio':'Transkripsikan audio'):(en?'Start hearing':'Mulai sidang')}</button>
- {#if !scheduled}<button class="button subtle" type="button" disabled={busy} onclick={()=>{flow='';draft=[];file=undefined;message=''}}>{en?'Back':'Kembali'}</button>{/if}</div>
+ {#if !scheduled}<button class="button subtle" type="button" disabled={submitting} onclick={back}>{en?'Back':'Kembali'}</button>{/if}</div>
  </form>{/if}</div></Dialog>
 <style>
   :global(dialog:has(.hearing-intake)) { width:min(620px,calc(100% - 32px)); padding:22px; border-radius:14px; }
