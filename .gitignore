@@ -31,8 +31,8 @@ test-results/
 .impeccable/hook.cache.json
 apps/voice/dist/
 
-# Impeccable installs the per-platform executable and Codex hooks on each machine.
-.agents/skills/impeccable/
+# The portable skill is shared. Its executable cache and local hooks are machine-specific.
+.agents/skills/impeccable/scripts/bin/
 .codex/hooks.json
 .venv/
 __pycache__/
