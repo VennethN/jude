@@ -189,7 +189,7 @@ def _meter(tx, org, period, seconds):
 
 
 def _anonymous(graph, hearing_id, statement_id, speaker):
-    if speaker is not None and (not isinstance(speaker, str) or not speaker or len(speaker) > 180):
+    if speaker is not None and (not isinstance(speaker, str) or not speaker or len(speaker) > 512):
         invalid()
     # A missing prediction cannot establish that two statements were spoken by one person.
     key = (speaker or statement_id).encode()
@@ -230,14 +230,23 @@ def statement_id(hearing_id, turn_id):
     return value if len(value) <= 120 else "mic-" + hashlib.sha256(value.encode()).hexdigest()
 
 
+def _segment_prefix(canonical_id):
+    # Separate namespace prevents a client turn ID from colliding with a suffix.
+    # Archive-compatible IDs contain only letters, digits, underscores and hyphens.
+    return "micseg-" + hashlib.sha256(canonical_id.encode()).hexdigest()
+
+
 def _turn_state(graph, hearing_id, turn_id):
-    return graph.tx.one(
-        "SELECT t.start_seconds,p.fingerprint,s.id AS statement_id FROM voice_turns t "
+    row = graph.tx.one(
+        "SELECT t.start_seconds,t.bytes,p.fingerprint,s.id AS statement_id FROM voice_turns t "
         "LEFT JOIN voice_pending_transcripts p ON p.case_id=t.case_id AND p.hearing_id=t.hearing_id AND p.turn_id=t.id "
         "LEFT JOIN case_entities s ON s.case_id=t.case_id AND s.kind='statements' AND s.id=? "
         "WHERE t.case_id=? AND t.hearing_id=? AND t.id=?",
         (statement_id(hearing_id, turn_id), graph.id, hearing_id, turn_id),
     )
+    if row:
+        row["duration_seconds"] = row["bytes"] / 48_000
+    return row
 
 
 def _receipt(row, turn_id, fingerprint=None):
@@ -256,6 +265,127 @@ def _turns(tx, case_id, hearing_id):
     for row in rows:
         row["statement_id"] = statement_id(hearing_id, row["id"])
     return rows
+
+
+def _retained_statements(graph, hearing_id, turns):
+    """Map canonical and segmented statements to their original retained PCM."""
+    parents = {turn["statement_id"]: turn for turn in turns}
+    segment_parents = {_segment_prefix(turn["statement_id"]): turn for turn in turns}
+    for turn in turns:
+        turn["statement_spans"] = []
+    by_turn = {turn["id"]: turn for turn in turns}
+    stream_ids = set()
+    for span in graph.tx.all(
+        "SELECT turn_id,statement_id,start_seconds,end_seconds FROM voice_statement_spans "
+        "WHERE case_id=? AND hearing_id=?", (graph.id, hearing_id),
+    ):
+        if turn := by_turn.get(span["turn_id"]):
+            turn["statement_spans"].append({
+                "statement_id": span["statement_id"],
+                "start": span["start_seconds"], "end": span["end_seconds"],
+            })
+            stream_ids.add(span["statement_id"])
+    statements = []
+    for line in graph.all("statements"):
+        if line["hearingId"] != hearing_id:
+            continue
+        if line["id"] in stream_ids:
+            statements.append(line)
+            continue
+        turn = parents.get(line["id"]) or segment_parents.get(re.sub(r"-[1-9][0-9]*$", "", line["id"]))
+        if turn is None:
+            continue
+        span = line.get("voiceSpan", {"start": 0, "end": turn["bytes"] / 48_000})
+        turn["statement_spans"].append({"statement_id": line["id"], **span})
+        statements.append(line)
+    for turn in turns:
+        turn["statement_spans"].sort(key=lambda span: (span["start"], span["statement_id"]))
+    return statements
+
+
+def _live_segments(segments, duration):
+    if not isinstance(segments, list) or len(segments) > 1000:
+        invalid()
+    result, total, previous = [], 0, 0
+    for segment in segments:
+        if not isinstance(segment, dict):
+            invalid()
+        start = check_number(segment.get("start"), 0, duration)
+        end = check_number(segment.get("end"), 0, duration)
+        words = segment.get("text")
+        if start >= end or start < previous or not isinstance(words, str) or not words.strip():
+            invalid()
+        total += len(words)
+        if total > 30_000:
+            invalid()
+        speaker = segment.get("speaker")
+        if speaker is not None and (not isinstance(speaker, str) or not speaker.strip() or len(speaker) > 180):
+            invalid()
+        item = {"start": start, "end": end, "text": words.strip(), "speaker": speaker}
+        if "words" in segment:
+            tokens = segment["words"]
+            if not isinstance(tokens, list) or not tokens or len(tokens) > 5000:
+                invalid()
+            previous_end, token_size = start, 0
+            for token in tokens:
+                if not isinstance(token, dict):
+                    invalid()
+                ws = check_number(token.get("start"), start, end)
+                we = check_number(token.get("end"), start, end)
+                if ws >= we or ws < previous_end or not isinstance(token.get("text"), str) or not token["text"].strip():
+                    invalid()
+                token_size += len(token["text"])
+                if token_size > 30_000:
+                    invalid()
+                previous_end = we
+            item["words"] = tokens
+        result.append(item)
+        previous = start
+    return result
+
+
+def _stream_key(value):
+    if not isinstance(value, str) or not value.strip() or len(value) > 180:
+        invalid()
+    return value
+
+
+def _replay_parts(span, existing):
+    old = sorted((line for line in existing if line["streamSpan"]["start"] < span["end"]
+                  and line["streamSpan"]["end"] > span["start"]),
+                 key=lambda line: line["streamSpan"]["start"])
+    if not old:
+        return [span], []
+
+    def covered(start, end):
+        for line in old:
+            interval = line["streamSpan"]
+            if interval["start"] > start + 1e-6:
+                break
+            start = max(start, interval["end"])
+        return start + 1e-6 >= end
+
+    if covered(span["start"], span["end"]):
+        return [], old
+    if not span.get("words"):
+        raise VoiceError(409, "stream_result_overlap", "Word timestamps are required to recover overlapping speech.")
+    parts, pending = [], []
+
+    def flush():
+        if pending:
+            parts.append({**span, "start": pending[0]["start"], "end": pending[-1]["end"],
+                          "text": " ".join(word["text"].strip() for word in pending)})
+            pending.clear()
+
+    for word in span["words"]:
+        if covered(word["start"], word["end"]):
+            flush()
+        elif any(line["streamSpan"]["start"] < word["end"] and line["streamSpan"]["end"] > word["start"] for line in old):
+            raise VoiceError(409, "stream_result_overlap", "A recovered word crosses finalized speech.")
+        else:
+            pending.append(word)
+    flush()
+    return parts, old
 
 
 class Repository:
@@ -560,7 +690,12 @@ class Repository:
             if key and not registered:
                 self.storage.remove(key)
 
-    def finish_turn(self, session, case_id, hearing_id, *, lease, turn_id, text, speaker=None):
+    def finish_turn(self, session, case_id, hearing_id, *, lease, turn_id, text, speaker=None, segments=None):
+        """Commit trusted provider segments in seconds relative to the captured PCM.
+
+        Callers must not pass client-supplied segments. Provider speaker labels (and
+        the legacy speaker argument) do not establish identity across stream calls.
+        """
         if not isinstance(text, str) or len(text) > 30_000:
             invalid()
         with self._case(session, case_id, "write") as graph:
@@ -572,13 +707,18 @@ class Repository:
             done = _receipt(captured, turn_id)
             if done is not None:
                 return done
-            words = text.strip()
-            sid = statement_id(hearing_id, turn_id) if words else None
-            if words:
+            spans = _live_segments(segments, captured["duration_seconds"]) if segments is not None else (
+                [{"start": 0, "end": captured["duration_seconds"], "text": text.strip()}] if text.strip() else []
+            )
+            sid = statement_id(hearing_id, turn_id) if spans else None
+            for index, span in enumerate(spans):
+                segment_id = sid if index == 0 else f"{_segment_prefix(sid)}-{index + 1}"
                 graph.put("statements", {
-                    "id": sid, "hearingId": hearing_id,
-                    "speakerId": _anonymous(graph, hearing_id, sid, speaker),
-                    "t": captured["start_seconds"], "text": words, "phase": "queued",
+                    "id": segment_id, "hearingId": hearing_id,
+                    "speakerId": _anonymous(graph, hearing_id, segment_id, None),
+                    "t": captured["start_seconds"] + span["start"],
+                    "voiceSpan": {"start": span["start"], "end": span["end"]},
+                    "text": span["text"], "phase": "queued",
                 })
             graph.tx.execute(
                 "DELETE FROM voice_pending_transcripts WHERE case_id=? AND hearing_id=? AND turn_id=?",
@@ -591,6 +731,134 @@ class Repository:
                 (now_ms(), case_id, hearing_id, turn_id),
             )
             return {"id": turn_id, "statementId": sid}
+
+    def begin_capture(self, session, case_id, hearing_id, *, lease, epoch, turn_id, start, pcm, keep):
+        """Persist PCM before streaming; reconnects may attach it to another epoch."""
+        _stream_key(epoch)
+        receipt = self.begin_turn(
+            session, case_id, hearing_id, lease=lease, turn_id=turn_id, start=start, pcm=pcm, keep=keep,
+        )
+        digest = hashlib.sha256(f"{float(start).hex()}:{int(keep)}:".encode() + pcm).hexdigest()
+        with self._case(session, case_id, "write") as graph:
+            _live(session, graph, hearing_id)
+            self._require_lease(graph, hearing_id, lease)
+            previous = graph.tx.one(
+                "SELECT fingerprint FROM voice_stream_captures WHERE case_id=? AND hearing_id=? AND turn_id=?",
+                (case_id, hearing_id, turn_id),
+            )
+            if previous and previous["fingerprint"] != digest:
+                raise VoiceError(409, "turn_conflict", "This capture ID belongs to different audio.")
+            graph.tx.execute(
+                "INSERT INTO voice_stream_captures(case_id,hearing_id,turn_id,epoch,fingerprint) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(case_id,hearing_id,epoch,turn_id) DO NOTHING",
+                (case_id, hearing_id, turn_id, epoch, digest),
+            )
+        return receipt
+
+    def complete_capture(self, session, case_id, hearing_id, *, lease, epoch, turn_id):
+        """Acknowledge a capture after ingest's final-result watermark passes it."""
+        _stream_key(epoch)
+        with self._case(session, case_id, "write") as graph:
+            _live(session, graph, hearing_id)
+            self._require_lease(graph, hearing_id, lease)
+            if not graph.tx.one(
+                "SELECT turn_id FROM voice_stream_captures WHERE case_id=? AND hearing_id=? AND epoch=? AND turn_id=?",
+                (case_id, hearing_id, epoch, turn_id),
+            ):
+                not_found()
+            graph.tx.execute(
+                "DELETE FROM voice_pending_transcripts WHERE case_id=? AND hearing_id=? AND turn_id=?",
+                (case_id, hearing_id, turn_id),
+            )
+            return {"id": turn_id, "statementId": None}
+
+    def save_stream_result(self, session, case_id, hearing_id, *, lease, epoch, result_id, segments):
+        """Atomically save a final trusted result in absolute hearing seconds.
+
+        Stream epoch/result IDs deduplicate provider retries. Already-covered audio
+        reuses statements across epochs; partial overlaps require absolute word
+        timestamps. AWS labels identify speakers within this epoch only. Capture
+        receipts are separate and must follow ingest's final-result watermark.
+        """
+        _stream_key(epoch)
+        _stream_key(result_id)
+        with self._case(session, case_id, "write") as graph:
+            _live(session, graph, hearing_id)
+            self._require_lease(graph, hearing_id, lease)
+            prior = graph.tx.one(
+                "SELECT receipt FROM voice_stream_results WHERE case_id=? AND hearing_id=? AND epoch=? AND result_id=?",
+                (case_id, hearing_id, epoch, result_id),
+            )
+            if prior:
+                return json.loads(prior["receipt"])
+            captures = graph.tx.all(
+                "SELECT t.id,t.start_seconds,t.bytes,t.object_key FROM voice_turns t "
+                "JOIN voice_stream_captures c ON c.case_id=t.case_id AND c.hearing_id=t.hearing_id AND c.turn_id=t.id "
+                "WHERE c.case_id=? AND c.hearing_id=? AND c.epoch=? ORDER BY t.start_seconds,t.id",
+                (case_id, hearing_id, epoch),
+            )
+            if not captures:
+                not_found()
+            spans = _live_segments(segments, max(t["start_seconds"] + t["bytes"] / 48_000 for t in captures))
+            existing = [line for line in graph.all("statements")
+                        if line["hearingId"] == hearing_id and "streamSpan" in line]
+            receipt_segments, retained = {}, False
+            recovered = []
+            for span in spans:
+                parts, reused = _replay_parts(span, existing)
+                recovered.extend(parts)
+                for line in reused:
+                    receipt_segments[line["id"]] = {"statementId": line["id"], **line["streamSpan"]}
+            base = "stream-" + hashlib.sha256(pack([hearing_id, epoch, result_id]).encode()).hexdigest()
+            # Validate even fully replayed intervals against this epoch's captures.
+            for span in spans:
+                covered = span["start"]
+                for capture in captures:
+                    start = max(span["start"], capture["start_seconds"])
+                    end = min(span["end"], capture["start_seconds"] + capture["bytes"] / 48_000)
+                    if start >= end:
+                        continue
+                    if start > covered + 1e-6:
+                        invalid()
+                    covered = max(covered, end)
+                if covered + 1e-6 < span["end"]:
+                    invalid()
+            for index, span in enumerate(recovered):
+                sid = base if index == 0 else f"{base}-segment-{index + 1}"
+                absolute = {"start": span["start"], "end": span["end"]}
+                graph.put("statements", {
+                    "id": sid, "hearingId": hearing_id,
+                    "speakerId": _anonymous(graph, hearing_id, sid,
+                                            f"transcribe:{epoch}:{span['speaker']}" if span.get("speaker") else None),
+                    "t": span["start"], "streamSpan": absolute,
+                    "text": span["text"], "phase": "queued",
+                })
+                receipt_segments[sid] = {"statementId": sid, **absolute}
+                for capture in captures:
+                    start = max(span["start"], capture["start_seconds"])
+                    end = min(span["end"], capture["start_seconds"] + capture["bytes"] / 48_000)
+                    if start >= end:
+                        continue
+                    graph.tx.execute(
+                        "INSERT INTO voice_statement_spans(case_id,hearing_id,turn_id,statement_id,start_seconds,end_seconds) "
+                        "VALUES(?,?,?,?,?,?)",
+                        (case_id, hearing_id, capture["id"], sid,
+                         start - capture["start_seconds"], end - capture["start_seconds"]),
+                    )
+                    retained = retained or (bool(capture["object_key"]) and not span.get("speaker"))
+            ordered = sorted(receipt_segments.values(), key=lambda span: (span["start"], span["statementId"]))
+            receipt = {"id": result_id, "statementId": ordered[0]["statementId"] if ordered else None, "segments": ordered}
+            graph.tx.execute(
+                "INSERT INTO voice_stream_results(case_id,hearing_id,epoch,result_id,receipt) VALUES(?,?,?,?,?)",
+                (case_id, hearing_id, epoch, result_id, pack(receipt)),
+            )
+            if retained:
+                graph.tx.execute(
+                    "INSERT INTO voice_diarization_jobs(case_id,hearing_id,available_at) VALUES(?,?,?) "
+                    "ON CONFLICT(case_id,hearing_id) DO UPDATE SET available_at=excluded.available_at,attempts=0",
+                    (case_id, hearing_id, now_ms()),
+                )
+            return receipt
 
     def store_turn(self, session, case_id, hearing_id, *, lease, turn_id, start, pcm, keep, text, speaker=None):
         if not isinstance(text, str) or len(text) > 30_000:
@@ -711,14 +979,9 @@ class Repository:
     def diarization_inputs(self, job):
         with self._job(job) as (graph, _):
             turns = [r for r in _turns(graph.tx, job.case_id, job.hearing_id) if r["object_key"]]
-            retained = {r["statement_id"] for r in turns}
             return {
                 "turns": turns,
-                "statements": [
-                    r
-                    for r in graph.all("statements")
-                    if r["id"] in retained and r["hearingId"] == job.hearing_id
-                ],
+                "statements": _retained_statements(graph, job.hearing_id, turns),
             }
 
     def renew_diarization(self, job):
@@ -730,9 +993,8 @@ class Repository:
 
     def finish_diarization(self, job, assignments):
         with self._job(job) as (graph, _):
-            retained = {
-                r["statement_id"] for r in _turns(graph.tx, job.case_id, job.hearing_id) if r["object_key"]
-            }
+            turns = [r for r in _turns(graph.tx, job.case_id, job.hearing_id) if r["object_key"]]
+            retained = {r["id"] for r in _retained_statements(graph, job.hearing_id, turns)}
             count = _set_speakers(
                 graph,
                 job.hearing_id,

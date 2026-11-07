@@ -327,6 +327,164 @@ class VoiceRepositoryTest(unittest.TestCase):
         self.expect_error(409, self.repo.replay, self.owner, "case", "hearing", 0)
         self.expect_error(422, self.repo.replay, self.guest, "demo", "h3", True)
 
+    def capture(self, lease, tid="a", start=10, epoch="epoch-1", keep=True):
+        return self.repo.begin_capture(
+            self.owner, "case", "hearing", lease=lease, epoch=epoch, turn_id=tid,
+            start=start, pcm=b"\x10\x00" * 24_000, keep=keep,
+        )
+
+    def recorded_job(self):
+        hearing = json.loads(self.one(
+            "SELECT body FROM case_entities WHERE case_id='case' AND kind='hearings'"
+        )["body"])
+        hearing["mode"] = "recorded"
+        self.execute("UPDATE case_entities SET body=? WHERE case_id='case' AND kind='hearings'", (pack(hearing),))
+        self.execute("UPDATE voice_diarization_jobs SET available_at=0")
+        return self.repo.claim_diarization()
+
+    def test_segmented_turn_has_independent_pending_speakers_and_relative_spans(self):
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        self.repo.begin_turn(self.owner, "case", "hearing", lease=lease, turn_id="split", start=2,
+                             pcm=b"\x00\x00" * 24_000, keep=True)
+        kwargs = dict(lease=lease, turn_id="split", text="combined", segments=[
+            {"start": 0, "end": .4, "text": "Pertama.", "speaker": "spk_0"},
+            {"start": .4, "end": 1, "text": "Second.", "speaker": "spk_0"},
+        ])
+        receipt = self.repo.finish_turn(self.owner, "case", "hearing", **kwargs)
+        self.assertEqual(receipt["statementId"], "mic-hearing-split")
+        self.assertEqual(self.repo.finish_turn(self.owner, "case", "hearing", **kwargs), receipt)
+        lines = self.repo.statements(self.owner, "case", "hearing")
+        self.assertEqual([(s["t"], s["text"]) for s in lines], [(2, "Pertama."), (2.4, "Second.")])
+        self.assertEqual(lines[1]["id"], "micseg-" + hashlib.sha256(b"mic-hearing-split").hexdigest() + "-2")
+        self.assertEqual(len({s["speakerId"] for s in lines}), 2)
+        self.assertTrue(all(s["speakerId"].startswith("voice-pending-") for s in lines))
+        job = self.recorded_job()
+        inputs = self.repo.diarization_inputs(job)
+        self.assertEqual(len(inputs["statements"]), 2)
+        self.assertEqual(inputs["turns"][0]["statement_spans"], [
+            {"statement_id": lines[0]["id"], "start": 0, "end": .4},
+            {"statement_id": lines[1]["id"], "start": .4, "end": 1},
+        ])
+        self.assertEqual(self.repo.finish_diarization(job, {lines[0]["id"]: "acoustic-a", lines[1]["id"]: "acoustic-b"}), 2)
+
+    def test_segment_validation_is_atomic_and_uses_original_pcm_duration(self):
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        self.capture(lease, keep=False)
+        bad = [None, {}, {"start": 0, "end": 1.01, "text": "x"},
+               {"start": -1, "end": 1, "text": "x"}, {"start": 1, "end": 1, "text": "x"},
+               {"start": float("nan"), "end": 1, "text": "x"},
+               {"start": 0, "end": float("inf"), "text": "x"},
+               {"start": False, "end": 1, "text": "x"}, {"start": 0, "end": 1, "text": " "}]
+        for segment in bad:
+            with self.subTest(segment=segment):
+                self.expect_error(422, self.repo.finish_turn, self.owner, "case", "hearing",
+                                  lease=lease, turn_id="a", text="fallback", segments=[segment])
+        self.assertEqual(self.repo.statements(self.owner, "case", "hearing"), [])
+        self.assertEqual(self.one("SELECT count(*) AS n FROM voice_pending_transcripts")["n"], 1)
+
+    def test_stream_result_spans_captures_and_replays_across_epochs_without_duplicates(self):
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        self.capture(lease)
+        self.capture(lease, "b", 11)
+        segments = [{"start": 10.2, "end": 11.2, "text": "Kesaksian."},
+                    {"start": 11.2, "end": 11.8, "text": "Response.", "speaker": "spk_1"}]
+        def save(epoch="epoch-1", result_id="r", values=segments):
+            return self.repo.save_stream_result(self.owner, "case", "hearing", lease=lease,
+                                               epoch=epoch, result_id=result_id, segments=values)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            receipts = list(pool.map(lambda _: save(), range(2)))
+        receipt = receipts[0]
+        self.assertEqual(receipt, receipts[1])
+        lines = self.repo.statements(self.owner, "case", "hearing")
+        self.assertEqual([(s["t"], s["text"]) for s in lines], [(10.2, "Kesaksian."), (11.2, "Response.")])
+        self.assertEqual(len({s["speakerId"] for s in lines}), 2)
+        # A human label survives retries and deferred acoustic assignments.
+        speaker = json.loads(self.one("SELECT body FROM case_entities WHERE kind='speakers' AND id=?",
+                                      (lines[1]["speakerId"],))["body"])
+        speaker.update(label="Counsel", confirmed=True)
+        self.execute("UPDATE case_entities SET body=? WHERE kind='speakers' AND id=?", (pack(speaker), speaker["id"]))
+        for tid in ("a", "b"):
+            complete = self.repo.complete_capture(self.owner, "case", "hearing", lease=lease, epoch="epoch-1", turn_id=tid)
+            self.assertEqual(complete, {"id": tid, "statementId": None})
+            self.assertEqual(self.repo.committed_turn(self.owner, "case", "hearing", tid), complete)
+        self.capture(lease, epoch="epoch-2")
+        self.capture(lease, "b", 11, "epoch-2")
+        self.assertEqual(save("epoch-2")["segments"], receipt["segments"])
+        self.assertEqual(save("epoch-2", "split", [dict(segments[0], end=10.8)])["statementId"], lines[0]["id"])
+        self.assertEqual(self.expect_error(409, save, "epoch-2", "overlap",
+                                         [dict(segments[1], end=12)]), "stream_result_overlap")
+        self.assertEqual(self.one("SELECT count(*) AS n FROM analysis_jobs")["n"], 2)
+        self.assertEqual(self.one("SELECT amount FROM usage_counts")["amount"], 2000)
+        job = self.recorded_job()
+        inputs = self.repo.diarization_inputs(job)
+        self.assertEqual({s["id"] for s in inputs["statements"]}, {s["id"] for s in lines})
+        a, b = inputs["turns"]
+        self.assertEqual(len(a["statement_spans"]), 1)
+        self.assertEqual(len(b["statement_spans"]), 2)
+        self.assertAlmostEqual(a["statement_spans"][0]["start"], .2)
+        self.assertEqual(a["statement_spans"][0]["end"], 1)
+        self.assertEqual(b["statement_spans"][0]["start"], 0)
+        self.assertAlmostEqual(b["statement_spans"][0]["end"], .2)
+        self.assertEqual(self.repo.finish_diarization(job, {s["id"]: "acoustic" for s in lines}), 1)
+        self.assertEqual(self.repo.statements(self.owner, "case", "hearing")[1]["speakerId"], speaker["id"])
+
+    def test_stream_result_rejects_uncaptured_gaps_and_rechecks_authorization(self):
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        self.capture(lease, keep=False)
+        self.capture(lease, "b", 12, keep=False)
+        kwargs = dict(lease=lease, epoch="epoch-1", result_id="r",
+                      segments=[{"start": 10, "end": 12.5, "text": "Gap"}])
+        self.expect_error(422, self.repo.save_stream_result, self.owner, "case", "hearing", **kwargs)
+        self.assertEqual(self.one("SELECT count(*) AS n FROM voice_stream_results")["n"], 0)
+        kwargs["segments"] = [{"start": 10, "end": 11, "text": "Valid"}]
+        for session, case, status in [(self.viewer, "case", 403), (self.owner, "secret", 404)]:
+            self.expect_error(status, self.repo.save_stream_result, session, case, "hearing", **kwargs)
+            self.expect_error(status, self.repo.complete_capture, session, case, "hearing",
+                              lease=lease, epoch="epoch-1", turn_id="a")
+        self.repo.save_stream_result(self.owner, "case", "hearing", **kwargs)
+        self.execute("UPDATE voice_leases SET expires_at=0")
+        self.expect_error(409, self.repo.save_stream_result, self.owner, "case", "hearing", **kwargs)
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        kwargs["lease"] = lease
+        self.execute("UPDATE case_entities SET body=? WHERE case_id='case' AND kind='hearings'",
+                     (pack({"id": "hearing", "mode": "live", "recordingPermission": {"by": "other"}}),))
+        self.expect_error(403, self.repo.save_stream_result, self.owner, "case", "hearing", **kwargs)
+        self.execute("DELETE FROM sessions WHERE user_id='owner'")
+        self.expect_error(401, self.repo.complete_capture, self.owner, "case", "hearing",
+                          lease=lease, epoch="epoch-1", turn_id="a")
+
+    def test_native_stream_labels_are_epoch_scoped_and_word_recovery_keeps_new_text(self):
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        self.capture(lease)
+        self.capture(lease, "b", 11)
+        def save(rid, start, end, text, epoch="epoch-1", words=None):
+            span = {"start": start, "end": end, "text": text, "speaker": "spk_0"}
+            if words is not None:
+                span["words"] = words
+            return self.repo.save_stream_result(self.owner, "case", "hearing", lease=lease,
+                                               epoch=epoch, result_id=rid, segments=[span])
+        first = save("r1", 10, 10.5, "Pertama.")
+        save("r2", 10.5, 11, "Kedua.")
+        lines = self.repo.statements(self.owner, "case", "hearing")
+        self.assertEqual(lines[0]["speakerId"], lines[1]["speakerId"])
+        self.assertTrue(lines[0]["speakerId"].startswith("voice-cluster-"))
+        self.assertEqual(self.one("SELECT count(*) AS n FROM voice_diarization_jobs")["n"], 0)
+        self.capture(lease, epoch="epoch-2")
+        self.capture(lease, "b", 11, "epoch-2")
+        words = [{"start": 10, "end": 10.5, "text": "Pertama."},
+                 {"start": 10.5, "end": 11, "text": "Kedua."},
+                 {"start": 11, "end": 11.5, "text": "New"},
+                 {"start": 11.5, "end": 12, "text": "testimony."}]
+        receipt = save("replay", 10, 12, "Pertama. Kedua. New testimony.", "epoch-2", words)
+        self.assertEqual(receipt["statementId"], first["statementId"])
+        self.assertEqual(len(receipt["segments"]), 3)
+        self.assertEqual(save("replay", 10, 12, "changed", "epoch-2"), receipt)
+        lines = self.repo.statements(self.owner, "case", "hearing")
+        self.assertEqual([s["text"] for s in lines], ["Pertama.", "Kedua.", "New testimony."])
+        self.assertEqual(lines[2]["t"], 11)
+        self.assertNotEqual(lines[2]["speakerId"], lines[0]["speakerId"])
+        self.assertEqual(self.one("SELECT count(*) AS n FROM voice_diarization_jobs")["n"], 0)
+
     def test_replay_previews_match_every_committed_turn_in_both_hearings(self):
         hearing = {"id": "h4", "caseId": "demo", "mode": "live"}
         self.execute(
