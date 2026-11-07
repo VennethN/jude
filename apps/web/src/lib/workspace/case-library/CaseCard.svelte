@@ -7,7 +7,7 @@
   const href = $derived('/case/' + encodeURIComponent(item.id));
 </script>
 
-<article class="file-card" class:live-case={Boolean(item.live)}>
+<article class="file-card">
   <div class="identity">
     <span class="kind"><FolderOpen size={19} strokeWidth={1.6}/><span>{item.label === 'synthetic' ? (en ? 'Synthetic material' : 'Materi sintetis') : (en ? 'Private case' : 'Perkara privat')}</span></span>
     {#if item.live}
@@ -37,17 +37,16 @@
 </article>
 
 <style>
-  .file-card{position:relative;display:flex;flex-direction:column;gap:15px;min-width:0;height:100%;padding:19px 19px 15px;border:1px solid var(--line);border-radius:12px;background:var(--surface);transition:border-color .17s ease-out,box-shadow .22s ease-out}
-  .live-case{border-top:3px solid var(--forest);padding-top:17px}
+  .file-card{position:relative;display:flex;flex-direction:column;gap:12px;min-width:0;height:100%;padding:18px 20px 16px;border:1px solid var(--line);border-radius:12px;background:var(--surface);transition:border-color .17s ease-out,box-shadow .22s ease-out}
   .identity,.kind,.live,.metrics,.metrics > span,.review,.review span{display:flex;align-items:center}
-  .identity{justify-content:space-between;gap:8px;min-height:26px}
+  .identity{justify-content:space-between;gap:8px;min-height:22px}
   .kind{gap:8px;color:var(--muted);font-size:12px;font-weight:600;line-height:1.35}
   .kind :global(svg){flex:none}
   .kind > span{border-radius:4px;background:var(--wash);padding:2px 7px}
-  .live{gap:6px;flex:none;min-height:24px;padding:2px 9px;border-radius:20px;color:#8e3c32;background:#f6e4df;font-size:12px;font-weight:600}
+  .live{gap:6px;flex:none;min-height:22px;padding:2px 9px;border-radius:20px;color:#8e3c32;background:#f6e4df;font-size:12px;font-weight:600}
   .live i{width:7px;height:7px;background:currentColor;border-radius:50%}
   .details{min-width:0}
-  h2{font:400 clamp(23px,2.15cqi,28px)/1.19 Rufina,Georgia,serif;letter-spacing:-.025em;text-wrap:initial;overflow-wrap:anywhere}
+  h2{font:400 23px/1.18 Rufina,Georgia,serif;letter-spacing:-.022em;text-wrap:initial;overflow-wrap:anywhere}
   h2 a{color:var(--ink);text-decoration:none}
   h2 a::after{content:'';position:absolute;inset:0;border-radius:12px}
   h2 a:focus-visible{outline:none}
@@ -66,8 +65,6 @@
   .updated{margin-top:2px}
   :global([data-theme=night]) .live{background:#50352e;color:#f1b3a6}
   :global([data-theme=night]) .review span{background:#4c4027;color:#f1d49a}
-  :global([data-theme=night]) .live-case{border-top-color:#71927d}
   @media(hover:hover){.file-card:has(h2 a:hover){border-color:var(--muted);box-shadow:0 4px 13px #19271e10}}
   @media(pointer:coarse){.review{min-height:44px}}
-  @media(max-width:520px){.file-card{padding-inline:16px}}
 </style>

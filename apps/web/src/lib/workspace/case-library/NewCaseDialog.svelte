@@ -12,6 +12,7 @@
   let step = $state<'choose'|'blank'|'import'>('choose');
   let title = $state(''), reference = $state(''), busy = $state(false), message = $state(''), quotaError = $state(false);
   let fileInput = $state<HTMLInputElement>(), titleInput = $state<HTMLInputElement>();
+  let blankButton = $state<HTMLButtonElement>(), importButton = $state<HTMLButtonElement>();
   let percent = $state<number | null>(null), visible = true;
   let createKey = '';
   const en = $derived(lang === 'en');
@@ -21,10 +22,12 @@
   onDestroy(() => { visible = false; });
 
   async function change(next: 'choose'|'blank'|'import') {
+    const previous = step;
     step = next; message = ''; quotaError = false; percent = null;
     await tick();
     if (next === 'blank') titleInput?.focus();
     if (next === 'import') fileInput?.focus();
+    if (next === 'choose') (previous === 'blank' ? blankButton : importButton)?.focus();
   }
   async function openSaved(item: CaseRecord) {
     if (visible) await goto('/case/' + encodeURIComponent(item.id), { invalidateAll: true, state: { judeNotice: { text: en ? 'Case created.' : 'Perkara dibuat.' } } });
@@ -87,8 +90,8 @@
       <div class="limit"><Info size={17}/><p>{casesFull ? quotaNotice : (en ? 'Your storage is full. Make room before importing an archive.' : 'Penyimpanan Anda penuh. Kosongkan ruang sebelum mengimpor arsip.')} <a href="/billing">{en ? 'See plans' : 'Lihat paket'}</a></p></div>
     {/if}
     <div class="paths">
-      <button class="path" disabled={casesFull} onclick={() => change('blank')}><FilePlus2/><span><strong>{blankTitle}</strong><small>{en ? 'Give it a title, then add documents and hearings.' : 'Beri judul, lalu tambahkan berkas dan sidang.'}</small></span><ChevronRight size={16}/></button>
-      <button class="path" disabled={casesFull || storageFull} onclick={() => change('import')}><FileUp/><span><strong>{importTitle}</strong><small>{en ? 'Continue from a colleague’s case or a Jude export. Imported findings start unreviewed.' : 'Lanjutkan perkara dari rekan atau hasil ekspor Jude. Temuan impor mulai sebagai belum ditinjau.'}</small></span><ChevronRight size={16}/></button>
+      <button class="path" bind:this={blankButton} disabled={casesFull} onclick={() => change('blank')}><FilePlus2/><span><strong>{blankTitle}</strong><small>{en ? 'Give it a title, then add documents and hearings.' : 'Beri judul, lalu tambahkan berkas dan sidang.'}</small></span><ChevronRight size={16}/></button>
+      <button class="path" bind:this={importButton} disabled={casesFull || storageFull} onclick={() => change('import')}><FileUp/><span><strong>{importTitle}</strong><small>{en ? 'Continue from a colleague’s case or a Jude export. Imported findings start unreviewed.' : 'Lanjutkan perkara dari rekan atau hasil ekspor Jude. Temuan impor mulai sebagai belum ditinjau.'}</small></span><ChevronRight size={16}/></button>
       {#if demoId}<a class="path" href={'/case/' + encodeURIComponent(demoId)}><FolderOpen/><span><strong>{en ? 'Open the example case' : 'Buka perkara contoh'}</strong><small>{en ? 'Explore a synthetic case with documents, hearings and findings.' : 'Jelajahi perkara sintetis dengan dokumen, sidang, dan temuan.'}</small></span><ChevronRight size={16}/></a>{/if}
     </div>
   {:else if step === 'blank'}
