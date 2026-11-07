@@ -30,7 +30,7 @@ The public cover feels like a closed case file. Inside, the working surface open
 
 ## Typography and layout
 
-Set the wordmark in Rufina, questions and case titles in Caslon Display, testimony in Manrope and filed extracts in Courier Prime. Align each document reference with its quote. A case starts with its most consequential open question. Place hearing and exhibit indexes below it. Use one broad reading column on a phone and a fixed, labelled navigation rail when there is room.
+Set the wordmark, page covers and case titles in Rufina, hearing and finding titles in Caslon Display, testimony in Manrope and filed extracts in Courier Prime. Align each document reference with its quote. A case starts with its most consequential open question. Place hearing and exhibit indexes below it. Use one broad reading column on a phone and a fixed, labelled navigation rail when there is room.
 
 ## Components
 
@@ -43,3 +43,9 @@ Use deep green-grey paper with lighter text. Keep written sources and testimony 
 ## Comparing testimony
 
 Show the testimony and filed phrase together wherever space permits. Give each its own source link. On the overview a running hearing sits in the page flow above the case title. A tablet or phone keeps the assistant available in the top bar.
+
+## Public cover and motion
+
+Give the forest cover a paper margin. Set the two-line headline above a wide comparison sheet and leave open space around the clay gavel. The desk, paper spreads and legal miniatures follow the reader through the public story. Inside a case, reserve that space for the live transcript, pending review, next hearing and original sources. [Live design reference](https://vennethn.github.io/sable-mockup/)
+
+Use native scrolling for the public story. Changing scroll direction reverses the sequence. Source controls work from the keyboard and let a reader jump directly to a filed page. Reduced-motion and short-viewport layouts keep the content readable in normal document flow.
