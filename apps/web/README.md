@@ -34,4 +34,6 @@ pnpm design:check
 
 OpenAI receives server-side requests for model-generated findings and assistant answers when `OPENAI_API_KEY` is configured. Source-only retrieval and the synthetic case work without credentials. Originals are served privately from local files or AWS S3 using `JUDE_S3_BUCKET`, `JUDE_S3_KMS_KEY` and `AWS_REGION`.
 
+The microphone captures mono PCM at 24 kHz. With an available voice socket, sustained speech is sent after 2.4 seconds. A turn can close earlier once 1.2 seconds have elapsed since speech began and the last 0.6 seconds are quiet. While an earlier turn waits for its acknowledgement, continuous speech is saved in windows of up to eight seconds. Each turn stays in the browser’s hearing-scoped IndexedDB queue until the service acknowledges its ID. Pause and Stop also save the worklet’s final partial block. Provider processing and network time add to the capture window.
+
 [Voice service](../voice/README.md) · [Shared case core](../../packages/core/README.md) · [AWS hosting](docs/aws.md)
