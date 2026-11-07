@@ -1,5 +1,5 @@
 import type { Workspace } from './domain';
-import { numberGroupedVoices } from './speakers';
+import { numberGroupedVoices } from './speakers.ts';
 
 export const workspaceGroups = [
   'hearings', 'speakers', 'statements', 'findings', 'documents', 'passages',
