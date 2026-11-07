@@ -1,5 +1,26 @@
 import { expect, test } from '@playwright/test';
 
+test('sign-in is the first hero action for visitors and demo guests on desktop and mobile', async ({ page, baseURL }, info) => {
+  for (const [width, height] of [[1440, 900], [390, 844], [320, 740]]) {
+    await page.setViewportSize({ width, height });
+    await page.goto('/');
+    const first = page.locator('.opening .actions a').first();
+    await expect(first).toHaveAccessibleName('Masuk');
+    await expect(first).toHaveAttribute('href', '/login');
+    await expect(first).toBeInViewport();
+    await expect(page.getByRole('navigation', { name: 'Navigasi utama' }).getByRole('link', { name: 'Masuk' })).toBeInViewport();
+    if (width !== 320) await page.screenshot({ path: info.outputPath('landing-entry-' + width + '.png') });
+  }
+  expect((await page.request.post('/api/auth/demo', { headers: { origin: baseURL! } })).ok()).toBe(true);
+  await page.context().addCookies([{ name: 'jude_lang', value: 'en', url: baseURL! }]);
+  await page.goto('/');
+  const hero = page.locator('.opening');
+  await expect(hero.getByRole('link', { name: 'Try the example case' })).toHaveAttribute('href', '/demo');
+  await hero.getByRole('link', { name: 'Sign in', exact: true }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await expect(page.getByLabel('Email', { exact: true })).toBeVisible();
+});
+
 test('the sign-in cover keeps credentials, recovery and the return route accessible', async ({ page }) => {
   await page.goto('/login?next=%2Fbilling');
   const main = page.getByRole('main');

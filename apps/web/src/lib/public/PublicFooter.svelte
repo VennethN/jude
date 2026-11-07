@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import BrandLockup from '$lib/BrandLockup.svelte';
   import Wordmark from './Wordmark.svelte';
   import Icon from './Icon.svelte';
   import type { Language } from '@jude/core/plans';
@@ -15,7 +16,7 @@
     <div class="foot-wrap">
       <div class="foot-top">
         <div class="foot-brand">
-          <a class="foot-mark" href={pricing ? '/' : '#public-main'} aria-label={pricing ? (id ? 'Beranda Jude' : 'Jude home') : (id ? 'Kembali ke atas' : 'Back to top')}>jude.</a>
+          <a class="foot-mark" href={pricing ? '/' : '#public-main'} aria-label={pricing ? (id ? 'Beranda Jude' : 'Jude home') : (id ? 'Kembali ke atas' : 'Back to top')}><BrandLockup/></a>
           <p>{id ? 'Kecerdasan ruang sidang berbasis bukti.' : 'Evidence-grounded courtroom intelligence.'}</p>
         </div>
         <nav class="foot-nav" aria-label={id ? 'Navigasi kaki halaman' : 'Footer navigation'}>

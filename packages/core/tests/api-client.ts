@@ -8,7 +8,7 @@ type RequestEvent = Parameters<typeof endpoint>[0];
 export function browser() {
   const cookies = new Map<string, string>(),
     ip = randomUUID();
-  async function request(path: string, method = 'GET', data?: unknown, key?: string, accept?: string) {
+  async function request(path: string, method = 'GET', data?: unknown, key?: string, accept?: string | { accept?: string; signal?: AbortSignal }) {
     const url = new URL('/api/' + path, 'http://localhost:5173'),
       headers = new Headers();
     let body: FormData | string | undefined;
@@ -18,9 +18,11 @@ export function browser() {
       body = JSON.stringify(data);
     }
     if (key) headers.set('idempotency-key', key);
-    if (accept) headers.set('accept', accept);
+    const options = typeof accept === 'object' ? accept : {};
+    const format = typeof accept === 'string' ? accept : options.accept;
+    if (format) headers.set('accept', format);
     const event = {
-      request: new Request(url, { method, headers, body }),
+      request: new Request(url, { method, headers, body, signal: options.signal }),
       url,
       params: { path: path.split('?')[0] },
       locals: { session: await sessionFromToken(cookies.get('jude_session')) },

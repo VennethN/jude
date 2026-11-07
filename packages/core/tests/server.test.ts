@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { strToU8, zipSync } from 'fflate';
 import type {
   AnswerStreamEvent,
   Board,
@@ -144,7 +145,8 @@ describe('case API', () => {
     const live = await a.request(messagePath, 'POST', msg, key, 'application/x-ndjson');
     expect(live.headers.get('content-type')).toContain('application/x-ndjson');
     const frames = (await live.text()).trim().split('\n').map(line => JSON.parse(line) as AnswerStreamEvent);
-    expect(frames.map(event => event.type)).toEqual(['status', 'partial', 'complete']);
+    expect(frames[0]).toEqual({ type: 'status', phase: 'reading' });
+    expect(frames.filter(event => event.type !== 'status').map(event => event.type)).toEqual(['partial', 'complete']);
     const preview = frames.find(event => event.type === 'partial')!.message;
     expect(preview.mode).toBe('sources-only');
     const answer = await a.ok<Thread>(messagePath, 'POST', msg, key);
@@ -311,6 +313,44 @@ describe('case API', () => {
     expect(
       (await a.request('cases/' + restored.id + '/documents/' + data.documents[0].id + '/original')).status,
     ).toBe(200);
+  });
+  test('a case stored in a ZIP manifest restores its originals and linked testimony, including from a folder', async () => {
+    const client = browser();
+    await client.ok('auth/demo', 'POST');
+    const original = 'Packing list, sheet 1.';
+    const digest = createHash('sha256').update(original).digest('hex');
+    const manifest = {
+      format: 'jude', version: 1, kind: 'case',
+      case: { id: 'c1', title: 'Harbour exercise', created_at: '2026-11-07' },
+      documents: [{ id: 'd1', case_id: 'c1', name: 'Packing list', mime: 'text/plain', pages: 1, file: 'originals/d1', sha256: digest }],
+      sources: [{ id: 'p1', document_id: 'd1', page: 1, text: original }],
+      hearings: [{ id: 'h1', case_id: 'c1', title: 'Hearing', date: '2026-11-07', kind: 'imported' }],
+      segments: [{ id: 's1', hearing_id: 'h1', speaker: 'Witness A', start: 3, end: 6, text: 'One sheet.' }],
+      links: [{ id: 'pair', source_id: 's1', target_id: 'p1', relation: 'supports', confirmed: true, basis: 'manual', source_quote: 'One sheet.', target_quote: 'sheet 1' }],
+    };
+    function form(bytes: string) {
+      const zip = zipSync({
+        'Case export/manifest.json': strToU8(JSON.stringify(manifest)),
+        'Case export/originals/d1': strToU8(bytes),
+        '__MACOSX/._manifest.json': strToU8(''),
+      });
+      const form = new FormData();
+      form.set('file', new File([new Uint8Array(zip)], 'export.jude.zip', { type: 'application/zip' }));
+      return form;
+    }
+    const damaged = await client.request('cases/import', 'POST', form('Incomplete'));
+    expect(damaged.status).toBe(422);
+    expect((await damaged.json()).error.code).toBe('archive_integrity');
+    const imported = await client.ok<CaseRecord>('cases/import', 'POST', form(original));
+    const base = 'cases/' + imported.id;
+    const workspace = await client.ok<Workspace>(base + '/workspace');
+    expect(workspace.statements[0]).toMatchObject({ t: 3, speakerId: workspace.speakers[0].id, hearingId: workspace.hearings[0].id });
+    expect(workspace.passages[0]).toMatchObject({ text: original, docId: workspace.documents[0].id });
+    expect(workspace.connections[0]).toMatchObject({
+      from: { kind: 'statement', id: workspace.statements[0].id },
+      to: { kind: 'passage', id: workspace.passages[0].id }, reviewed: true,
+    });
+    expect(await (await client.request(base + '/documents/' + workspace.documents[0].id + '/original')).text()).toBe(original);
   });
   test('synthetic originals and all linked records round-trip through the archive', async () => {
     const a = browser(),

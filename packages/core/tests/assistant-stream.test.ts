@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test } from 'vitest';
-import type { AnswerStreamEvent, ChatMessage, Thread } from '../src/domain';
+import type { AnswerStreamEvent, AssistantStage, ChatMessage, Thread } from '../src/domain';
 import { answerStream, sharedAnswer } from '../src/server/answer-stream';
 import { ApiError } from '../src/server/validation';
 
@@ -58,6 +58,25 @@ test('structured failures end a stream without a saved answer, and internal deta
     expect(await next(reader)).toEqual({ type: 'error', error: expected });
     expect((await reader.read()).done).toBe(true);
   }
+});
+
+test('a stream joining a JSON request receives its current and subsequent stages', async () => {
+  const key = randomUUID(), ready = Promise.withResolvers<void>(), finish = Promise.withResolvers<Thread>();
+  let report!: (stage: AssistantStage) => void;
+  const generate = (_publish: (message: ChatMessage) => void, _signal?: AbortSignal, progress?: typeof report) => {
+    report = stage => progress?.(stage);
+    report('legal');
+    ready.resolve();
+    return finish.promise;
+  };
+  const plain = sharedAnswer(key, generate);
+  await ready.promise;
+  const stages: AssistantStage[] = [];
+  const streamed = sharedAnswer(key, generate, undefined, undefined, stage => stages.push(stage));
+  report('saving');
+  finish.resolve(final);
+  expect(await plain).toEqual(await streamed);
+  expect(stages).toEqual(['legal', 'saving']);
 });
 
 test('reader cancellation detaches the subscriber without cancelling the accepted transaction', async () => {

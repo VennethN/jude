@@ -11,6 +11,8 @@ import { basename, join } from 'node:path';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { CaseDocument, Workspace } from '../domain';
 import { pasalSourceUrl } from '../legal';
+import { numberGroupedVoices } from '../speakers';
+import { workspaceFromManifest } from './manifest-case';
 import { billing, checkQuota } from './billing';
 import { emptyWorkspace, insertWorkspace, makeCase, readWorkspace } from './cases';
 import { type Database, transaction } from './db';
@@ -18,6 +20,7 @@ import { storeFile } from './documents';
 import { contextsOf, hasCitation, relations, updateBoard } from './evidence';
 import {
   ApiError,
+  archiveId,
   bilingual,
   bool,
   choice,
@@ -121,18 +124,17 @@ export async function exportArchive(org: string, caseId: string) {
   });
 }
 
-function archiveId(value: unknown, field = 'id') {
-  const id = string(value, field, 120);
-  if (!/^[a-zA-Z0-9][\w-]*$/.test(id) || ['constructor', 'prototype', '__proto__'].includes(id))
-    invalid(field);
-  return id;
-}
 function list(value: unknown, field: string, max = 12000): unknown[] {
   if (!Array.isArray(value) || value.length > max) invalid(field);
   return value;
 }
 function rowText(value: unknown, key: string, max = 4000) {
   return string(value, key, max, true);
+}
+function archiveVoiceNumber(value: unknown) {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value)) invalid('voiceNumber');
+  return number(value, 'voiceNumber', 1, 1_000_000);
 }
 function parseWorkspace(raw: unknown) {
   const data = object(raw),
@@ -160,8 +162,9 @@ function parseWorkspace(raw: unknown) {
   for (const kind of collections) for (const row of rows(kind)) assignId(row.id);
   // Names and quoted text are preserved verbatim. Only typed references are rewritten.
   w.speakers = rows('speakers').map((r) => ({
-    id: ref(r.id),
+    id: archiveId(r.id),
     label: rowText(r.label, 'label', 180),
+    voiceNumber: archiveVoiceNumber(r.voiceNumber),
     role: choice(
       r.role,
       ['judge', 'judge_member', 'counsel', 'opposing', 'witness', 'party', 'unknown'],
@@ -170,6 +173,8 @@ function parseWorkspace(raw: unknown) {
     confirmed: bool(r.confirmed, 'confirmed'),
     alias: optionalRef(r.alias),
   }));
+  numberGroupedVoices(w.speakers);
+  for (const speaker of w.speakers) speaker.id = ref(speaker.id);
   w.hearings = rows('hearings').map((r) => ({
     id: ref(r.id),
     caseId: w.caseRecord.id,
@@ -387,6 +392,9 @@ function parseWorkspace(raw: unknown) {
           contexts,
           legal: ids(m.legal),
           mode: m.mode ? choice(m.mode, ['ai', 'sources-only'], 'mode') : undefined,
+          issue: m.issue ? choice(m.issue, ['not_configured', 'unavailable', 'rate_limit', 'incomplete', 'unverified', 'insufficient'], 'issue') : undefined,
+          retrieval: m.retrieval ? choice(m.retrieval, ['hybrid', 'lexical', 'partial'], 'retrieval') : undefined,
+          legalStatus: m.legalStatus ? choice(m.legalStatus, ['found', 'no_matches', 'no_query', 'not_configured', 'unavailable', 'sample'], 'legalStatus') : undefined,
         };
       }),
     };
@@ -417,35 +425,52 @@ function parseWorkspace(raw: unknown) {
   return { w, maps, original: rows('documents') };
 }
 
+function readCaseFiles(bytes: Uint8Array): Record<string, Uint8Array> {
+  const prefixes: string[] = [];
+  let count = 0, total = 0;
+  // Inspect the directory before expanding any data. A Finder-created ZIP may have one enclosing folder.
+  unzipSync(bytes, { filter(entry) {
+    if (++count > limits.entries || (total += entry.originalSize) > limits.expanded)
+      throw new ApiError(413, 'file_too_large', 'The archive exceeds the import limit.');
+    if (/^(?:(?!\.|__MACOSX\/)[^/\\:\x00]+\/)?manifest\.json$/.test(entry.name))
+      prefixes.push(entry.name.slice(0, -'manifest.json'.length));
+    return false;
+  } });
+  if (prefixes.length !== 1)
+    throw new ApiError(422, 'archive_manifest', 'Choose an archive containing one Jude case manifest.');
+  const prefix = prefixes[0];
+  const seen = new Set<string>();
+  const entries = unzipSync(bytes, { filter(entry) {
+    if (!entry.name.startsWith(prefix)) return false;
+    const path = entry.name.slice(prefix.length);
+    const keep = path === 'case.json' || path === 'manifest.json' || path === 'audio/index.json'
+      || /^originals\/[a-zA-Z0-9][\w-]*$/.test(path)
+      || /^audio\/[\w-]+\/(recording\.(mp3|wav|m4a|mp4|mpeg|mpga|webm|ogg|flac)|[\w-]+\.pcm)$/.test(path)
+      || /^documents\/[\w-]+\/(original\.(pdf|docx|md|txt)|viewer\.pdf)$/.test(path);
+    if (keep && seen.has(path)) invalid('file');
+    if (keep) seen.add(path);
+    return keep;
+  } });
+  return Object.fromEntries(Object.entries(entries).map(([name, data]) => [name.slice(prefix.length), data]));
+}
+
 export async function importArchive(org: string, form: FormData, creator?: string) {
   const file = form.get('file');
-  if (!(file instanceof File) || file.size > limits.zip || !file.size) invalid('file');
+  if (!(file instanceof File) || !file.size) invalid('file');
+  if (file.size > limits.zip) throw new ApiError(413, 'file_too_large', 'The archive exceeds the import limit.');
   await transaction((db) => checkQuota(db, org, 'cases', 1));
   let files: Record<string, Uint8Array>, decoded: ReturnType<typeof parseWorkspace>;
   try {
-    let count = 0,
-      total = 0;
-    files = unzipSync(new Uint8Array(await file.arrayBuffer()), {
-      filter: (entry) => {
-        if (++count > limits.entries || (total += entry.originalSize) > limits.expanded)
-          throw new ApiError(413, 'file_too_large', 'The archive exceeds the import limit.');
-        return (
-          entry.name === 'case.json' ||
-          entry.name === 'manifest.json' ||
-          entry.name === 'audio/index.json' ||
-          /^audio\/[\w-]+\/(recording\.(mp3|wav|m4a|mp4|mpeg|mpga|webm|ogg|flac)|[\w-]+\.pcm)$/.test(
-            entry.name,
-          ) ||
-          /^documents\/[\w-]+\/(original\.(pdf|docx|md|txt)|viewer\.pdf)$/.test(entry.name)
-        );
-      },
-    });
-    const manifest = JSON.parse(strFromU8(files['manifest.json']));
-    if (manifest.format !== 'jude' || manifest.version !== 1) invalid('manifest');
-    decoded = parseWorkspace(JSON.parse(strFromU8(files['case.json'])));
+    files = readCaseFiles(new Uint8Array(await file.arrayBuffer()));
+    const manifest = object(JSON.parse(strFromU8(files['manifest.json'])), 'manifest');
+    if (manifest.format !== 'jude') throw new ApiError(422, 'archive_manifest', 'Choose a Jude case archive.');
+    if (manifest.version !== 1) throw new ApiError(422, 'archive_version', 'This archive version is unsupported.');
+    if (files['case.json']) decoded = parseWorkspace(JSON.parse(strFromU8(files['case.json'])));
+    else if (manifest.kind === 'case' && manifest.case) decoded = parseWorkspace(workspaceFromManifest(manifest, files));
+    else throw new ApiError(422, 'archive_incomplete', 'The archive is missing its case record.');
   } catch (e) {
     if (e instanceof ApiError) throw e;
-    invalid('file');
+    throw new ApiError(422, 'archive_invalid', 'The case archive could not be read.');
   }
   const { w, maps, original } = decoded;
   const attachments: Attachment[] = [];

@@ -4,9 +4,11 @@
   import { casePrompts } from '$lib/workspace/case-prompts';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
-  import { ArrowUp, Plus, X, History, FolderOpen, Scale, Search, SquarePen } from '@lucide/svelte';
+  import { ArrowUp, Plus, X, History, FolderOpen, Scale, Search, SquarePen, Square } from '@lucide/svelte';
   import type { ChatMessage as Message, ContextRef, InspectTarget, Lang, Thread, Workspace } from '@jude/core/domain';
   import { api, ApiError } from '$lib/client';
+  import { ASSISTANT_QUESTION_LIMIT, type AssistantStage } from '@jude/core/domain';
+  import { assistantError } from './assistant-client';
   import { apiPath, casePath, evidenceKey, local, meaningful, sourceOf } from './records';
   import Inspector from './Inspector.svelte';
   import ChatMessage from './ChatMessage.svelte';
@@ -39,7 +41,7 @@
   const discovery = $derived(
     w.legalDiscovery ?? (w.caseRecord.label === 'synthetic' ? 'sample' : 'unavailable'),
   );
-  const searchLaw = $derived(withLegal && discovery !== 'unavailable');
+  const searchLaw = $derived(withLegal);
   const lawHint = $derived(
     discovery === 'unavailable'
       ? id
@@ -80,6 +82,16 @@
   let flow: HTMLDivElement;
   let addContextButton: HTMLButtonElement;
   let sourceSearch = $state<HTMLInputElement>();
+  let stage = $state<AssistantStage>('retrieving');
+  let ready = $state(false);
+  let active = false;
+  let stopping = false;
+  const stageText = $derived({
+    retrieving: id ? 'Mencari sumber yang relevan…' : 'Finding relevant sources…',
+    answering: id ? 'Menyusun jawaban dan memeriksa kutipan…' : 'Preparing the answer and checking quotations…',
+    legal: id ? 'Mencari rujukan di Pasal.id…' : 'Looking up references on Pasal.id…',
+    saving: id ? 'Menyimpan jawaban…' : 'Saving the answer…',
+  }[stage]);
   const pickerId = $derived(compact ? 'dock-source-picker' : 'page-source-picker');
 
   async function scrollToLatest(smooth = false) {
@@ -99,7 +111,7 @@
   }
   let lastAttempt: AnswerAttempt | undefined;
   let activeRequest: AbortController | undefined;
-  onDestroy(() => activeRequest?.abort());
+  onDestroy(() => { persistDraft(); active = false; activeRequest?.abort(); });
   function attemptSlot(threadId: string) {
     const account = page.data.account;
     return ['jude:ask', account?.organization.id, account?.user.id, w.caseRecord.id, threadId || 'new'].join('/');
@@ -107,7 +119,30 @@
   function followsLatest() {
     return !flow || flow.scrollHeight - flow.scrollTop - flow.clientHeight < 90;
   }
-  let storeKey = $derived('jude:thread:' + w.caseRecord.id);
+  let storeKey = $derived('jude:thread:' + page.data.account?.user.id + ':' + w.caseRecord.id);
+  let savedSlot = $state('');
+  let draftKey = $derived(storeKey + ':draft:' + (savedSlot || (compact ? currentId || 'new' : threadId && threadId !== 'new' ? threadId : 'new')));
+  function persistDraft() {
+    if (!ready) return;
+    try {
+      const text = draft || (pending ? local(pending.text, lang) : '');
+      if (text) sessionStorage.setItem(draftKey, JSON.stringify({ text, contexts, withLegal }));
+      else sessionStorage.removeItem(draftKey);
+    } catch { /* Storage is optional. */ }
+  }
+  function restoreDraft() {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(draftKey) || 'null');
+      if (!draft && saved && typeof saved.text === 'string') {
+        draft = saved.text.slice(0, ASSISTANT_QUESTION_LIMIT);
+        if (!initialContexts.length && Array.isArray(saved.contexts))
+          extra = saved.contexts.filter((c: ContextRef) => c && sourceOf(w, c, lang)).slice(0, 6);
+        if (typeof saved.withLegal === 'boolean') withLegal = saved.withLegal;
+      }
+    } catch { /* A malformed or unavailable draft must not prevent composing. */ }
+  }
+  $effect(() => { persistDraft(); });
+
   function parse(value: string | null): ContextRef | undefined {
     if (value === 'case' || value === 'documents') return { kind: value };
     if (!value) return;
@@ -235,9 +270,12 @@
   async function send(text = draft, suggested = false) {
     text = text.trim();
     if (!text || busy) return;
+    if (text.length > ASSISTANT_QUESTION_LIMIT) { problem = assistantError(new ApiError('validation', '', 422), lang); return; }
     const attached = contexts.length ? [...contexts] : [{ kind: 'case' } as const];
     const typed = draft, question = { text, lang, contexts: attached, withLegal };
     const initialSlot = attemptSlot(currentId);
+    const startedAt = page.url.pathname;
+    stage = 'retrieving';
     const controller = new AbortController();
     activeRequest = controller;
     busy = true;
@@ -258,13 +296,16 @@
       // A lost receipt can be retried after the workspace already received the saved pair.
       previousCount = Math.min(previousCount, attempt.startCount);
       if (!currentId) {
+        const previousKey = draftKey;
         const created = await api<Thread>(apiPath(w, 'threads'), 'POST', { title: text.slice(0, 100) }, {
           'Idempotency-Key': attempt.key,
-        });
+        }, controller.signal);
         if (controller.signal.aborted) return;
         currentId = created.id;
         result = created;
         remember(currentId);
+        persistDraft();
+        if (previousKey !== draftKey) try { sessionStorage.removeItem(previousKey); } catch { /* Storage is optional. */ }
       }
       const threadSlot = attemptSlot(currentId);
       rememberAttempt(threadSlot, attempt);
@@ -280,11 +321,12 @@
         const pinned = followsLatest();
         partial = message;
         if (pinned) void scrollToLatest();
-      });
+      }, phase => { if (phase !== 'reading') stage = phase; });
       if (controller.signal.aborted) return;
       const pinned = followsLatest();
       result = completed;
       pending = partial = undefined;
+      persistDraft();
       forgetAttempt(initialSlot, attempt);
       forgetAttempt(threadSlot, attempt);
       forgetAttempt(attemptSlot(''), attempt);
@@ -293,26 +335,55 @@
       // The received thread is already saved, even if refreshing the surrounding workspace fails.
       await invalidateAll().catch(() => undefined);
       if (controller.signal.aborted) return;
-      if (!compact && page.params.threadId !== currentId)
+      if (active && page.url.pathname === startedAt && !compact && page.params.threadId !== currentId) {
+        const previousKey = draftKey;
+        savedSlot = currentId;
+        persistDraft();
+        if (previousKey !== draftKey) try { sessionStorage.removeItem(previousKey); } catch { /* Storage is optional. */ }
         await goto(base + '/' + encodeURIComponent(currentId), { replaceState: true, noScroll: true, keepFocus: true });
+      }
       if (pinned && !controller.signal.aborted) await scrollToLatest();
     } catch (e) {
-      if (controller.signal.aborted || !pending) return;
+      if (controller.signal.aborted || !pending || stopping) return;
       if (path && e instanceof ApiError) workspaceRequest('POST', path, e.status);
       limit = e instanceof ApiError && e.status === 402;
-      problem = e instanceof Error ? e.message : id ? 'Jawaban belum tersedia. Coba lagi.' : 'The answer is unavailable. Try again.';
+      problem = assistantError(e, lang);
       retry = text;
       if (!suggested && !draft.trim()) draft = typed || text;
     } finally {
-      if (activeRequest === controller && !controller.signal.aborted) {
+      if (activeRequest === controller && !controller.signal.aborted && !stopping) {
         activeRequest = undefined;
         busy = false;
         pending = partial = undefined;
+        persistDraft();
+      }
+    }
+  }
+  async function stopAnswer() {
+    const request = activeRequest;
+    const text = pending ? local(pending.text, lang) : '';
+    if (!request || stopping) return;
+    stopping = true;
+    try {
+      if (currentId && lastAttempt) await api(apiPath(w, 'threads/' + encodeURIComponent(currentId) + '/cancel'), 'POST', {}, { 'Idempotency-Key': lastAttempt.key });
+    } catch (error) {
+      if (active) problem = assistantError(error, lang);
+    } finally {
+      request.abort();
+      stopping = false;
+      if (active) {
+        activeRequest = undefined;
+        busy = false;
+        if (!draft.trim()) draft = text;
+        pending = partial = undefined;
+        persistDraft();
       }
     }
   }
   function reset() {
+    try { sessionStorage.removeItem(draftKey); } catch { /* Storage is optional. */ }
     currentId = '';
+    savedSlot = '';
     result = undefined;
     extra = [];
     removedInitial = [];
@@ -346,6 +417,7 @@
     }
   }
   onMount(() => {
+    active = true;
     const next = page.state as { judeAsk?: { caseId: string; text: string } };
     if (!compact && threadId === 'new' && next.judeAsk?.caseId === w.caseRecord.id) {
       const { judeAsk, ...rest } = next;
@@ -357,6 +429,7 @@
       if (initialQuestion.trim()) {
         currentId = '';
         remember('');
+        ready = true;
         void send(initialQuestion, true);
         return;
       }
@@ -372,6 +445,8 @@
       restoreContexts(w.threads.find((t) => t.id === currentId));
       void scrollToLatest();
     }
+    restoreDraft();
+    ready = true;
   });
 </script>
 
@@ -422,7 +497,7 @@
         {#if pending && !partial}
           <div class="reading" role="status">
             <span>{id ? 'Asisten perkara' : 'Case assistant'}</span>
-            <span class="reading-status">{id ? 'Membaca sumber perkara…' : 'Reading the case record…'}</span>
+            <span class="reading-status">{stageText}</span>
             <div class="reading-lines" aria-hidden="true"><i></i><i></i><i></i></div>
           </div>
         {/if}
@@ -491,7 +566,8 @@
         bind:this={composer}
         bind:value={draft}
         rows="2"
-        maxlength="8000"
+        maxlength={ASSISTANT_QUESTION_LIMIT}
+        aria-describedby={draft.length >= ASSISTANT_QUESTION_LIMIT - 500 ? pickerId + '-length' : undefined}
         placeholder={id ? 'Tulis pertanyaan tentang perkara…' : 'Ask a question about this case…'}
         onkeydown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
@@ -500,6 +576,7 @@
           }
         }}
       ></textarea>
+      {#if draft.length >= ASSISTANT_QUESTION_LIMIT - 500}<p class="length-hint" id={pickerId + '-length'}>{draft.length.toLocaleString(lang)} / {ASSISTANT_QUESTION_LIMIT.toLocaleString(lang)} {id ? 'karakter' : 'characters'}</p>{/if}
       <div class="send-row">
         <button
           type="button"
@@ -515,20 +592,19 @@
           class="legal-toggle"
           aria-pressed={searchLaw}
           title={lawHint}
-          disabled={discovery === 'unavailable'}
           onclick={() => (withLegal = !withLegal)}
         >
           <Scale size={14} aria-hidden="true" />Pasal.id
         </button>
-        <button
+        {#if busy}<button type="button" class="send" aria-label={id ? 'Hentikan jawaban' : 'Stop answer'} title={id ? 'Hentikan jawaban' : 'Stop answer'} onclick={stopAnswer}><Square size={16} aria-hidden="true" /></button>{:else}<button
           type="submit"
           class="send"
           aria-label={id ? 'Kirim pertanyaan' : 'Send question'}
           title={id ? 'Kirim pertanyaan' : 'Send question'}
-          disabled={!draft.trim() || busy || limit}
+          disabled={!draft.trim() || limit}
         >
           <ArrowUp size={18} aria-hidden="true" />
-        </button>
+        </button>{/if}
       </div>
     </div>
     {#if pick}
@@ -573,6 +649,7 @@
 {#if inspect}<Inspector workspace={w} {lang} target={inspect} close={() => (inspect = null)} />{/if}
 
 <style>
+  .length-hint { margin: 0; padding: 0 12px 6px; color: var(--muted); font: 400 12px/1.4 var(--sans); text-align: end; }
   .assistant {
     display: flex;
     flex: 1;
@@ -758,7 +835,7 @@
   }
   .add-context,
   .legal-toggle {
-    min-height: 32px;
+    min-height: 44px;
     border: 1px solid var(--line);
     border-radius: 20px;
     background: var(--surface);
@@ -814,7 +891,7 @@
     border: none;
     background: transparent;
     color: var(--ink);
-    font: 400 15px/1.5 var(--sans);
+    font: 400 16px/1.5 var(--sans);
     resize: none;
   }
   .input-box textarea:focus-visible {
@@ -832,8 +909,8 @@
   .send {
     margin-left: auto;
     flex: none;
-    width: 36px;
-    height: 36px;
+    width: 44px;
+    height: 44px;
     display: grid;
     place-items: center;
     border: 0;

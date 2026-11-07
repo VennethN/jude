@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { ChatMessage, Citation, ContextRef, Lang, LegalRef, Workspace } from '../../domain';
+import type { ChatMessage, Citation, ContextRef, Lang, LegalRef, LegalSearchStatus, Workspace } from '../../domain';
 import { caseSources, contextKeys, type Source } from './assistant';
 import { constitutionalTopic, isLawQuestion, lawCategory, publicLawTerms as searchTerms, type PublicLawSearch as Search } from './legal-query';
 import { pasalSourceUrl } from '../../legal';
@@ -79,6 +79,11 @@ function source(raw: unknown) {
     return;
   }
 }
+function articleNumber(value: unknown) {
+  const token = (typeof value === 'number' ? String(value) : field(value, 20)).replace(/^Pasal\s+/i, '').toUpperCase();
+  return /^\d{1,4}[A-Z]?$/.test(token) ? token : '';
+}
+
 function hitOf(raw: unknown, query: Search): Hit | undefined {
   const item = record(raw),
     work = workOf(item.work);
@@ -98,11 +103,11 @@ function hitOf(raw: unknown, query: Search): Hit | undefined {
     if (!names[query.code]?.test(work.title)) return;
   }
   const passage = record(item.best_passage);
-  const proven = field(passage.pasal ?? (passage.version === 1 ? passage.pasal_number : ''), 5).toUpperCase();
+  const proven = articleNumber(passage.pasal ?? (passage.version === 1 ? passage.pasal_number : undefined));
   const matches = Array.isArray(item.matching_pasals) ? item.matching_pasals : [];
   const match = matches.find(value => {
-    const number = typeof value === 'object' ? record(value).pasal : value;
-    return String(number).toUpperCase() === query.article;
+    const number = typeof value === 'object' ? record(value).pasal ?? record(value).pasal_number : value;
+    return articleNumber(number) === query.article;
   });
   if (query.article && proven !== query.article && match === undefined) return;
   const article = query.article ||
@@ -110,7 +115,7 @@ function hitOf(raw: unknown, query: Search): Hit | undefined {
   const workUrl = source(item.url) ?? source(record(item.work).url) ?? source(passage.work_href) ??
     source(item.work_href) ?? source(record(item.work).href);
   const articleUrl = (article && proven === article ? source(passage.url ?? passage.href) : undefined) ??
-    (article && match !== undefined ? source(record(match).url) : undefined);
+    (article && match !== undefined ? source(record(match).url ?? record(match).href) : undefined);
   const locator = articleUrl && new URL(articleUrl);
   const articlePath = locator && locator.pathname.replace(/\/pasal-[^/]+\/?$/, '').replace(/\/$/, '');
   const matchesArticle = locator && new RegExp('(?:/pasal-|#(?:pasal|node)-)' + article + '/?$', 'i').test(locator.href);
@@ -143,11 +148,11 @@ function metadataRef(hit: Hit): LegalRef {
   };
 }
 
-async function readJson(path: string, key: string): Promise<unknown> {
+async function readJson(path: string, key: string, signal?: AbortSignal): Promise<unknown> {
   const response = await fetch(origin + '/api/v1/' + path, {
     headers: { accept: 'application/json', authorization: 'Bearer ' + key },
     redirect: 'error',
-    signal: AbortSignal.timeout(8000),
+    signal: AbortSignal.any([AbortSignal.timeout(8000), ...(signal ? [signal] : [])]),
   });
   if (!response.ok || !response.body || Number(response.headers.get('content-length')) > maxBytes) {
     await response.body?.cancel();
@@ -199,29 +204,29 @@ async function cached<T>(cacheKey: string, load: () => Promise<T>): Promise<T> {
 }
 
 /** The detail response can contain an article tree. Only the public work identity is retained. */
-export async function getPasalWork(uri: string, key: string) {
+export async function getPasalWork(uri: string, key: string, signal?: AbortSignal) {
   if (!validUri(uri)) return undefined;
   const work = await cached('work:' + digest('v2:' + uri), async () => {
-    const result = record(await readJson('laws' + uri, key));
+    const result = record(await readJson('laws' + uri, key, signal));
     const found = workOf(result.work);
     return found?.uri === uri ? found : null;
   });
   return work ?? undefined;
 }
 
-async function searchPasal(query: Search, key: string): Promise<LegalRef[]> {
+async function searchPasal(query: Search, key: string, signal?: AbortSignal): Promise<LegalRef[]> {
   if (query.type === 'UUD' && !query.article && !query.topic) {
     // This public FRBR identifier is returned by Pasal.id for the base Constitution.
     // An exact work lookup avoids ranking amendments ahead of it.
-    const charter = await getPasalWork('/akn/id/act/uud/1945/original', key);
+    const charter = await getPasalWork('/akn/id/act/uud/1945/original', key, signal);
     if (charter?.type === 'UUD' && charter.year === '1945' && charter.url) {
       return [metadataRef({ work: charter, article: '', url: charter.url })];
     }
   }
   const parameters = new URLSearchParams({ q: query.q, limit: '3' });
   if (query.type) parameters.set('type', query.type);
-  const hits = await cached('search:' + digest('v2:' + parameters), async () => {
-    const result = record(await readJson('search?' + parameters, key));
+  const hits = await cached('search:v2:' + digest(parameters.toString()), async () => {
+    const result = record(await readJson('search?' + parameters, key, signal));
     if (!Array.isArray(result.results)) throw new Error('invalid_pasal_results');
     const seen = new Set<string>();
     return result.results.slice(0, 3).flatMap((item) => {
@@ -241,8 +246,9 @@ async function searchPasal(query: Search, key: string): Promise<LegalRef[]> {
   // Search already supplies a usable identity. Detail can verify the status without retaining its content.
   let verified: Work | undefined;
   try {
-    verified = await getPasalWork(primary.work.uri, key);
+    verified = await getPasalWork(primary.work.uri, key, signal);
   } catch {
+    signal?.throwIfAborted();
     /* Keep the search result's own metadata. */
   }
   return hits.map((hit, index) => metadataRef(index === 0 && verified ? { ...hit, work: verified } : hit));
@@ -274,15 +280,26 @@ function contextLaws(w: Workspace, refs: (Citation | ContextRef)[]) {
 
 type Outcome = 'found' | 'no-results' | 'unavailable' | 'disabled' | 'needs-topic' | 'sample-empty' | 'charter-only';
 type Lookup = { refs: LegalRef[]; outcome: Outcome };
-async function privateLookup(w: Workspace, query?: Search): Promise<Lookup> {
+interface DiscoveryOptions { signal?: AbortSignal; status?: (status: LegalSearchStatus) => void }
+async function privateLookup(w: Workspace, query?: Search, options: DiscoveryOptions = {}): Promise<Lookup> {
   const key = token();
-  if (!key || legalDiscoveryMode(w) !== 'available') return { refs: [], outcome: 'unavailable' };
-  if (!query) return { refs: [], outcome: 'needs-topic' };
+  options.signal?.throwIfAborted();
+  if (!key || legalDiscoveryMode(w) !== 'available') {
+    options.status?.(key ? 'unavailable' : 'not_configured');
+    return { refs: [], outcome: 'unavailable' };
+  }
+  if (!query) {
+    options.status?.('no_query');
+    return { refs: [], outcome: 'needs-topic' };
+  }
   try {
-    const refs = await searchPasal(query, key);
+    const refs = await searchPasal(query, key, options.signal);
+    options.status?.(refs.length ? 'found' : 'no_matches');
     return { refs, outcome: refs.length ? 'found' : 'no-results' };
   } catch {
+    options.signal?.throwIfAborted();
     interrupted = { fingerprint: digest(key), until: Date.now() + 60000 };
+    options.status?.('unavailable');
     return { refs: [], outcome: 'unavailable' };
   }
 }
@@ -299,10 +316,12 @@ export async function discoverLegal(
   w: Workspace,
   text: string,
   refs: (Citation | ContextRef)[],
+  options: DiscoveryOptions = {},
 ): Promise<LegalRef[]> {
   const related = contextLaws(w, refs),
     query = searchTerms(text);
   if (w.caseRecord.label === 'synthetic') {
+    options.status?.('sample');
     const words = ' ' + (text.toLowerCase().match(/[\p{L}\d]+/gu) ?? []).join(' ') + ' ';
     const rank = samples.map((sample) => {
       const seen = w.legal.find(
@@ -329,7 +348,7 @@ export async function discoverLegal(
   }
   const saved = w.legal.filter((row) => row.provider === 'pasal' && related.ids.has(row.id));
   const safeQuery = query ?? related.text.map((line) => searchTerms(line, true)).find(Boolean);
-  return [...saved, ...(await privateLookup(w, safeQuery)).refs].slice(0, 6);
+  return [...saved, ...(await privateLookup(w, safeQuery, options)).refs].slice(0, 6);
 }
 
 export function retainLegal(w: Workspace, discoveries: LegalRef[]) {
@@ -442,18 +461,18 @@ function lawReply(lookup: Lookup, lang: Lang, query: Search | undefined, categor
 }
 
 /** Answer explicit legal questions even when the question's words do not occur in case evidence. */
-export async function answerLawQuestion(w: Workspace, text: string, refs: ContextRef[], lang: Lang, enabled: boolean) {
+export async function answerLawQuestion(w: Workspace, text: string, refs: ContextRef[], lang: Lang, enabled: boolean, options: DiscoveryOptions = {}) {
   if (!isLawQuestion(text)) return;
   const category = lawCategory(text), { query, source } = questionContext(w, refs, lang, searchTerms(text), category);
   let lookup: Lookup;
   if (!enabled) lookup = { outcome: 'disabled', refs: [] };
   else if (w.caseRecord.label === 'synthetic') {
-    const sample = await discoverLegal(w, query?.q ?? text, refs);
+    const sample = await discoverLegal(w, query?.q ?? text, refs, options);
     lookup = { outcome: sample.length ? 'found' : 'sample-empty', refs: sample };
   } else {
-    lookup = await privateLookup(w, query);
+    lookup = await privateLookup(w, query, options);
     if (lookup.outcome === 'no-results' && query?.type === 'UUD' && (query.topic || query.article)) {
-      const base = await privateLookup(w, { q: 'UUD 1945', article: '', type: 'UUD' });
+      const base = await privateLookup(w, { q: 'UUD 1945', article: '', type: 'UUD' }, options);
       if (base.refs.length) lookup = { outcome: 'charter-only', refs: base.refs };
     }
   }

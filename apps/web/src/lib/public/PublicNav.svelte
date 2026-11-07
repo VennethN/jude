@@ -6,6 +6,7 @@
   import type { Language } from '@jude/core/plans';
   let { lang, signedIn = false }: { lang: Language; signedIn?: boolean } = $props();
   let isId = $derived(lang === 'id');
+  const accountLabel = $derived(signedIn ? (isId ? 'Buka ruang kerja' : 'Open workspace') : (isId ? 'Masuk' : 'Sign in'));
   let menu: HTMLDetailsElement;
   let summary: HTMLElement;
   afterNavigate(({ from }) => {
@@ -46,7 +47,7 @@
     <div class="nav-right">
       {@render language()}
       <a class="entry" href={signedIn ? '/cases' : '/login'}
-        >{isId ? 'Buka ruang kerja' : 'Open workspace'} <Icon name="forward" size={15} /></a
+        >{accountLabel} <Icon name="forward" size={15} /></a
       >
     </div>
     <details
@@ -58,9 +59,7 @@
     >
       <summary bind:this={summary} aria-label="Menu"><Icon name="menu" size={22} /></summary>
       <div class="mobile-links">
-        {@render navlinks()}{@render language()}<a class="entry" href={signedIn ? '/cases' : '/login'}
-          >{isId ? 'Buka ruang kerja' : 'Open workspace'} <Icon name="forward" size={15} /></a
-        >
+        {@render navlinks()}{@render language()}
       </div>
     </details>
   </nav>
@@ -171,17 +170,15 @@
   .mobile-links .language {
     border-bottom: 1px solid #ffffff25;
   }
-  .mobile-links .entry {
-    margin-top: 12px;
-  }
   @media (max-width: 760px) {
     .pub-nav {
       min-height: 68px;
     }
     .middle,
-    .nav-right {
+    .nav-right .language {
       display: none;
     }
+    .nav-right { margin-left: auto; }
     .mobile-menu {
       display: block;
     }
@@ -244,18 +241,20 @@
   }
   @media (max-width: 900px) {
     .cover .middle,
-    .cover .nav-right {
+    .cover .nav-right .language {
       display: none;
     }
+    .cover .nav-right { margin-left: auto; }
     .cover .mobile-menu {
       display: block;
-      margin-left: auto;
     }
     .cover .mobile-links .language {
       justify-self: start;
     }
-    .cover .mobile-links .entry {
-      font-size: 1.05rem;
+    .cover .entry {
+      min-height: 44px;
+      padding-inline: 13px;
+      font: 600 .9rem/1.25 var(--pub-body);
     }
   }
   @media (pointer: coarse) {
@@ -277,5 +276,9 @@
     .cover :global(.wordmark) {
       font-size: 3.15rem;
     }
+  }
+  @media (max-width: 420px) {
+    .cover .pub-nav:has(.entry[href$='/cases']) { column-gap: 8px; }
+    .cover .entry[href$='/cases'] { padding-inline: 9px; }
   }
 </style>

@@ -5,6 +5,7 @@ export async function readAnswer(
   response: Response,
   lang: Lang,
   onPartial: (message: ChatMessage) => void,
+  onProgress?: (phase: Extract<AnswerStreamEvent, {type: 'status'}>['phase']) => void,
 ): Promise<Thread> {
   const interrupted = () => new ApiError(
     'stream_interrupted',
@@ -23,7 +24,7 @@ export async function readAnswer(
   function accept(line: string) {
     if (!line.trim()) return;
     const event = JSON.parse(line) as AnswerStreamEvent;
-    if (event.type === 'status') return;
+    if (event.type === 'status') { onProgress?.(event.phase); return; }
     if (event.type === 'partial' && event.message?.role === 'assistant') { onPartial(event.message); return; }
     if (event.type === 'complete' && Array.isArray(event.thread?.messages)) return event.thread;
     if (event.type === 'error') throw new ApiError(event.error.code, event.error.message, event.error.status);

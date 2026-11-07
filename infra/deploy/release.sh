@@ -21,7 +21,7 @@ aws secretsmanager get-secret-value --secret-id "$JUDE_SECRET_ARN" --query Secre
 jq -er '
   if type != "object" or (.DATABASE_URL | type) != "string" or (.DATABASE_URL | length) == 0 then
     error("Set DATABASE_URL in the Jude application secret.")
-  elif any(to_entries[]; (.key | test("^(DATABASE_URL|OPENAI_(API_KEY|PROJECT_ID|MODEL|[A-Z_]+_MODEL)|JUDE_(MAIL_FROM|PASAL_URL|PASAL_TOKEN|SEMANTIC_SEARCH|DELETE_GRACE_DAYS|DIARIZATION_MODEL|DIARIZATION_TIMEOUT_MS))$") | not)
+  elif any(to_entries[]; (.key | test("^(DATABASE_URL|OPENAI_(API_KEY|PROJECT_ID|MODEL|[A-Z_]+_MODEL|ASSISTANT_MAX_OUTPUT_TOKENS)|JUDE_(MAIL_FROM|PASAL_URL|PASAL_TOKEN|SEMANTIC_SEARCH|DELETE_GRACE_DAYS|DIARIZATION_MODEL|DIARIZATION_TIMEOUT_MS))$") | not)
     or (.value | type != "string") or (.value | test("[\\r\\n]")))
   then error("Use supported environment names and single-line string values.")
   else to_entries[] | "\(.key)=\(.value)"

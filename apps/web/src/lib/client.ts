@@ -16,6 +16,7 @@ export async function api<T = unknown>(
   method = 'GET',
   body?: unknown,
   headers?: HeadersInit,
+  signal?: AbortSignal,
 ): Promise<T> {
   const form = typeof FormData !== 'undefined' && body instanceof FormData;
   const requestHeaders = new Headers(headers);
@@ -23,6 +24,7 @@ export async function api<T = unknown>(
   const response = await fetch(path, {
     method,
     headers: requestHeaders,
+    signal,
     body: body === undefined ? undefined : form ? body : JSON.stringify(body),
   });
   workspaceRequest(method, path, response.status);

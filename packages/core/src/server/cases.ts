@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CaseRecord, CaseSummary, Thread, Workspace } from '../domain';
 import { needsReview } from '../domain';
+import { numberGroupedVoices } from '../speakers';
 import { queueStatementIn } from './queue';
 import { syncSemanticIndexIn } from './semantic-index';
 import { preserveHidden, retainedMarker, withoutRemoved, type RemovedSource } from './retained-evidence';
@@ -101,18 +102,44 @@ function demoWorkspace(template: CaseRecord) {
   return workspace;
 }
 
-export async function seedOrganization(db: Database, orgId: string) {
-  const refs: Record<string, string> = {};
-  for (const template of seed.cases) {
-    const workspace = demoWorkspace(template);
-    refs[template.id] = workspace.caseRecord.id;
-    for (const group of groups) for (const item of workspace[group]) refs[item.id] = item.id;
-    await insertWorkspace(db, orgId, workspace);
+// Keep each insert within SQLite's portable bound-parameter limit as well as PostgreSQL's.
+async function insertSeedRows(db: Database, columns: string, rows: (string | number)[][]) {
+  for (let offset = 0; offset < rows.length; offset += 100) {
+    const batch = rows.slice(offset, offset + 100);
+    const tuples = batch.map((row, rowIndex) => {
+      const placeholders = row.map((_, columnIndex) => '$' + (rowIndex * row.length + columnIndex + 1));
+      return '(' + placeholders.join(',') + ')';
+    });
+    await db.query('INSERT INTO ' + columns + ' VALUES ' + tuples.join(','), batch.flat());
   }
+}
+
+export async function seedOrganization(db: Database, orgId: string) {
+  const workspaces = seed.cases.map(demoWorkspace);
+  const refs: Record<string, string> = {};
+  const entities: (string | number)[][] = [];
+  const now = Date.now();
+  const records = workspaces.map((workspace, index) => {
+    const record = workspace.caseRecord;
+    refs[seed.cases[index].id] = record.id;
+    for (const entry of entries(workspace).values()) {
+      refs[entry.id] = entry.id;
+      entities.push([record.id, entry.kind, entry.id, entry.ordinal, entry.body]);
+    }
+    return [record.id, orgId, JSON.stringify(record), workspace.version, now, 1];
+  });
+  await insertSeedRows(db, 'cases(id,org_id,record,version,updated_at,synthetic)', records);
+  const ids = workspaces.map(workspace => workspace.caseRecord.id);
+  await db.query(
+    "INSERT INTO case_members(case_id,user_id,role) SELECT c.id,m.user_id,'owner' " +
+    "FROM cases c JOIN memberships m ON m.org_id=c.org_id WHERE c.org_id=$1 AND m.role='owner' " +
+    'AND c.id IN (' + ids.map((_, index) => '$' + (index + 2)).join(',') + ')',
+    [orgId, ...ids],
+  );
+  // These newly created synthetic records have no private analysis or indexing jobs.
+  await insertSeedRows(db, 'case_entities(case_id,kind,id,ordinal,body)', entities);
   await db.query('UPDATE organizations SET demo_id=$1,demo_refs=$2 WHERE id=$3', [
-    refs.c1,
-    JSON.stringify(refs),
-    orgId,
+    refs.c1, JSON.stringify(refs), orgId,
   ]);
 }
 
@@ -206,6 +233,7 @@ async function storedWorkspace(
     [caseId],
   );
   for (const entry of data) (w[entry.kind] as { id: string }[]).push(JSON.parse(entry.body));
+  numberGroupedVoices(w.speakers);
   return w;
 }
 async function removedSources(db: Database, caseId: string) {

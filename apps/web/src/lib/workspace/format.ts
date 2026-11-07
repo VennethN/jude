@@ -1,4 +1,5 @@
 import type { L10n, Lang, Finding, Speaker } from '@jude/core/domain';
+import { speakerIdentity } from '@jude/core/speakers';
 
 export function localized(value: string | L10n | null | undefined, lang: Lang) {
   return typeof value === 'string' ? value : value?.[lang] ?? '';
@@ -14,17 +15,7 @@ export function timecode(seconds: number) {
 }
 export const needsLook = (f: Finding) => !f.reviewed && (f.status === 'potential_inconsistency' || f.status === 'context_needed');
 export function displaySpeaker(speakers: Speaker[], id: string, lang: Lang) {
-  const s = speakers.find(s => s.id === id);
-  const assigned = s?.alias ? speakers.find(a=>a.id===s.alias) : undefined;
-  const person = assigned || s;
-  if (person?.label) return person.label;
-  const key = person?.id || id;
-  if (!person || key.startsWith('voice-pending-'))
-    return lang === 'id' ? 'Pembicara belum dikenali' : 'Speaker not identified';
-  const numbered = key.match(/^v(\d+)$/)?.[1];
-  const voices = speakers.filter(speaker => !speaker.id.startsWith('voice-pending-'));
-  const number = numbered || String(voices.findIndex(speaker => speaker.id === key) + 1);
-  return (lang === 'id' ? 'Suara ' : 'Voice ') + number;
+  return speakerIdentity(speakers, id, lang).name;
 }
 export function initials(name: string) {
   return name.replace(/^(Saksi|Terdakwa) /i, '').split(/\s+/).slice(0,2).map(w=>w[0]||'').join('').toUpperCase();

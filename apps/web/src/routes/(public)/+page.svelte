@@ -9,4 +9,4 @@
 <svelte:head>
 	<title>{title}</title><meta name="description" content={description}/><meta property="og:title" content={title}/><meta property="og:description" content={description}/><meta property="og:type" content="website"/><meta property="og:image" content={new URL('/public/case-preview.jpg', page.url.origin).href}/><meta name="twitter:card" content="summary_large_image"/>
 </svelte:head>
-<LandingStory lang={data.lang} record={data.record}/>
+<LandingStory lang={data.lang} record={data.record} signedIn={Boolean(data.session && !data.session.user.guest)}/>

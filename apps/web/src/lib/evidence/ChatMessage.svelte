@@ -61,6 +61,23 @@
     ]);
   });
   const laws = $derived((m.legal ?? []).flatMap((lawId) => w.legal.filter((law) => law.id === lawId)));
+  const notices = $derived.by(() => {
+    const issue = {
+      not_configured: id ? 'Penyedia AI belum siap. Hubungi pengelola untuk memeriksa konfigurasi; sumber perkara tetap dapat dibaca.' : 'The AI provider is not ready. Ask your administrator to check its configuration; case sources remain available.',
+      unavailable: id ? 'Penyedia AI tidak dapat dihubungi. Sumber terkait ditampilkan; coba lagi nanti.' : 'The AI provider could not be reached. Related sources are shown; try again later.',
+      rate_limit: id ? 'Batas permintaan penyedia AI tercapai. Sumber terkait ditampilkan; coba lagi nanti.' : 'The AI provider’s request limit was reached. Related sources are shown; try again later.',
+      incomplete: id ? 'Jawaban AI belum selesai. Sumber terkait ditampilkan; coba pertanyaan yang lebih spesifik.' : 'The AI answer did not finish. Related sources are shown; try a more specific question.',
+      unverified: id ? 'Kutipan jawaban AI tidak lolos pemeriksaan. Gunakan sumber asli di bawah ini.' : 'The AI answer’s quotations could not be verified. Use the original sources below.',
+      insufficient: id ? 'Sumber yang ditemukan belum cukup untuk menjawab. Perjelas pertanyaan atau tambahkan konteks.' : 'The retrieved sources are insufficient to answer. Clarify the question or add context.',
+    };
+    const result: string[] = m.issue ? [issue[m.issue]] : [];
+    if (m.retrieval === 'lexical' && m.issue !== 'not_configured') result.push(id ? 'Pencarian makna belum tersedia; pencarian kata digunakan.' : 'Semantic search is unavailable; keyword search was used.');
+    if (m.retrieval === 'partial') result.push(id ? 'Sebagian sumber masih perlu diindeks. Pencarian makna belum mencakup seluruh konteks; coba lagi setelah pengindeksan berlanjut.' : 'Some sources still need indexing. Semantic search does not yet cover the whole context; try again as indexing progresses.');
+    if (m.legalStatus === 'unavailable') result.push(id ? 'Pasal.id tidak dapat dihubungi. Rujukan baru belum diperiksa; coba lagi nanti.' : 'Pasal.id could not be reached. New legal references have not been checked; try again later.');
+    if (m.legalStatus === 'not_configured') result.push(id ? 'Akses Pasal.id belum dikonfigurasi. Hubungi pengelola untuk mengaktifkannya.' : 'Pasal.id access is not configured. Ask your administrator to enable it.');
+    if (m.legalStatus === 'no_matches') result.push(id ? 'Pasal.id tidak menemukan rujukan yang cocok.' : 'Pasal.id found no matching references.');
+    return result.filter(Boolean);
+  });
   function missingLabel(ref: Citation) {
     if (ref.unavailable) return id ? 'Sumber dihapus' : 'Source removed';
     return id ? 'Sumber tidak tersedia' : 'Source unavailable';
@@ -126,6 +143,7 @@
         <span class="mode">{id ? 'Perkara sintetis' : 'Synthetic case'}</span>
       {/if}
     </header>
+    {#each notices as notice}<p class="notice">{notice}</p>{/each}
     {#if answer}
       {#if m.mode === 'ai'}
         <div class="answer formatted">
@@ -189,6 +207,7 @@
         <summary
           ><ChevronRight size={14} aria-hidden="true" />{id ? 'Rujukan hukum' : 'Legal references'} · {laws.length}</summary
         >
+        <p class="notice">{id ? 'Rujukan ini berasal dari indeks peraturan. Buka sumber untuk memeriksa bunyi pasal dan status berlakunya.' : 'These references come from the regulation index. Open the source to check the article text and its current status.'}</p>
         <ul>
           {#each laws as law, i (i)}
             <li>
@@ -209,6 +228,7 @@
 {/if}
 
 <style>
+  .notice { margin: 0; color: var(--muted); font: 400 13px/1.5 var(--sans); }
   .message {
     display: grid;
     gap: 8px;

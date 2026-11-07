@@ -32,6 +32,8 @@ export interface Speaker {
   id: string;
   label: string;
   role: Role;
+  /** A display number for a grouped voice that has not yet been named. */
+  voiceNumber?: number;
   /** Voice matches are suggestions until a person confirms the name. */
   confirmed: boolean;
   /** An unidentified voice the user assigned to a participant. */
@@ -211,6 +213,11 @@ export type ContextRef =
   | { kind: "documents" }
   | { kind: "hearing" | "finding" | "document" | "passage" | "statement" | "connection" | "board"; id: string; unavailable?: true; snapshot?: string };
 
+export const ASSISTANT_QUESTION_LIMIT = 6000;
+export type AssistantStage = 'retrieving' | 'answering' | 'legal' | 'saving';
+export type AssistantIssue = 'not_configured' | 'unavailable' | 'rate_limit' | 'incomplete' | 'unverified' | 'insufficient';
+export type LegalSearchStatus = 'found' | 'no_matches' | 'no_query' | 'not_configured' | 'unavailable' | 'sample';
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -218,6 +225,9 @@ export interface ChatMessage {
   citations?: Citation[];
   legal?: string[];
   mode?: "ai" | "sources-only";
+  issue?: AssistantIssue;
+  retrieval?: 'hybrid' | 'lexical' | 'partial';
+  legalStatus?: LegalSearchStatus;
   /** On a question: every context it was asked with, kept so the history shows them. */
   contexts?: ContextRef[];
 }
@@ -235,7 +245,7 @@ export interface Thread {
 
 /** POST thread messages can stream complete, evidence-checked paragraphs before the final commit. */
 export type AnswerStreamEvent =
-  | { type: 'status'; phase: 'reading' }
+  | { type: 'status'; phase: 'reading' | AssistantStage }
   | { type: 'partial'; message: ChatMessage }
   | { type: 'complete'; thread: Thread }
   | { type: 'error'; error: { status: number; code: string; message: string } };
