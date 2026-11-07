@@ -472,9 +472,11 @@
     }
     .queue-tabs {
       width: 100%;
+      overflow-x: auto;
+      scrollbar-width: thin;
     }
     .queue-tabs a {
-      flex: 1;
+      flex: 1 0 auto;
       gap: 4px;
       padding: 0 5px;
       min-width: 0;
@@ -492,8 +494,12 @@
     }
   }
   @container (max-width:335px) {
-    .queue-tabs a {
+    .queue-tabs .count {
+      min-width: 14px;
       padding-inline: 3px;
+    }
+    .queue-tabs a {
+      padding-inline: 2px;
       font-size: 11px;
       gap: 1px;
     }

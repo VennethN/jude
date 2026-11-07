@@ -93,3 +93,17 @@ test('the phone review editor opens from the keyboard and retains its note after
   await page.locator('.queue .finding-card').first().click();
   await expect(sheet.getByLabel('Catatan pemeriksaan')).toHaveValue('Tanyakan tentang log malam itu.');
 });
+
+test('the full Findings filter labels fit on a 320 pixel phone', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 667 });
+  await page.goto('/demo/findings');
+  const tabs = page.locator('.queue-tabs');
+  await expect(tabs.getByRole('link')).toHaveCount(4);
+  await page.evaluate(() => document.fonts.ready);
+  const overflow = await tabs.evaluate((bar) => ({
+    page: document.documentElement.scrollWidth - innerWidth,
+    strip: bar.scrollWidth - bar.clientWidth,
+    labels: [...bar.querySelectorAll('a')].map((link) => link.scrollWidth - link.clientWidth)
+  }));
+  expect(overflow).toEqual({ page: 0, strip: 0, labels: [0, 0, 0, 0] });
+});
