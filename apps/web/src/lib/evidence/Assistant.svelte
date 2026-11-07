@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, tick, untrack } from 'svelte';
-  import { goto, invalidateAll } from '$app/navigation';
+  import { casePrompts } from '$lib/workspace/case-prompts';
+  import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { ArrowUp, Plus, X, History, MessageSquare, Paperclip, Search, SquarePen } from '@lucide/svelte';
   import type { ContextRef, InspectTarget, Lang, Thread, Workspace } from '@jude/core/domain';
@@ -132,17 +133,7 @@
             'What needs to be confirmed?',
             'Which documents were cited?'
           ];
-    return id
-      ? [
-          'Ringkas perkara dan hal yang belum pasti.',
-          'Di mana keterangan para saksi berbeda?',
-          'Kutipan mana yang perlu saya periksa?'
-        ]
-      : [
-          'Summarise the case and its uncertainties.',
-          'Where do the witnesses’ accounts differ?',
-          'Which passages should I check?'
-        ];
+    return casePrompts[lang];
   });
   let options = $derived.by(() => {
     const candidates: ContextRef[] = [
@@ -268,6 +259,12 @@
     }
   }
   onMount(() => {
+    const next = page.state as { judeAsk?: { caseId: string; text: string } };
+    if (!compact && threadId === 'new' && next.judeAsk?.caseId === w.caseRecord.id) {
+      const { judeAsk, ...rest } = next;
+      replaceState(page.url, rest);
+      void send(judeAsk.text, true);
+    }
     if (compact) {
       try {
         const saved = sessionStorage.getItem(storeKey);

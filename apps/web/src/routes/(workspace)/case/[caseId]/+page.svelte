@@ -1,33 +1,806 @@
 <script lang="ts">
- import {goto,invalidateAll} from '$app/navigation';
- import { ArrowDownToLine, ArrowRight, ArrowUpRight, CalendarDays, ChevronRight, Ellipsis, FileText, FolderOpen, ListChecks, MessageSquareText, Mic, Plus, Settings2, Archive, Trash2 } from '@lucide/svelte';
- import {api} from '$lib/client';
- import {needsReview} from '@jude/core/domain';
- import CaseForm from '$lib/workspace/CaseForm.svelte';import Dialog from '$lib/workspace/Dialog.svelte';
- import {displaySpeaker,formatDate,timecode} from '$lib/workspace/format';
- let {data}=$props();const w=$derived(data.workspace),c=$derived(w.caseRecord),base=$derived('/case/'+c.id),en=$derived(data.lang==='en');
- const review=$derived(w.findings.filter(needsReview)), first=$derived(review.find(f=>f.status==='potential_inconsistency')??review[0]);
- const spoken=$derived(w.statements.find(s=>s.id===first?.statementId));
- const live=$derived(w.hearings.find(h=>h.mode==='live')), next=$derived(w.hearings.filter(h=>h.mode==='scheduled').sort((a,b)=>a.date.localeCompare(b.date))[0]);
- let dialog=$state<null|'menu'|'edit'|'remove'>(null),message=$state('');
- async function action(path:string,method:string){try{await api('/api/cases/'+c.id+path,method);dialog=null;await invalidateAll();await goto('/cases')}catch(e){message=e instanceof Error?e.message:(en?'Please try again.':'Coba lagi.')}}
+  import { goto, invalidateAll } from '$app/navigation';
+  import {
+    ArrowDownToLine,
+    ArrowRight,
+    ArrowUpRight,
+    ArrowUp,
+    CalendarDays,
+    ChevronRight,
+    CircleAlert,
+    Ellipsis,
+    FilePlus2,
+    FileText,
+    GitFork,
+    ListChecks,
+    MessageSquareText,
+    Mic,
+    Radio,
+    Speech,
+    Upload,
+    Settings2,
+    Archive,
+    Trash2,
+  } from '@lucide/svelte';
+  import { api } from '$lib/client';
+  import { needsReview } from '@jude/core/domain';
+  import CaseForm from '$lib/workspace/CaseForm.svelte';
+  import Dialog from '$lib/workspace/Dialog.svelte';
+  import HearingRow from '$lib/workspace/HearingRow.svelte';
+  import { voice } from '$lib/workspace/hearing-detail/people';
+  import { casePrompts } from '$lib/workspace/case-prompts';
+  import { assistantPath } from '$lib/evidence/records';
+  import { formatDate, timecode } from '$lib/workspace/format';
+  let { data } = $props();
+  const w = $derived(data.workspace),
+    c = $derived(w.caseRecord),
+    base = $derived('/case/' + c.id),
+    en = $derived(data.lang === 'en');
+  const review = $derived(w.findings.filter(needsReview)),
+    first = $derived(review.find((f) => f.status === 'potential_inconsistency') ?? review[0]);
+  const spoken = $derived(w.statements.find((s) => s.id === first?.statementId));
+  const empty = $derived(!w.hearings.length && !w.documents.length);
+  const live = $derived(w.hearings.find((h) => h.mode === 'live'));
+  const today = $derived(
+    c.label === 'synthetic' && live
+      ? live.date
+      : new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(new Date()),
+  );
+  const next = $derived(
+    [...w.hearings]
+      .filter((h) => h.mode === 'scheduled' && h.date >= today)
+      .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))[0],
+  );
+  const latest = $derived(w.statements.filter((s) => s.hearingId === live?.id).sort((a, b) => b.t - a.t)[0]);
+  const passage = $derived(w.passages.find((p) => p.id === first?.sources[0]?.passageId));
+  const pending = $derived(w.connections.filter((link) => !link.reviewed).length);
+  let now = $state(0),
+    question = $state('');
+  $effect(() => {
+    if (!live?.startedAt || c.label === 'synthetic') return;
+    now = Date.now();
+    const timer = setInterval(() => (now = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
+  const elapsed = $derived(
+    live?.startedAt && now ? Math.max(0, (now - Date.parse(live.startedAt)) / 1000) : (latest?.t ?? 0),
+  );
+  async function ask(text: string) {
+    const query = text.trim();
+    if (!query) return;
+    question = '';
+    await goto(assistantPath(w, { kind: 'case' }), { state: { judeAsk: { caseId: c.id, text: query } } });
+  }
+  let dialog = $state<null | 'menu' | 'edit' | 'remove'>(null),
+    message = $state('');
+  async function action(path: string, method: string) {
+    try {
+      await api('/api/cases/' + c.id + path, method);
+      dialog = null;
+      await invalidateAll();
+      await goto('/cases');
+    } catch (e) {
+      message = e instanceof Error ? e.message : en ? 'Please try again.' : 'Coba lagi.';
+    }
+  }
 </script>
+
 <svelte:head><title>{c.title} · Jude</title></svelte:head>
-<header class="file-head"><div class="file-id"><span>{c.reference||c.court}</span>{#if c.label==='synthetic'}<span class="label">{en?'Synthetic example':'Contoh sintetis'}</span>{/if}<button class="icon-button" onclick={()=>dialog='menu'} aria-label={en?'Case menu':'Menu perkara'}><Ellipsis size={20}/></button></div><h1>{c.title}</h1><p>{c.summary[data.lang]}</p></header>
-{#if first}
- <section class="brief"><div class="brief-main"><div class="brief-head"><ListChecks size={18}/><h2>{en?'Needs review':'Perlu dicek'}</h2><span>{review.length}</span></div><a href={base+'/findings/'+first.id} class="brief-title">{first.title[data.lang]}</a><a class="brief-link" href={base+'/findings/'+first.id}>{en?'Compare the sources':'Bandingkan sumber'}<ArrowRight size={17}/></a></div>
- <div class="paperquote">{#if spoken&&first.said}<div class="spoken"><small><Mic size={14}/>{en?'In testimony':'Dalam kesaksian'}</small><blockquote>“{first.said}”</blockquote><a href={base+'/hearings/'+first.hearingId+'?s='+spoken.id}>{displaySpeaker(w.speakers,spoken.speakerId,data.lang)} · {timecode(spoken.t)}<ArrowUpRight size={14}/></a></div>{/if}<small><FileText size={15}/>{en?'From the case file':'Dari berkas perkara'}</small>{#if first.sources[0]}{@const src=w.passages.find(p=>p.id===first.sources[0].passageId)}{#if src}<blockquote>“{first.sources[0].match||src.text}”</blockquote><a href={base+'/documents/'+src.docId+'?p='+src.id}>{w.documents.find(d=>d.id===src.docId)?.title} · {en?'p.':'hlm.'} {src.page}<ArrowUpRight size={14}/></a>{/if}{/if}</div></section>
-{:else if !w.hearings.length&&!w.documents.length}
-<section class="start"><FolderOpen size={30}/><h2>{en?'Start the case file':'Mulai isi berkas perkara'}</h2><p>{en?'Add a document or schedule the first hearing.':'Tambahkan dokumen atau jadwalkan sidang pertama.'}</p><div class="actions"><a class="button primary" href={base+'/documents'}>{en?'Add documents':'Tambah dokumen'}</a><a class="button" href={base+'/hearings?new=schedule'}>{en?'Schedule a hearing':'Jadwalkan sidang'}</a></div></section>{/if}
-<div class="registers"><section><div class="reg-head"><h2>{en?'Hearings':'Sidang'}</h2><a href={base+'/hearings'}>{en?'View all':'Lihat semua'}<ArrowRight size={15}/></a></div>
-{#each [...w.hearings].sort((a,b)=>Number(b.mode==='live')-Number(a.mode==='live')||b.date.localeCompare(a.date)).slice(0,4) as h (h.id)}<a class="entry" href={base+'/hearings/'+h.id}><span class="stamp">{#if h.mode==='live'}<Mic size={18}/>{:else}<CalendarDays size={18}/>{/if}</span><div><strong>{h.title[data.lang]}</strong><small>{formatDate(h.date,data.lang,true)}{h.mode==='live'?' · '+(en?'In progress':'Berlangsung'):h.mode==='scheduled'?' · '+(en?'Scheduled':'Terjadwal'):''}</small></div><ChevronRight size={16}/></a>{:else}<p class="plain-empty">{en?'No hearings yet.':'Belum ada sidang.'}</p>{/each}
-<a class="new-link" href={base+'/hearings?new=1'}><Plus size={15}/>{en?'New hearing':'Sidang baru'}</a></section>
-<section><div class="reg-head"><h2>{en?'Documents':'Dokumen'}</h2><a href={base+'/documents'}>{en?'View all':'Lihat semua'}<ArrowRight size={15}/></a></div>
-{#each w.documents.slice(0,4) as d (d.id)}<a class="entry" href={base+'/documents/'+d.id}><span class="file-stamp"><FileText size={20}/></span><div><strong>{d.title}</strong><small>{d.file} · {d.pages} {en?'pages':'halaman'}</small></div><ChevronRight size={16}/></a>{:else}<p class="plain-empty">{en?'No documents yet.':'Belum ada dokumen.'}</p>{/each}</section></div>
-<section class="assistant-call"><MessageSquareText size={21}/><a href={base+'/assistant'}>{en?'Ask about this case':'Tanyakan tentang perkara ini'}</a><ArrowRight size={18}/></section>
-{#if dialog==='edit'}<CaseForm record={c} lang={data.lang} close={()=>dialog=null}/>{/if}
-{#if dialog==='menu'||dialog==='remove'}<Dialog title={dialog==='menu'?(en?'Case menu':'Menu perkara'):(en?'Delete this case?':'Hapus perkara ini?')} lang={data.lang} close={()=>dialog=null}>
- {#if dialog==='menu'}<div class="stack"><button class="button" onclick={()=>dialog='edit'}><Settings2 size={17}/>{en?'Case settings':'Pengaturan perkara'}</button><a class="button" href={'/api/cases/'+c.id+'/export'} download><ArrowDownToLine size={17}/>{en?'Export .jude archive':'Ekspor arsip .jude'}</a><button class="button" onclick={()=>action(c.archived?'/unarchive':'/archive','POST')}><Archive size={17}/>{c.archived?(en?'Unarchive':'Buka arsip'):(en?'Archive case':'Arsipkan perkara')}</button><button class="button danger" onclick={()=>dialog='remove'}><Trash2 size={17}/>{en?'Delete case':'Hapus perkara'}</button></div>
- {:else}<div class="stack"><p>{en?'Remove this case and its records from your workspace?':'Hapus perkara dan catatannya dari ruang kerja Anda?'}</p><div class="actions"><button class="button danger" onclick={()=>action('','DELETE')}>{en?'Delete case':'Hapus perkara'}</button><button class="button" onclick={()=>dialog=null}>{en?'Cancel':'Batal'}</button></div></div>{/if}{#if message}<p class="error-text" role="alert">{message}</p>{/if}</Dialog>{/if}
-<style>.file-head{margin-bottom:clamp(26px,3.4vw,43px)}.file-id{display:flex;align-items:center;gap:14px;color:var(--muted);font-size:.83rem;margin-bottom:10px}.file-id>.icon-button{margin-left:auto;background:transparent}.label{color:var(--accent);border:1px solid var(--line);border-radius:5px;padding:2px 7px}.file-head h1{max-width:22ch;font-size:clamp(2.7rem,4.6vw,5rem)}.file-head p{max-width:74ch;color:var(--muted);margin-top:14px;line-height:1.65}.brief{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);background:var(--forest);color:var(--on-forest);border-radius:14px;overflow:hidden}.brief-main,.paperquote{padding:clamp(22px,3vw,42px)}.brief-head{display:flex;align-items:center;gap:8px;font-size:.85rem}.brief-head h2{font:600 .85rem var(--sans)}.brief-head span{margin-left:3px;border-radius:4px;background:#426452;padding:0 7px}.brief-title{display:block;font:400 clamp(1.85rem,2.7vw,2.8rem)/1.13 var(--display);letter-spacing:-.02em;text-decoration:none;margin:18px 0 22px;max-width:24ch}.brief-link,.reg-head a,.new-link,.paperquote small,.paperquote a,.assistant-call{display:inline-flex;align-items:center;gap:8px}.brief-link{min-height:44px;text-underline-offset:5px;font-size:.88rem}.paperquote{margin:15px 15px 15px 0;background:var(--paper);color:var(--ink);display:flex;flex-direction:column;justify-content:center;border-radius:3px 8px 8px 3px;gap:14px}.paperquote blockquote{font:400 clamp(1rem,1.45vw,1.35rem)/1.44 var(--mono)}.paperquote small,.paperquote a{color:var(--muted);font-size:.77rem}.paperquote a{width:fit-content}.registers{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:clamp(22px,4vw,65px);margin:clamp(32px,5vw,62px) 0}.reg-head{display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--ink);padding-bottom:12px;gap:8px}.reg-head h2{font-size:2.1rem}.reg-head a,.new-link{font-size:.78rem;min-height:44px}.entry{display:flex;align-items:center;gap:12px;min-height:74px;padding:var(--space-row) 0;border-bottom:1px solid var(--line);text-decoration:none}.entry>div{flex:1;min-width:0}.entry strong{display:block;font-size:.93rem}.entry small{color:var(--muted);font-size:.78rem}.stamp,.file-stamp{color:var(--muted);width:29px;text-align:center}.entry:hover strong{text-decoration:underline}.assistant-call{border-block:1px solid var(--line);padding:16px 0;width:100%;color:var(--muted)}.assistant-call a{flex:1;font:400 1.6rem var(--display);text-decoration:none;color:var(--ink)}.start{padding:24px;border:1px solid var(--line);border-radius:12px;display:grid;gap:13px}.plain-empty{color:var(--muted);padding:20px 0}@media(max-width:850px){.brief{grid-template-columns:1fr}.paperquote{margin:0 14px 14px}.brief-title{max-width:36ch}.registers{grid-template-columns:1fr}}@media(max-width:500px){.file-id{gap:7px;font-size:.72rem}.file-head h1{font-size:2.9rem}.file-head p{font-size:.9rem}}.spoken{padding-bottom:14px;border-bottom:1px solid var(--line);display:grid;gap:7px}.spoken blockquote{font:500 clamp(1.05rem,1.4vw,1.35rem)/1.4 var(--sans)}.brief-main{display:flex;flex-direction:column;align-items:flex-start;justify-content:center}.paperquote{gap:7px}.paperquote a{min-height:28px}
+<div class="overview">
+  <header class="file-head">
+    <div class="file-id">
+      <span class="case-type"
+        >{c.label === 'synthetic'
+          ? en
+            ? 'Synthetic material'
+            : 'Materi sintetis'
+          : en
+            ? 'Private case'
+            : 'Perkara privat'}</span
+      >{#if c.reference}<span>{c.reference}</span>{/if}<button
+        class="icon-button"
+        onclick={() => (dialog = 'menu')}
+        aria-label={en ? 'Case menu' : 'Menu perkara'}><Ellipsis size={19} /></button
+      >
+    </div>
+    <h1>{c.title}</h1>
+    {#if c.summary[data.lang]}<p class="summary">{c.summary[data.lang]}</p>{/if}
+    <dl class="facts">
+      <div>
+        <dt>{en ? 'Client' : 'Klien'}</dt>
+        <dd>{c.client || '—'}</dd>
+      </div>
+      <div>
+        <dt>{en ? 'Court' : 'Pengadilan'}</dt>
+        <dd>{c.court || '—'}</dd>
+      </div>
+    </dl>
+    {#if !empty && !c.archived}<div class="case-actions">
+        {#if live}<a class="button" href={base + '/hearings/' + live.id}
+            ><Radio size={16} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a
+          >
+        {:else if c.label === 'synthetic' || data.canTranscribe}<a
+            class="button primary"
+            href={base + '/hearings?new=live'}><Mic size={16} />{en ? 'Record a hearing' : 'Rekam sidang'}</a
+          >{/if}
+        {#if data.canTranscribe}<a class="button" href={base + '/hearings?new=audio'}
+            ><Upload size={16} />{en ? 'Upload audio' : 'Unggah audio'}</a
+          >{/if}
+        <a class="button" href={base + '/documents'}
+          ><FilePlus2 size={16} />{en ? 'Add documents' : 'Tambah dokumen'}</a
+        >
+      </div>{/if}
+  </header>
+  {#if empty}
+    <section class="empty-file">
+      <h2>{en ? 'Start with your case material.' : 'Mulai dari materi perkara Anda.'}</h2>
+      <p>
+        {en
+          ? 'Documents hold the sources. Hearings hold the testimony.'
+          : 'Dokumen menyimpan sumber. Sidang menyimpan keterangan.'}
+      </p>
+      <a href={base + '/documents'}
+        ><FilePlus2 size={20} /><span
+          ><strong>{en ? 'Add the first document' : 'Tambahkan dokumen pertama'}</strong><small
+            >{en
+              ? 'File a brief, a witness statement or an exhibit.'
+              : 'Simpan dakwaan, BAP, atau barang bukti.'}</small
+          ></span
+        ><ArrowRight size={16} /></a
+      >
+      <a href={base + '/hearings?new=1'}
+        ><Speech size={20} /><span
+          ><strong>{en ? 'Add a hearing' : 'Tambahkan sidang'}</strong><small
+            >{en
+              ? 'Schedule an examination or import an existing transcript.'
+              : 'Jadwalkan pemeriksaan atau impor transkrip yang sudah ada.'}</small
+          ></span
+        ><ArrowRight size={16} /></a
+      >
+    </section>
+  {:else}
+    {#if live}<section class="live-brief" aria-label={en ? 'Current hearing' : 'Sidang berlangsung'}>
+        <div class="live-meta">
+          <Radio size={16} /><b
+            >{c.label === 'synthetic'
+              ? en
+                ? 'Example hearing'
+                : 'Sidang contoh'
+              : en
+                ? 'Live hearing'
+                : 'Sidang langsung'}</b
+          ><time>{timecode(elapsed)}</time>
+        </div>
+        <div class="live-heading">
+          <h2>{live.title[data.lang]}</h2>
+          <a href={base + '/hearings/' + live.id}
+            >{en ? 'Open hearing' : 'Buka sidang'}<ArrowRight size={15} /></a
+          >
+        </div>
+        {#if latest}<a class="latest-line" href={base + '/hearings/' + live.id + '?s=' + latest.id}
+            ><span class="initial" aria-hidden="true"
+              >{voice(w.speakers, latest.speakerId, data.lang).letters}</span
+            ><span
+              ><small>{voice(w.speakers, latest.speakerId, data.lang).name}</small><q>{latest.text}</q></span
+            ></a
+          >
+        {:else}<p>
+            {en ? 'Waiting for the first transcript line.' : 'Menunggu baris transkrip pertama.'}
+          </p>{/if}
+      </section>{/if}
+    <div class="columns">
+      <div class="column">
+        <section class="folio review">
+          <div class="heading">
+            <h2><ListChecks size={18} />{en ? 'Needs review' : 'Perlu dicek'}</h2>
+            <span class="count">{review.length}</span>
+          </div>
+          {#if first}<a class="lead-title" href={base + '/findings/' + first.id}>{first.title[data.lang]}</a>
+            <div class="evidence-pair">
+              {#if spoken && first.said}<a href={base + '/hearings/' + first.hearingId + '?s=' + spoken.id}
+                  ><small><Mic size={13} />{en ? 'Testimony' : 'Kesaksian'} · {timecode(spoken.t)}</small><q
+                    >{first.said}</q
+                  ></a
+                >{/if}
+              {#if passage}<a
+                  class="document-quote"
+                  href={base + '/documents/' + passage.docId + '?p=' + passage.id}
+                  ><small
+                    ><FileText size={13} />{w.documents.find((d) => d.id === passage.docId)?.title} · {en
+                      ? 'p.'
+                      : 'hlm.'}
+                    {passage.page}</small
+                  ><q>{first.sources[0].match || passage.text}</q></a
+                >{/if}
+            </div>
+            {#each review.filter((f) => f.id !== first.id).slice(0, 2) as f (f.id)}<a
+                class="queue-row"
+                href={base + '/findings/' + f.id}
+                ><CircleAlert size={14} /><span>{f.title[data.lang]}</span><ChevronRight size={14} /></a
+              >{/each}
+            <a class="text-action" href={base + '/findings/' + first.id}
+              >{en ? 'Review the sources' : 'Tinjau sumber'}<ArrowRight size={15} /></a
+            >
+          {:else}<p class="muted">
+              {w.findings.length
+                ? en
+                  ? 'Every finding has been reviewed.'
+                  : 'Semua temuan sudah ditinjau.'
+                : en
+                  ? 'No findings in this case yet.'
+                  : 'Belum ada temuan di perkara ini.'}
+            </p>{/if}
+        </section>
+        <section class="folio">
+          <div class="heading">
+            <h2><Speech size={18} />{en ? 'Hearings' : 'Sidang'}</h2>
+            <a href={base + '/hearings'}>{en ? 'View all' : 'Lihat semua'}<ArrowRight size={14} /></a>
+          </div>
+          {#each [...w.hearings].sort((a, b) => a.number - b.number) as h (h.id)}<HearingRow
+              {w}
+              {h}
+              lang={data.lang}
+              compact
+            />{:else}<p class="muted">
+              {en
+                ? 'Record, upload audio or import an existing transcript.'
+                : 'Rekam sidang, unggah audio, atau impor transkrip yang sudah ada.'}
+            </p>{/each}
+        </section>
+      </div>
+      <div class="column">
+        <section class="folio">
+          <div class="heading">
+            <h2><CalendarDays size={17} />{en ? 'Next hearing' : 'Sidang berikutnya'}</h2>
+          </div>
+          {#if next}<div class="calendar-entry">
+              <span class="leaf" aria-hidden="true"
+                ><small
+                  >{new Intl.DateTimeFormat(data.lang === 'id' ? 'id-ID' : 'en-GB', {
+                    month: 'short',
+                    timeZone: 'Asia/Jakarta',
+                  }).format(new Date(next.date))}</small
+                ><b>{Number(next.date.slice(8))}</b></span
+              >
+              <div>
+                <a href={base + '/hearings/' + next.id}>{next.title[data.lang]}</a><small
+                  >{formatDate(next.date, data.lang, true)}{next.time
+                    ? ' · ' + next.time + ' WIB'
+                    : ''}</small
+                >
+              </div>
+            </div>
+            <button class="text-action" onclick={() => ask(casePrompts[data.lang][2])}
+              >{en ? 'Prepare questions' : 'Siapkan pertanyaan'}<ArrowRight size={15} /></button
+            >
+          {:else}<p class="muted">{en ? 'No upcoming hearings.' : 'Belum ada jadwal sidang.'}</p>{/if}
+        </section>
+        <section class="folio ask">
+          <div class="heading">
+            <h2><MessageSquareText size={17} />{en ? 'Ask about this case' : 'Tanya perkara ini'}</h2>
+          </div>
+          <form
+            onsubmit={(e) => {
+              e.preventDefault();
+              void ask(question);
+            }}
+          >
+            <label class="sr-only" for="overview-question"
+              >{en ? 'Question about this case' : 'Pertanyaan tentang perkara'}</label
+            ><input
+              id="overview-question"
+              bind:value={question}
+              placeholder={en ? 'Ask about the case…' : 'Tulis pertanyaan perkara…'}
+            /><button
+              class="icon-button"
+              type="submit"
+              disabled={!question.trim()}
+              aria-label={en ? 'Send question' : 'Kirim pertanyaan'}><ArrowUp size={17} /></button
+            >
+          </form>
+          <div class="suggestions">
+            {#each casePrompts[data.lang] as prompt}<button onclick={() => ask(prompt)}
+                >{prompt}<ArrowUpRight size={13} /></button
+              >{/each}
+          </div>
+        </section>
+        <section class="folio">
+          <div class="heading">
+            <h2><FileText size={17} />{en ? 'Documents' : 'Dokumen'}</h2>
+            <a href={base + '/documents'}>{en ? 'View all' : 'Lihat semua'}<ArrowRight size={14} /></a>
+          </div>
+          <p class="muted doc-count">
+            {w.documents.length}
+            {en ? 'documents' : 'dokumen'} · {w.passages.length}
+            {en ? 'passages' : 'kutipan'} · {w.connections.length}
+            {en ? 'connections' : 'keterkaitan'}
+          </p>
+          {#if pending}<a class="pending" href={base + '/connections'}
+              ><GitFork size={13} />{pending} {en ? 'suggested connections' : 'keterkaitan disarankan'}</a
+            >{/if}
+          {#each w.documents.slice(0, 4) as doc (doc.id)}<a
+              class="doc-row"
+              href={base + '/documents/' + doc.id}
+              ><FileText size={15} /><span>{doc.title}</span><small>{doc.pages} {en ? 'pp.' : 'hlm.'}</small
+              ></a
+            >{/each}
+          {#if w.documents.length > 4}<a class="text-action" href={base + '/documents'}
+              >+{w.documents.length - 4}
+              {en ? 'more documents' : 'dokumen lainnya'}<ArrowRight size={13} /></a
+            >{/if}
+        </section>
+      </div>
+    </div>
+  {/if}
+</div>
+{#if dialog === 'edit'}<CaseForm record={c} lang={data.lang} close={() => (dialog = null)} />{/if}
+{#if dialog === 'menu' || dialog === 'remove'}<Dialog
+    title={dialog === 'menu'
+      ? en
+        ? 'Case menu'
+        : 'Menu perkara'
+      : en
+        ? 'Delete this case?'
+        : 'Hapus perkara ini?'}
+    lang={data.lang}
+    close={() => (dialog = null)}
+  >
+    {#if dialog === 'menu'}<div class="stack">
+        <button class="button" onclick={() => (dialog = 'edit')}
+          ><Settings2 size={17} />{en ? 'Case settings' : 'Pengaturan perkara'}</button
+        ><a class="button" href={'/api/cases/' + c.id + '/export'} download
+          ><ArrowDownToLine size={17} />{en ? 'Export .jude archive' : 'Ekspor arsip .jude'}</a
+        ><button class="button" onclick={() => action(c.archived ? '/unarchive' : '/archive', 'POST')}
+          ><Archive size={17} />{c.archived
+            ? en
+              ? 'Unarchive'
+              : 'Buka arsip'
+            : en
+              ? 'Archive case'
+              : 'Arsipkan perkara'}</button
+        ><button class="button danger" onclick={() => (dialog = 'remove')}
+          ><Trash2 size={17} />{en ? 'Delete case' : 'Hapus perkara'}</button
+        >
+      </div>
+    {:else}<div class="stack">
+        <p>
+          {en
+            ? 'Remove this case and its records from your workspace?'
+            : 'Hapus perkara dan catatannya dari ruang kerja Anda?'}
+        </p>
+        <div class="actions">
+          <button class="button danger" onclick={() => action('', 'DELETE')}
+            >{en ? 'Delete case' : 'Hapus perkara'}</button
+          ><button class="button" onclick={() => (dialog = null)}>{en ? 'Cancel' : 'Batal'}</button>
+        </div>
+      </div>{/if}{#if message}<p class="error-text" role="alert">{message}</p>{/if}</Dialog
+  >{/if}
+
+<style>
+  .overview {
+    container-type: inline-size;
+  }
+  .file-head {
+    max-width: 76rem;
+    margin: 0 0 25px;
+  }
+  .file-id,
+  .case-actions,
+  .facts,
+  .facts div,
+  .heading,
+  .heading h2,
+  .heading a,
+  .live-meta,
+  .live-heading,
+  .live-heading a,
+  .latest-line,
+  .evidence-pair small,
+  .calendar-entry,
+  .text-action,
+  .doc-row,
+  .pending,
+  .queue-row {
+    display: flex;
+    align-items: center;
+  }
+  .file-id {
+    gap: 12px;
+    color: var(--muted);
+    font-size: 0.83rem;
+    font-variant-numeric: tabular-nums;
+  }
+  .file-id > .icon-button {
+    margin-left: auto;
+    height: 36px;
+    min-height: 36px;
+    width: 40px;
+    min-width: 40px;
+    background: transparent;
+  }
+  .case-type {
+    padding: 2px 8px;
+    background: var(--wash);
+    color: var(--ink);
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .file-head h1 {
+    font:
+      400 clamp(2rem, 3.7cqi, 3rem)/1.1 Rufina,
+      Georgia,
+      serif;
+    letter-spacing: -0.035em;
+    margin: 10px 0 11px;
+  }
+  .summary {
+    max-width: 75ch;
+  }
+  .facts {
+    margin: 11px 0 0;
+    gap: 4px 25px;
+    flex-wrap: wrap;
+    font-size: 0.87rem;
+  }
+  .facts div {
+    gap: 7px;
+  }
+  .facts dt,
+  .calendar-entry small,
+  .heading a,
+  .evidence-pair small,
+  .doc-row small {
+    color: var(--muted);
+  }
+  .facts dd {
+    margin: 0;
+    font-weight: 600;
+  }
+  .case-actions {
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+  }
+  .case-actions .button {
+    min-height: 38px;
+    font-size: 0.84rem;
+  }
+  .live-brief,
+  .folio,
+  .empty-file {
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: var(--surface);
+    padding: clamp(17px, 2.2cqi, 25px);
+    min-width: 0;
+  }
+  .live-brief {
+    margin-bottom: 16px;
+    background: linear-gradient(
+      105deg,
+      color-mix(in srgb, var(--accent) 7%, var(--surface)),
+      var(--surface) 75%
+    );
+    border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+  }
+  .live-meta {
+    gap: 8px;
+    color: var(--accent);
+    font-size: 0.8rem;
+  }
+  .live-meta time {
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .live-heading {
+    justify-content: space-between;
+    gap: 16px;
+    margin: 5px 0 13px;
+  }
+  .live-heading h2 {
+    font-size: clamp(1.5rem, 2.6cqi, 2rem);
+  }
+  .live-heading a,
+  .heading a,
+  .text-action {
+    gap: 6px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+  .live-heading a {
+    white-space: nowrap;
+  }
+  .overview a:hover,
+  .overview button.text-action:hover {
+    text-decoration: underline;
+  }
+  .latest-line {
+    gap: 11px;
+    text-decoration: none;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .latest-line span:last-child {
+    min-width: 0;
+  }
+  .initial {
+    display: grid;
+    place-items: center;
+    width: 36px;
+    height: 36px;
+    flex: none;
+    border-radius: 50%;
+    background: var(--wash);
+    color: var(--ink);
+    font-size: 0.74rem;
+    font-weight: 600;
+  }
+  .latest-line small {
+    display: block;
+    color: var(--muted);
+    font-size: 0.8rem;
+  }
+  .latest-line q {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+    font-size: 1rem;
+  }
+  .columns {
+    display: grid;
+    gap: 16px;
+    align-items: start;
+  }
+  .column {
+    display: grid;
+    gap: 16px;
+    min-width: 0;
+  }
+  @container (min-width:860px) {
+    .columns {
+      grid-template-columns: minmax(0, 1.5fr) minmax(300px, 1fr);
+    }
+  }
+  .heading {
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+  .heading h2 {
+    font: 600 1.03rem/1.4 var(--sans);
+    letter-spacing: -0.02em;
+    gap: 9px;
+  }
+  .heading h2 :global(svg) {
+    color: var(--muted);
+  }
+  .heading a {
+    min-height: 28px;
+  }
+  .count {
+    background: color-mix(in srgb, var(--accent) 13%, var(--paper));
+    color: var(--accent);
+    min-width: 24px;
+    text-align: center;
+    border-radius: 25px;
+    font-weight: 600;
+    font-size: 0.83rem;
+  }
+  .lead-title {
+    display: block;
+    font: 400 clamp(1.65rem, 2.6cqi, 2.25rem)/1.13 var(--display);
+    text-decoration: none;
+    letter-spacing: -0.022em;
+    max-width: 37ch;
+  }
+  .evidence-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    margin: 14px 0 9px;
+    border-block: 1px solid var(--line);
+  }
+  .evidence-pair a {
+    padding: 12px 10px 12px 0;
+    display: grid;
+    align-content: start;
+    gap: 6px;
+    text-decoration: none;
+    min-width: 0;
+  }
+  .evidence-pair .document-quote {
+    padding-left: 12px;
+    border-left: 1px solid var(--line);
+    font-family: var(--mono);
+  }
+  .evidence-pair small {
+    font: 500 0.78rem/1.4 var(--sans);
+    gap: 5px;
+  }
+  .evidence-pair q {
+    font-size: 0.97rem;
+    line-height: 1.45;
+  }
+  .document-quote q {
+    font-size: 0.92rem;
+  }
+  .queue-row,
+  .doc-row {
+    gap: 9px;
+    min-height: 43px;
+    padding: 8px 0;
+    text-decoration: none;
+    border-bottom: 1px solid var(--line);
+    font-size: 0.87rem;
+  }
+  .queue-row span,
+  .doc-row span {
+    flex: 1;
+  }
+  .queue-row :global(svg:first-child) {
+    color: var(--accent);
+  }
+  .text-action {
+    color: var(--ink);
+    background: transparent;
+    padding: 0;
+    border: 0;
+    min-height: 36px;
+    margin-top: 6px;
+  }
+  .calendar-entry {
+    gap: 13px;
+  }
+  .calendar-entry div:last-child {
+    min-width: 0;
+  }
+  .calendar-entry a {
+    font-weight: 600;
+    text-decoration: none;
+    line-height: 1.4;
+  }
+  .calendar-entry small {
+    display: block;
+    margin-top: 3px;
+    font-size: 0.8rem;
+  }
+  .leaf {
+    display: grid;
+    min-width: 49px;
+    text-align: center;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    overflow: hidden;
+  }
+  .leaf small {
+    margin: 0;
+    background: var(--forest);
+    color: var(--on-forest);
+    font: 600 0.73rem/1.6 var(--sans);
+    text-transform: uppercase;
+  }
+  .leaf b {
+    padding: 0 8px;
+    font: 500 1.7rem/1.4 var(--sans);
+    font-variant-numeric: tabular-nums;
+  }
+  .ask form {
+    display: flex;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    align-items: center;
+    background: var(--paper);
+  }
+  .ask input {
+    padding: 8px 9px;
+    flex: 1;
+    width: 0;
+    min-height: 44px;
+    border: 0;
+    background: transparent;
+  }
+  .ask form .icon-button {
+    margin-right: 4px;
+    width: 34px;
+    min-width: 34px;
+    height: 34px;
+    min-height: 34px;
+  }
+  .suggestions {
+    margin-top: 8px;
+  }
+  .suggestions button {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--line);
+    width: 100%;
+    text-align: left;
+    min-height: 36px;
+    padding: 7px 0;
+    color: var(--muted);
+    font-size: 0.81rem;
+  }
+  .suggestions button:hover {
+    color: var(--ink);
+  }
+  .doc-count,
+  .folio > p,
+  .live-brief > p,
+  .empty-file p {
+    font-size: 0.86rem;
+    color: var(--muted);
+  }
+  .pending {
+    gap: 6px;
+    color: var(--accent);
+    width: fit-content;
+    font-size: 0.79rem;
+    text-decoration: none;
+    margin: 7px 0;
+  }
+  .empty-file {
+    max-width: 49rem;
+  }
+  .empty-file h2 {
+    font-size: 2rem;
+  }
+  .empty-file p {
+    margin: 7px 0 22px;
+  }
+  .empty-file > a {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    text-decoration: none;
+    border-top: 1px solid var(--line);
+    min-height: 76px;
+  }
+  .empty-file > a > span {
+    flex: 1;
+  }
+  .empty-file small {
+    display: block;
+    color: var(--muted);
+  }
+  @container (max-width:480px) {
+    .live-heading {
+      align-items: flex-start;
+    }
+    .live-heading a {
+      white-space: normal;
+      text-align: right;
+    }
+    .evidence-pair {
+      grid-template-columns: 1fr;
+    }
+    .evidence-pair .document-quote {
+      border-left: 0;
+      border-top: 1px solid var(--line);
+      padding-left: 0;
+    }
+    .facts {
+      display: grid;
+      gap: 4px;
+    }
+    .file-id {
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+  }
+  @media (pointer: coarse) {
+    .suggestions button,
+    .heading a,
+    .text-action,
+    .live-heading a,
+    .case-actions .button {
+      min-height: 44px;
+    }
+  }
 </style>

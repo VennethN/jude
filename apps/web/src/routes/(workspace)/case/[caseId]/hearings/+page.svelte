@@ -1,19 +1,321 @@
 <script lang="ts">
- import {page} from '$app/state';import {goto} from '$app/navigation';
- import { ArrowUpRight, CalendarDays, Mic, Plus, Search } from '@lucide/svelte';
- import {needsReview} from '@jude/core/domain';
- import HearingForm from '$lib/workspace/HearingForm.svelte';
- import {formatDate} from '$lib/workspace/format';
- let {data}=$props();const w=$derived(data.workspace),en=$derived(data.lang==='en'),base=$derived('/case/'+w.caseRecord.id+'/hearings');
- let query=$state(''),reviewOnly=$state(false),create=$state(false);
- const filtered=$derived([...w.hearings].sort((a,b)=>b.date.localeCompare(a.date)).filter(h=>{
-   const q=query.trim().toLowerCase();return (!reviewOnly||w.findings.some(f=>f.hearingId===h.id&&needsReview(f)))&&([h.title.id,h.title.en,h.date].join(' ').toLowerCase().includes(q)||w.statements.some(s=>s.hearingId===h.id&&s.text.toLowerCase().includes(q))) }));
- const initial=$derived(page.url.searchParams.get('new')||'');
- function close(){create=false;if(initial)void goto(base,{replaceState:true,keepFocus:true,noScroll:true})}
+  import { page } from '$app/state';
+  import { goto, invalidateAll } from '$app/navigation';
+  import { ListChecks, Mic, Plus, Search, Speech, Trash2, Undo2, X } from '@lucide/svelte';
+  import { needsReview, type Hearing } from '@jude/core/domain';
+  import { api } from '$lib/client';
+  import Dialog from '$lib/workspace/Dialog.svelte';
+  import HearingForm from '$lib/workspace/HearingForm.svelte';
+  import HearingRow from '$lib/workspace/HearingRow.svelte';
+  import { formatDate } from '$lib/workspace/format';
+  let { data } = $props();
+  const w = $derived(data.workspace),
+    en = $derived(data.lang === 'en'),
+    base = $derived('/case/' + w.caseRecord.id + '/hearings');
+  const live = $derived(w.hearings.find((h) => h.mode === 'live'));
+  let query = $state(''),
+    reviewOnly = $state(false),
+    create = $state(false),
+    flow = $state(''),
+    scheduled = $state<Hearing>();
+  let manage = $state(false),
+    removing = $state<Hearing>(),
+    removed = $state<Hearing>(),
+    busy = $state(false),
+    error = $state('');
+  const initial = $derived(page.url.searchParams.get('new') || '');
+  const filtered = $derived.by(() => {
+    const term = query.trim().toLocaleLowerCase();
+    return [...w.hearings]
+      .sort((a, b) => b.number - a.number)
+      .flatMap((h) => {
+        if (reviewOnly && !w.findings.some((f) => f.hearingId === h.id && needsReview(f))) return [];
+        const match = term
+          ? w.statements.find((s) => s.hearingId === h.id && s.text.toLocaleLowerCase().includes(term))
+          : undefined;
+        const fields = [
+          h.title.id,
+          h.title.en,
+          h.date,
+          formatDate(h.date, data.lang, true),
+          formatDate(h.date, data.lang),
+          String(h.number),
+        ];
+        return !term || match || fields.some((value) => value.toLocaleLowerCase().includes(term))
+          ? [{ h, match }]
+          : [];
+      });
+  });
+  function open(selected = '', hearing?: Hearing) {
+    flow = selected;
+    scheduled = hearing;
+    create = true;
+  }
+  function close() {
+    create = false;
+    scheduled = undefined;
+    flow = '';
+    if (initial) void goto(base, { replaceState: true, keepFocus: true, noScroll: true });
+  }
+  async function change(h: Hearing, restore = false) {
+    if (busy) return;
+    busy = true;
+    error = '';
+    try {
+      await api(
+        '/api/cases/' + w.caseRecord.id + '/hearings/' + h.id + (restore ? '/restore' : ''),
+        restore ? 'POST' : 'DELETE',
+      );
+      removing = undefined;
+      removed = restore ? undefined : h;
+      await invalidateAll();
+    } catch (e) {
+      error =
+        e instanceof Error ? e.message : en ? 'Could not save the change.' : 'Perubahan belum tersimpan.';
+    } finally {
+      busy = false;
+    }
+  }
 </script>
-<svelte:head><title>{en?'Hearings':'Sidang'} · Jude</title></svelte:head>
-<header class="libhead"><div><h1>{en?'Hearings':'Sidang'}</h1><p>{w.caseRecord.title}</p></div><button class="button primary" onclick={()=>create=true}><Plus size={17}/>{en?'New hearing':'Sidang baru'}</button></header>
-<div class="filters"><label class="search"><Search size={17}/><input bind:value={query} placeholder={en?'Find a title, date or phrase…':'Cari judul, tanggal, atau ucapan…'} aria-label={en?'Search hearings':'Cari sidang'}/></label><label><input type="checkbox" bind:checked={reviewOnly}/> {en?'Needs review':'Perlu dicek'}</label></div>
-<div class="rows">{#each filtered as h (h.id)}<a class="row" href={base+'/'+h.id}><span class="day"><b>{h.date.slice(8)}</b><small>{new Intl.DateTimeFormat(data.lang==='en'?'en-GB':'id-ID',{month:'short',timeZone:'Asia/Jakarta'}).format(new Date(h.date))}</small></span><div><small>{en?'Hearing':'Sidang'} {h.number} · {formatDate(h.date,data.lang,true)}</small><h2>{h.title[data.lang]}</h2>{#if query.trim()}{@const s=w.statements.find(s=>s.hearingId===h.id&&s.text.toLowerCase().includes(query.trim().toLowerCase()))}{#if s}<p>“{s.text}”</p>{/if}{/if}</div><span class="mode">{#if h.mode==='live'}<Mic size={15}/>{en?'In progress':'Berlangsung'}{:else if h.mode==='scheduled'}<CalendarDays size={15}/>{en?'Scheduled':'Terjadwal'}{:else}{h.mode==='recorded'?(en?'Recorded':'Rekaman'):(en?'Imported':'Transkrip')}{/if}</span><ArrowUpRight size={18}/></a>{:else}<div class="norecord"><h2>{w.hearings.length?(en?'No matching hearings':'Tidak ada sidang yang cocok'):(en?'No hearings filed yet':'Belum ada sidang')}</h2><button class="button" onclick={()=>w.hearings.length?(query='',reviewOnly=false):create=true}>{w.hearings.length?(en?'Clear filters':'Hapus filter'):(en?'Add a hearing':'Tambahkan sidang')}</button></div>{/each}</div>
-{#if create||initial}<HearingForm workspace={w} lang={data.lang} {initial} {close} transcription={data.transcription} guest={data.account.user.guest}/>{/if}
-<style>.libhead,.filters,.row,.mode,.search{display:flex;align-items:center;gap:12px}.libhead,.filters{justify-content:space-between;flex-wrap:wrap}.libhead{margin-bottom:36px}.libhead p{margin-top:8px;color:var(--muted)}.filters{border-bottom:1px solid var(--ink);padding-bottom:14px}.filters label{color:var(--muted);font-size:.88rem}.search input{background:transparent;border:0;min-height:44px;min-width:210px}.row{border-bottom:1px solid var(--line);text-decoration:none;padding:var(--space-row) 0;min-height:94px;gap:20px}.row>div{flex:1}.row h2{font-size:clamp(1.5rem,2.5vw,2rem);margin-top:4px}.row small,.mode,.row p{color:var(--muted);font-size:.8rem}.mode{gap:5px}.day{display:grid;justify-items:center;align-content:center;min-width:48px;height:57px;background:var(--wash);border-radius:6px}.day b{font:400 1.8rem/1 var(--display)}.norecord{display:grid;justify-items:start;gap:16px;padding:35px 0}@media(max-width:650px){.row{gap:10px}.mode{display:none}.day{min-width:41px}.row>div{min-width:0}}</style>
+
+<svelte:head><title>{en ? 'Hearings' : 'Sidang'} · Jude</title></svelte:head>
+<div class="library">
+  <header class="library-head">
+    <div>
+      <h1>{en ? 'Hearings' : 'Sidang'}</h1>
+      <p>
+        {en
+          ? 'The testimony, recordings and transcripts filed in this case.'
+          : 'Keterangan, rekaman, dan transkrip yang tersimpan dalam perkara ini.'}
+      </p>
+    </div>
+    {#if !w.caseRecord.archived}<div class="toolbar">
+        {#if live}<a class="button" href={base + '/' + live.id}
+            ><Mic size={15} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a
+          >{:else if data.transcription || w.caseRecord.label === 'synthetic'}<button
+            class="button"
+            onclick={() => open('live')}><Mic size={15} />{en ? 'Record live' : 'Rekam langsung'}</button
+          >{/if}<button class="button primary" onclick={() => open()}
+          ><Plus size={16} />{en ? 'New hearing' : 'Sidang baru'}</button
+        >
+      </div>{/if}
+  </header>
+  {#if w.hearings.length}<div class="filters">
+      <label class="search"
+        ><Search size={16} /><input
+          type="search"
+          bind:value={query}
+          placeholder={en ? 'Find a hearing or transcript phrase…' : 'Cari sidang atau frasa transkrip…'}
+          aria-label={en ? 'Search hearings' : 'Cari sidang'}
+        /></label
+      ><button class="filter" aria-pressed={reviewOnly} onclick={() => (reviewOnly = !reviewOnly)}
+        ><ListChecks size={15} />{en ? 'Needs review' : 'Perlu ditinjau'}</button
+      ><span class="result" role="status"
+        >{filtered.length} {en ? 'of' : 'dari'} {w.hearings.length} {en ? 'hearings' : 'sidang'}</span
+      >
+    </div>
+    <div class="rows">
+      {#each filtered as { h, match } (h.id)}<HearingRow
+          {w}
+          {h}
+          lang={data.lang}
+          {match}
+          term={query.trim()}
+          onstart={w.caseRecord.archived ? undefined : () => open('live', h)}
+        />
+        {#if manage && h.mode !== 'live'}<button
+            class="remove"
+            onclick={() => {
+              removing = h;
+              error = '';
+            }}><Trash2 size={14} />{en ? 'Remove' : 'Hapus'} · {h.title[data.lang]}</button
+          >{/if}
+      {:else}<div class="empty">
+          <p>{en ? 'No hearings match these filters.' : 'Tidak ada sidang yang cocok dengan filter ini.'}</p>
+          <button
+            class="button"
+            onclick={() => {
+              query = '';
+              reviewOnly = false;
+            }}>{en ? 'Clear filters' : 'Hapus filter'}</button
+          >
+        </div>{/each}
+    </div>
+    {#if !w.caseRecord.archived && w.hearings.some((h) => h.mode !== 'live')}<button
+        class="manage"
+        aria-pressed={manage}
+        onclick={() => (manage = !manage)}
+        >{manage ? (en ? 'Done' : 'Selesai') : en ? 'Manage hearings' : 'Kelola sidang'}</button
+      >{/if}
+  {:else}<section class="empty">
+      <Speech size={24} />
+      <h2>{en ? 'Your first hearing starts here.' : 'Sidang pertama Anda dimulai di sini.'}</h2>
+      <p>
+        {en
+          ? 'Schedule an examination, record a hearing or bring in a transcript.'
+          : 'Jadwalkan pemeriksaan, rekam sidang, atau impor transkrip.'}
+      </p>
+      {#if !w.caseRecord.archived}<button class="button" onclick={() => open()}
+          >{en ? 'Add a hearing' : 'Tambahkan sidang'}</button
+        >{/if}
+    </section>{/if}
+  {#if removed}<div class="notice" role="status">
+      {en ? 'Hearing removed.' : 'Sidang dihapus.'}<button
+        disabled={busy}
+        onclick={() => change(removed!, true)}><Undo2 size={14} />{en ? 'Undo' : 'Urungkan'}</button
+      ><button aria-label={en ? 'Dismiss' : 'Tutup'} onclick={() => (removed = undefined)}
+        ><X size={14} /></button
+      >
+    </div>{/if}
+  {#if error && !removing}<p class="error-text" role="alert">{error}</p>{/if}
+</div>
+{#if create || initial}<HearingForm
+    workspace={w}
+    lang={data.lang}
+    initial={flow || initial}
+    {scheduled}
+    {close}
+    transcription={data.transcription}
+    guest={data.account.user.guest}
+  />{/if}
+{#if removing}<Dialog
+    title={en ? 'Remove this hearing?' : 'Hapus sidang ini?'}
+    lang={data.lang}
+    close={() => (removing = undefined)}
+    ><div class="stack">
+      <p>{removing.title[data.lang]}</p>
+      <p class="small">
+        {en
+          ? 'Its transcript and recording will leave the active case. You can undo this change.'
+          : 'Transkrip dan rekamannya akan dihapus dari perkara aktif. Anda dapat mengurungkan perubahan ini.'}
+      </p>
+      {#if error}<p class="error-text" role="alert">{error}</p>{/if}
+      <div class="actions">
+        <button class="button danger" disabled={busy} onclick={() => change(removing!)}
+          >{en ? 'Remove hearing' : 'Hapus sidang'}</button
+        ><button class="button" onclick={() => (removing = undefined)}>{en ? 'Cancel' : 'Batal'}</button>
+      </div>
+    </div></Dialog
+  >{/if}
+
+<style>
+  .library {
+    container-type: inline-size;
+  }
+  .library-head,
+  .toolbar,
+  .filters,
+  .search,
+  .filter,
+  .result,
+  .notice,
+  .notice button,
+  .remove {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+  }
+  .library-head {
+    justify-content: space-between;
+    align-items: flex-end;
+    gap: 18px;
+    flex-wrap: wrap;
+    margin-bottom: 22px;
+  }
+  .library-head h1 {
+    font:
+      400 clamp(2.3rem, 4cqi, 3.2rem)/1.1 Rufina,
+      Georgia,
+      serif;
+    letter-spacing: -0.035em;
+  }
+  .library-head p,
+  .empty p,
+  .result {
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin-top: 7px;
+  }
+  .toolbar,
+  .filters {
+    flex-wrap: wrap;
+  }
+  .filters {
+    border-block: 1px solid var(--line);
+    padding: 12px 0;
+  }
+  .search {
+    flex: 1 1 250px;
+    min-height: 42px;
+    padding: 0 11px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: var(--surface);
+    color: var(--muted);
+  }
+  .search input {
+    width: 100%;
+    min-width: 0;
+    min-height: 42px;
+    background: transparent;
+    border: 0;
+  }
+  .filter,
+  .manage,
+  .notice button,
+  .remove {
+    min-height: 40px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 0.85rem;
+    padding: 5px 10px;
+  }
+  .filter[aria-pressed='true'] {
+    background: var(--forest);
+    color: var(--on-forest);
+  }
+  .result {
+    margin: 0;
+    font-size: 0.8rem;
+  }
+  .empty {
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+    padding: 30px 0;
+  }
+  .manage {
+    margin-top: 17px;
+    background: transparent;
+  }
+  .remove {
+    color: var(--accent);
+    margin-top: 7px;
+  }
+  .notice {
+    margin: 13px 0 0;
+    padding: 9px 13px;
+    background: var(--wash);
+    border-radius: 6px;
+  }
+  .notice button:first-of-type {
+    margin-left: auto;
+  }
+  @container (max-width:500px) {
+    .toolbar {
+      width: 100%;
+    }
+    .search {
+      flex-basis: 100%;
+    }
+    .result {
+      margin-left: auto;
+    }
+    .library-head {
+      align-items: start;
+      gap: 14px;
+    }
+  }
+</style>
