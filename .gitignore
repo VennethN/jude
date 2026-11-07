@@ -11,3 +11,21 @@ tfplan
 crash.log
 crash.*.log
 .DS_Store
+
+# Local application state
+node_modules/
+.pnpm-store/
+.svelte-kit/
+build/
+.env
+.env.*
+!.env.example
+.jude-data/
+.jude/
+playwright-report/
+test-results/
+.impeccable/config.local.json
+.impeccable/build/
+.impeccable/questions/
+.impeccable/live/
+.impeccable/hook.cache.json
