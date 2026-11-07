@@ -13,3 +13,5 @@ db_allowed_public_cidrs = ["0.0.0.0/0"]
 
 enable_application = true
 enable_voice_host  = true
+
+github_repository = "VennethN/jude"

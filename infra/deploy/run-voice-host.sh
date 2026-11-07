@@ -1,8 +1,10 @@
 #!/bin/bash
-# Invoked through SSM after the immutable source image has been built on EC2.
+# Invoked through SSM after building locally or pulling an immutable ECR image.
 set -euo pipefail
 umask 077
 export AWS_DEFAULT_REGION=ap-southeast-3 AWS_PAGER=""
+image=${JUDE_IMAGE:-jude:current}
+docker image inspect "$image" >/dev/null
 install -d -m 0700 /run/jude /etc/jude/certs
 aws ssm get-parameters-by-path --path /jude-dev/runtime/ --with-decryption --output json |
   jq -er '.Parameters[] | (.Name | split("/") | last) as $key |
@@ -34,7 +36,7 @@ docker run -d --name jude-app --network jude --restart unless-stopped \
   -e NODE_EXTRA_CA_CERTS=/run/rds-ca.pem -e BODY_SIZE_LIMIT=64M -e HOME=/tmp \
   -e HF_HOME=/tmp/huggingface -e PYANNOTE_METRICS_ENABLED=0 \
   --mount type=bind,src=/etc/jude/certs/rds-ca.pem,dst=/run/rds-ca.pem,readonly \
-  --log-opt max-size=10m --log-opt max-file=3 jude:current >/dev/null
+  --log-opt max-size=10m --log-opt max-file=3 "$image" >/dev/null
 for attempt in {1..60}; do
   if docker exec jude-app node --input-type=module -e \
     'const r=await Promise.all([3000,3001].map(async p=>(await fetch(`http://127.0.0.1:${p}/healthz`)).ok)); process.exit(r.every(Boolean)?0:1)' \
@@ -49,7 +51,7 @@ docker run -d --name jude-proxy --network jude --restart unless-stopped \
   --tmpfs /config:rw,nosuid,nodev --tmpfs /data:rw,nosuid,nodev \
   --mount type=bind,src=/etc/jude/Caddyfile,dst=/etc/caddy/Caddyfile,readonly \
   --log-opt max-size=10m --log-opt max-file=3 \
-  jude:current caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
+  "$image" caddy run --config /etc/caddy/Caddyfile --adapter caddyfile >/dev/null
 for attempt in {1..20}; do
   if curl -fsS --max-time 3 http://127.0.0.1/healthz >/dev/null; then break; fi
   if [ "$attempt" = 20 ]; then echo 'EC2 HTTP proxy readiness failed' >&2; exit 1; fi

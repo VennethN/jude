@@ -112,3 +112,11 @@ Run the offline module checks locally with `terraform -chdir=infra/terraform fmt
 AWS documents the [Amazon Linux 2023 image parameters](https://docs.aws.amazon.com/linux/al2023/ug/ec2.html) and [RDS certificate rotation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ConnectToInstance.SSL.CertificateRotation.html).
 
 The shared hosting and network diagrams are in the [infrastructure documentation](../../../infra/docs/architecture/).
+
+## GitHub Actions
+
+`.github/workflows/deploy.yml` follows the reference project's web/voice/deploy jobs. Web checks include SQLite, PostgreSQL and browser coverage; the independent Python job checks lint and both database backends. Only successful main runs deploy, using OIDC, ECR and SSM. The shared image contains both apps and migrations, built from the repository root with the `release-pyannote` target. ECR tags identify each workflow attempt because the repository is immutable; EC2 pulls the returned digest before replacing containers. Runtime credentials stay in SSM.
+
+Apply Terraform with `github_repository = "VennethN/jude"` to provision the dedicated deployment role and host ECR read permissions. The AWS account must already have the GitHub OIDC provider `token.actions.githubusercontent.com`. The workflow includes the current environment’s public resource identifiers as defaults. No AWS access keys or runtime credentials are stored in GitHub. Optionally override repository variable `AWS_DEPLOY_ROLE_ARN` with Terraform output `github_deploy_role_arn`, and repository variables `AWS_REGION=ap-southeast-3`, `ECR_REPOSITORY=jude-dev/app`, `DEPLOY_OPS_BUCKET` to the private files bucket, `DEPLOY_INSTANCE_ID` to the combined EC2 instance, and `APP_URL` to its public HTTPS URL. A manual main run is available through workflow_dispatch.
+
+A deployment briefly replaces the two containers on the single host. Failed readiness stops the workflow; it does not automatically restore the preceding image. Inspect the SSM command ID reported by the workflow before retrying.
