@@ -39,6 +39,7 @@
   import Dialog from '$lib/workspace/Dialog.svelte';
   import Search from '$lib/workspace/Search.svelte';
   import Tours from '$lib/workspace/Tours.svelte';
+  import TourInvite from '$lib/workspace/TourInvite.svelte';
   import Assistant from '$lib/evidence/Assistant.svelte';
   let { data, children } = $props();
   const w = $derived(page.data.workspace as Workspace | undefined),
@@ -125,6 +126,7 @@
   });
   let overlay = $state<'prefs' | 'search' | 'assistant' | 'tour' | 'shortcuts' | null>(null),
     tourFromOverview = $state(false),
+    panelQuestion = $state(''),
     systemDark = $state(false),
     errorMsg = $state('');
   const theme = $derived(
@@ -200,12 +202,17 @@
     await goto(base, { keepFocus: true, state: { ...page.state, judeCaseMenu: true } });
   }
   $effect(() => {
-    const { judeNotice, judeTour, ...rest } = page.state as {
+    const { judeNotice, judeTour, judePanelQuestion, ...rest } = page.state as {
       judeNotice?: { text?: unknown };
       judeTour?: boolean;
+      judePanelQuestion?: {caseId: string; text: string};
     };
-    if (!judeNotice && !judeTour) return;
+    if (!judeNotice && !judeTour && !judePanelQuestion) return;
     replaceState('', rest);
+    if (judePanelQuestion?.caseId === w?.caseRecord.id && judePanelQuestion?.text) {
+      panelQuestion = judePanelQuestion.text;
+      overlay = 'assistant';
+    }
     if (judeTour && account.demo) {
       tourFromOverview = true;
       overlay = 'tour';
@@ -217,6 +224,7 @@
     noticeTimer = setTimeout(() => (noticeText = ''), 3600);
   });
 
+  function closeAssistant() { overlay = null; panelQuestion = ''; }
   async function openSearch() {
     if (!w) {
       document.querySelector<HTMLInputElement>('#case-main input[type="search"]')?.focus();
@@ -587,7 +595,10 @@
         {/if}
       </div>
     {/if}
-    <main id="case-main" tabindex="-1" class="content">{@render children()}</main>
+    <main id="case-main" tabindex="-1" class="content">
+      {#if account.demo && !account.prefs.tourSeen && overlay !== 'tour'}<TourInvite {en}/>{/if}
+      {@render children()}
+    </main>
   </div>
   {#if w}
     <nav class="phone-nav" aria-label={en ? 'Case navigation' : 'Navigasi perkara'} data-tour="sections">
@@ -646,9 +657,9 @@
   {#if overlay === 'assistant' && w}<Dialog
       title={en ? 'Case assistant' : 'Asisten perkara'}
       lang={data.lang}
-      close={() => (overlay = null)}
+      close={closeAssistant}
       side
-      ><Assistant workspace={w} lang={data.lang} compact {context} onClose={() => (overlay = null)} /></Dialog
+      ><Assistant workspace={w} lang={data.lang} compact {context} initialQuestion={panelQuestion} onClose={closeAssistant} /></Dialog
     >{/if}
   {#if overlay === 'prefs'}<Dialog
       title={en ? 'Preferences' : 'Preferensi'}

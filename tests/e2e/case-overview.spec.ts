@@ -10,13 +10,21 @@ test('a reader can dismiss the introduction and prepare the next hearing from th
   await page.reload();
   await expect(invite).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Siapkan pertanyaan', exact: true }).click();
-  await expect(page).toHaveURL(/\/assistant\/(?!new(?:$|\?))[^/?]+$/);
-  const question = page.locator('.message.question .answer').filter({
+  const overview = page.url();
+  const prepare = page.getByRole('button', { name: 'Siapkan pertanyaan', exact: true });
+  await prepare.scrollIntoViewIfNeeded();
+  const before = await page.evaluate(() => scrollY);
+  await prepare.click();
+  const panel = page.getByRole('dialog', { name: 'Asisten perkara' });
+  const question = panel.locator('.message.question .answer').filter({
     hasText: 'Pertanyaan apa yang perlu saya siapkan untuk sidang berikutnya?',
   });
   await expect(question).toHaveCount(1);
-  await expect(page.locator('[data-tour="assistant-answer"]')).toBeVisible();
-  await page.reload();
+  await expect(panel.locator('[data-tour="assistant-answer"]')).toBeVisible();
+  await expect(page).toHaveURL(overview);
+  await panel.getByRole('button', { name: 'Tutup asisten' }).click();
+  await expect(panel).toHaveCount(0);
+  expect(Math.abs(await page.evaluate(() => scrollY) - before)).toBeLessThan(4);
+  await page.getByRole('button', { name: 'Buka asisten perkara', exact: true }).click();
   await expect(question).toHaveCount(1);
 });
