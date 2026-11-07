@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { onMount, tick, untrack } from 'svelte';
+  import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { casePrompts } from '$lib/workspace/case-prompts';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { ArrowUp, Plus, X, History, FolderOpen, Scale, Search, SquarePen } from '@lucide/svelte';
-  import type { ContextRef, InspectTarget, Lang, Thread, Workspace } from '@jude/core/domain';
+  import type { ChatMessage as Message, ContextRef, InspectTarget, Lang, Thread, Workspace } from '@jude/core/domain';
   import { api, ApiError } from '$lib/client';
   import { apiPath, casePath, evidenceKey, local, meaningful, sourceOf } from './records';
   import Inspector from './Inspector.svelte';
   import ChatMessage from './ChatMessage.svelte';
+  import { claimAttempt, forgetAttempt, readAnswer, rememberAttempt, type AnswerAttempt } from './answer-stream';
+  import { workspaceRequest } from '$lib/workspace/tab-cache';
   import './evidence.css';
 
   let {
@@ -63,10 +65,16 @@
     pick = $state(false),
     search = $state(''),
     busy = $state(false),
-    pending = $state(''),
     problem = $state(''),
     limit = $state(false),
     retry = $state('');
+  let pending = $state.raw<Message>();
+  let partial = $state.raw<Message>();
+  let previousCount = $state(0);
+  const messages = $derived(pending
+    ? [...(thread?.messages.slice(0, previousCount) ?? []), pending, ...(partial ? [partial] : [])]
+    : (thread?.messages ?? []));
+  const conversationTitle = $derived(thread ? local(thread.title, lang) : pending ? local(pending.text, lang).slice(0, 100) : '');
   let inspect = $state<InspectTarget | null>(null);
   let composer: HTMLTextAreaElement;
   let flow: HTMLDivElement;
@@ -89,7 +97,16 @@
     await tick();
     (open ? sourceSearch : addContextButton)?.focus({ preventScroll: true });
   }
-  let lastAttempt: { fingerprint: string; key: string } | undefined;
+  let lastAttempt: AnswerAttempt | undefined;
+  let activeRequest: AbortController | undefined;
+  onDestroy(() => activeRequest?.abort());
+  function attemptSlot(threadId: string) {
+    const account = page.data.account;
+    return ['jude:ask', account?.organization.id, account?.user.id, w.caseRecord.id, threadId || 'new'].join('/');
+  }
+  function followsLatest() {
+    return !flow || flow.scrollHeight - flow.scrollTop - flow.clientHeight < 90;
+  }
   let storeKey = $derived('jude:thread:' + w.caseRecord.id);
   function parse(value: string | null): ContextRef | undefined {
     if (value === 'case' || value === 'documents') return { kind: value };
@@ -218,61 +235,77 @@
   async function send(text = draft, suggested = false) {
     text = text.trim();
     if (!text || busy) return;
-    const attached = contexts.length ? [...contexts] : [{ kind: 'case' } as const],
-      typed = draft;
+    const attached = contexts.length ? [...contexts] : [{ kind: 'case' } as const];
+    const typed = draft, question = { text, lang, contexts: attached, withLegal: searchLaw };
+    const initialSlot = attemptSlot(currentId);
+    const controller = new AbortController();
+    activeRequest = controller;
     busy = true;
-    pending = text;
+    previousCount = thread?.messages.length ?? 0;
+    pending = { id: 'pending-question', role: 'user', text, contexts: attached };
+    partial = undefined;
     problem = '';
     retry = '';
     limit = false;
     if (!suggested) draft = '';
     pick = false;
     void scrollToLatest(true);
+    let path = '';
     try {
+      const attempt = await claimAttempt(initialSlot, JSON.stringify(question), lastAttempt);
+      if (controller.signal.aborted) return;
+      lastAttempt = attempt;
       if (!currentId) {
-        const created = await api<Thread>(apiPath(w, 'threads'), 'POST', { title: text.slice(0, 100) });
+        const created = await api<Thread>(apiPath(w, 'threads'), 'POST', { title: text.slice(0, 100) }, {
+          'Idempotency-Key': attempt.key,
+        });
+        if (controller.signal.aborted) return;
         currentId = created.id;
         result = created;
         remember(currentId);
       }
-      const fingerprint = JSON.stringify([currentId, text, attached, searchLaw]);
-      if (lastAttempt?.fingerprint !== fingerprint) lastAttempt = { fingerprint, key: crypto.randomUUID() };
-      const response = await fetch(apiPath(w, 'threads/' + encodeURIComponent(currentId) + '/messages'), {
+      const threadSlot = attemptSlot(currentId);
+      rememberAttempt(threadSlot, attempt);
+      path = apiPath(w, 'threads/' + encodeURIComponent(currentId) + '/messages');
+      const response = await fetch(path, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': lastAttempt.key },
-        body: JSON.stringify({ text, lang, contexts: attached, withLegal: searchLaw }),
+        headers: { Accept: 'application/x-ndjson', 'Content-Type': 'application/json', 'Idempotency-Key': attempt.key },
+        body: JSON.stringify(question),
+        signal: controller.signal,
       });
-      const payload = await response.json();
-      if (!response.ok)
-        throw new ApiError(
-          payload?.error?.code ?? 'request_failed',
-          payload?.error?.message ?? response.statusText,
-          response.status,
-        );
-      result = payload as Thread;
+      const completed = await readAnswer(response, lang, (message) => {
+        if (controller.signal.aborted) return;
+        const pinned = followsLatest();
+        partial = message;
+        if (pinned) void scrollToLatest();
+      });
+      if (controller.signal.aborted) return;
+      const pinned = followsLatest();
+      result = completed;
+      pending = partial = undefined;
+      forgetAttempt(initialSlot, attempt);
+      forgetAttempt(threadSlot, attempt);
       lastAttempt = undefined;
-      pending = '';
-      await invalidateAll();
+      workspaceRequest('POST', path, 200);
+      // The received thread is already saved, even if refreshing the surrounding workspace fails.
+      await invalidateAll().catch(() => undefined);
+      if (controller.signal.aborted) return;
       if (!compact && page.params.threadId !== currentId)
-        await goto(base + '/' + encodeURIComponent(currentId), {
-          replaceState: true,
-          noScroll: true,
-          keepFocus: true,
-        });
-      await scrollToLatest(true);
+        await goto(base + '/' + encodeURIComponent(currentId), { replaceState: true, noScroll: true, keepFocus: true });
+      if (pinned && !controller.signal.aborted) await scrollToLatest();
     } catch (e) {
+      if (controller.signal.aborted || !pending) return;
+      if (path && e instanceof ApiError) workspaceRequest('POST', path, e.status);
       limit = e instanceof ApiError && e.status === 402;
-      problem =
-        e instanceof Error
-          ? e.message
-          : id
-            ? 'Jawaban belum tersedia. Coba lagi.'
-            : 'The answer is unavailable. Try again.';
+      problem = e instanceof Error ? e.message : id ? 'Jawaban belum tersedia. Coba lagi.' : 'The answer is unavailable. Try again.';
       retry = text;
       if (!suggested && !draft.trim()) draft = typed || text;
     } finally {
-      busy = false;
-      pending = '';
+      if (activeRequest === controller && !controller.signal.aborted) {
+        activeRequest = undefined;
+        busy = false;
+        pending = partial = undefined;
+      }
     }
   }
   function reset() {
@@ -370,18 +403,25 @@
     aria-relevant="additions"
     aria-label={id ? 'Pesan percakapan' : 'Conversation messages'}
   >
-    {#if thread?.messages.length}
+    {#if messages.length}
       {#if compact}<header class="thread-title">
-          <h2 class="ev-title">{local(thread.title, lang)}</h2>
-          {#if thread.sample}<span class="ev-meta">{id ? 'Contoh sintetis' : 'Synthetic example'}</span>{/if}
+          <h2 class="ev-title">{conversationTitle}</h2>
+          {#if thread?.sample}<span class="ev-meta">{id ? 'Contoh sintetis' : 'Synthetic example'}</span>{/if}
         </header>{/if}
       <div class="log">
-        {#each thread.messages as m (m.id)}<ChatMessage
+        {#each messages as m, index (index)}<ChatMessage
             {lang}
             workspace={w}
             message={m}
             inspect={(t) => (inspect = t)}
           />{/each}
+        {#if pending && !partial}
+          <div class="reading" role="status">
+            <span>{id ? 'Asisten perkara' : 'Case assistant'}</span>
+            <span class="reading-status">{id ? 'Membaca sumber perkara…' : 'Reading the case record…'}</span>
+            <div class="reading-lines" aria-hidden="true"><i></i><i></i><i></i></div>
+          </div>
+        {/if}
       </div>
     {:else}
       <div class="welcome">
@@ -402,10 +442,6 @@
         </div>
       </div>
     {/if}
-    {#if pending}<div class="pending" role="status">
-        <strong>{pending}</strong>
-        <p>{id ? 'Membaca sumber perkara…' : 'Reading the case record…'}</p>
-      </div>{/if}
     {#if problem}<div class="ev-notice" role="alert">
         <p>{problem}</p>
         {#if limit}<a class="ev-link" href="/billing">{id ? 'Lihat paket' : 'See plan'}</a
@@ -631,16 +667,32 @@
   .suggestions button:disabled {
     opacity: 0.58;
   }
-  .pending {
-    margin-top: 16px;
-    padding: 10px 0;
-    font-size: 14px;
-  }
-  .pending p {
-    margin: 6px 0 0;
+  .reading {
+    min-width: 0;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+    font: 600 12px/1.45 var(--sans);
     color: var(--muted);
-    font-size: 13px;
   }
+  .reading-status { margin-inline-start: 8px; font-weight: 400; }
+  .reading-lines {
+    display: grid;
+    gap: 13px;
+    margin: 14px 0 7px;
+    max-width: 63ch;
+  }
+  .reading-lines i {
+    width: 93%;
+    height: 8px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--line-strong) 60%, var(--surface));
+  }
+  .reading-lines i:nth-child(2) { width: 78%; }
+  .reading-lines i:last-child { width: 44%; }
+  @media (prefers-reduced-motion: no-preference) {
+    .reading-lines { animation: reading-pulse 1.6s ease-in-out infinite alternate; }
+  }
+  @keyframes reading-pulse { to { opacity: 0.5; } }
   .composer {
     position: relative;
     flex: none;
