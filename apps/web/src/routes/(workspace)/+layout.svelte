@@ -617,7 +617,7 @@
       </div>
     {/if}
     <main id="case-main" tabindex="-1" class="content">
-      {#if account.demo && !account.prefs.tourSeen && overlay !== 'tour'}<TourInvite {en}/>{/if}
+      {#if account.demo && !account.prefs.tourSeen && overlay !== 'tour'}<TourInvite {en} compact={section === 'assistant' && !!page.params.threadId}/>{/if}
       {@render children()}
     </main>
   </div>

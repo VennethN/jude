@@ -3,7 +3,7 @@
   import { casePrompts } from '$lib/workspace/case-prompts';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
-  import { ArrowUp, Plus, X, History, MessageSquare, Paperclip, Search, SquarePen } from '@lucide/svelte';
+  import { ArrowUp, Plus, X, History, FolderOpen, Scale, Search, SquarePen } from '@lucide/svelte';
   import type { ContextRef, InspectTarget, Lang, Thread, Workspace } from '@jude/core/domain';
   import { api, ApiError } from '$lib/client';
   import { apiPath, casePath, evidenceKey, local, meaningful, sourceOf } from './records';
@@ -19,7 +19,7 @@
     context,
     threadId,
     draft: initialDraft = '',
-    onClose
+    onClose,
   }: {
     workspace: Workspace;
     lang: Lang;
@@ -32,13 +32,31 @@
   } = $props();
   let id = $derived(lang === 'id'),
     base = $derived(casePath(w) + '/assistant');
+  let withLegal = $state(true);
+  const discovery = $derived(
+    w.legalDiscovery ?? (w.caseRecord.label === 'synthetic' ? 'sample' : 'unavailable'),
+  );
+  const searchLaw = $derived(withLegal && discovery !== 'unavailable');
+  const lawHint = $derived(
+    discovery === 'unavailable'
+      ? id
+        ? 'Pencarian hukum tidak tersedia. Anda tetap bisa merujuk peraturan yang diunggah.'
+        : 'Legal search is unavailable. You can still reference uploaded legislation.'
+      : discovery === 'sample'
+        ? id
+          ? 'Sertakan rujukan hukum contoh'
+          : 'Include sample legal references'
+        : id
+          ? 'Cari juga di Pasal.id'
+          : 'Also search Pasal.id',
+  );
   let currentId = $state(untrack(() => (threadId && threadId !== 'new' ? threadId : '')));
   let result = $state<Thread>();
   let thread = $derived(
-    result?.id === currentId && result ? result : w.threads.find((t) => t.id === currentId)
+    result?.id === currentId && result ? result : w.threads.find((t) => t.id === currentId),
   );
   let draft = $state(
-    untrack(() => initialDraft || (!compact ? (page.state as {judeDraft?: string}).judeDraft : '') || '')
+    untrack(() => initialDraft || (!compact ? (page.state as { judeDraft?: string }).judeDraft : '') || ''),
   );
   let extra = $state<ContextRef[]>([]),
     removedInitial = $state<string[]>([]),
@@ -51,7 +69,26 @@
     retry = $state('');
   let inspect = $state<InspectTarget | null>(null);
   let composer: HTMLTextAreaElement;
-  let log = $state<HTMLDivElement>();
+  let flow: HTMLDivElement;
+  let addContextButton: HTMLButtonElement;
+  let sourceSearch = $state<HTMLInputElement>();
+  const pickerId = $derived(compact ? 'dock-source-picker' : 'page-source-picker');
+
+  async function scrollToLatest(smooth = false) {
+    await tick();
+    if (flow)
+      flow.scrollTo({
+        top: flow.scrollHeight,
+        behavior: smooth && !matchMedia('(prefers-reduced-motion: reduce)').matches ? 'smooth' : 'instant',
+      });
+  }
+
+  async function showPicker(open: boolean) {
+    pick = open;
+    if (open) search = '';
+    await tick();
+    (open ? sourceSearch : addContextButton)?.focus({ preventScroll: true });
+  }
   let lastAttempt: { fingerprint: string; key: string } | undefined;
   let storeKey = $derived('jude:thread:' + w.caseRecord.id);
   function parse(value: string | null): ContextRef | undefined {
@@ -72,11 +109,19 @@
     }
   }
   let initialContexts = $derived(
-    context ? [context] : page.url.searchParams.getAll('context').map(parse).filter((ref) => ref !== undefined)
+    context
+      ? [context]
+      : page.url.searchParams
+          .getAll('context')
+          .map(parse)
+          .filter((ref) => ref !== undefined),
   );
   const key = (c: ContextRef) => ('id' in c ? evidenceKey(c) : c.kind);
   let contexts = $derived.by(() => {
-    const all = [...initialContexts.filter((c) => c.kind !== 'case' && !removedInitial.includes(key(c))), ...extra];
+    const all = [
+      ...initialContexts.filter((c) => c.kind !== 'case' && !removedInitial.includes(key(c))),
+      ...extra,
+    ];
     const seen = new Set<string>();
     return all
       .filter((c) => {
@@ -94,48 +139,48 @@
         ? [
             'Apa yang berbeda di antara kedua sumber?',
             'Sumber lain mana yang relevan?',
-            'Apa yang perlu ditanyakan kepada saksi?'
+            'Apa yang perlu ditanyakan kepada saksi?',
           ]
         : [
             'Where do the sources differ?',
             'Which other sources are relevant?',
-            'What should I ask the witness?'
+            'What should I ask the witness?',
           ];
     if (kind === 'board')
       return id
         ? [
             'Kutipan mana yang mendukung kartu di papan?',
             'Pertanyaan apa yang belum terjawab?',
-            'Ringkas bukti yang terhubung.'
+            'Ringkas bukti yang terhubung.',
           ]
         : [
             'Which passages support the board cards?',
             'Which questions are still open?',
-            'Summarise the connected evidence.'
+            'Summarise the connected evidence.',
           ];
     if (kind === 'document' || kind === 'passage' || kind === 'documents')
       return id
         ? [
             'Apa isi pokok berkas ini?',
             'Kutipan mana yang berkaitan dengan keterangan saksi?',
-            'Apa yang perlu diperiksa lebih lanjut?'
+            'Apa yang perlu diperiksa lebih lanjut?',
           ]
         : [
             'What does the record say?',
             'Which passages relate to the testimony?',
-            'What needs further checking?'
+            'What needs further checking?',
           ];
     if (kind === 'hearing' || kind === 'statement')
       return id
         ? [
             'Ringkas keterangan dalam sidang ini.',
             'Apa yang perlu dikonfirmasi?',
-            'Dokumen mana yang dikutip?'
+            'Dokumen mana yang dikutip?',
           ]
         : [
             'Summarise this hearing’s testimony.',
             'What needs to be confirmed?',
-            'Which documents were cited?'
+            'Which documents were cited?',
           ];
     return casePrompts[lang];
   });
@@ -144,7 +189,7 @@
       ...w.hearings.map((h) => ({ kind: 'hearing' as const, id: h.id })),
       ...w.documents.map((d) => ({ kind: 'document' as const, id: d.id })),
       ...w.findings.filter((f) => meaningful(f.status)).map((f) => ({ kind: 'finding' as const, id: f.id })),
-      ...w.boards.map((b) => ({ kind: 'board' as const, id: b.id }))
+      ...w.boards.map((b) => ({ kind: 'board' as const, id: b.id })),
     ];
     return candidates
       .map((ref) => ({ ref, label: sourceOf(w, ref, lang)?.label || '' }))
@@ -181,6 +226,8 @@
     retry = '';
     limit = false;
     if (!suggested) draft = '';
+    pick = false;
+    void scrollToLatest(true);
     try {
       if (!currentId) {
         const created = await api<Thread>(apiPath(w, 'threads'), 'POST', { title: text.slice(0, 100) });
@@ -188,19 +235,19 @@
         result = created;
         remember(currentId);
       }
-      const fingerprint = JSON.stringify([currentId, text, attached]);
+      const fingerprint = JSON.stringify([currentId, text, attached, searchLaw]);
       if (lastAttempt?.fingerprint !== fingerprint) lastAttempt = { fingerprint, key: crypto.randomUUID() };
       const response = await fetch(apiPath(w, 'threads/' + encodeURIComponent(currentId) + '/messages'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': lastAttempt.key },
-        body: JSON.stringify({ text, lang, contexts: attached })
+        body: JSON.stringify({ text, lang, contexts: attached, withLegal: searchLaw }),
       });
       const payload = await response.json();
       if (!response.ok)
         throw new ApiError(
           payload?.error?.code ?? 'request_failed',
           payload?.error?.message ?? response.statusText,
-          response.status
+          response.status,
         );
       result = payload as Thread;
       lastAttempt = undefined;
@@ -210,10 +257,9 @@
         await goto(base + '/' + encodeURIComponent(currentId), {
           replaceState: true,
           noScroll: true,
-          keepFocus: true
+          keepFocus: true,
         });
-      await tick();
-      log?.lastElementChild?.scrollIntoView({ block: 'nearest' });
+      await scrollToLatest(true);
     } catch (e) {
       limit = e instanceof ApiError && e.status === 402;
       problem =
@@ -238,6 +284,7 @@
     problem = '';
     retry = '';
     lastAttempt = undefined;
+    pick = false;
     remember('');
     composer?.focus();
   }
@@ -259,7 +306,7 @@
     if (e.key === 'Escape' && pick) {
       e.preventDefault();
       e.stopPropagation();
-      pick = false;
+      void showPicker(false);
     }
   }
   onMount(() => {
@@ -287,6 +334,7 @@
     if (currentId) {
       remember(currentId);
       restoreContexts(w.threads.find((t) => t.id === currentId));
+      void scrollToLatest();
     }
   });
 </script>
@@ -314,55 +362,57 @@
           >{/if}
       </div>
     </header>{/if}
-  <div class="conversation-flow">
-  {#if thread?.messages.length}
-    <header class="thread-title">
-      <h2 class="ev-title">{local(thread.title, lang)}</h2>
-      {#if thread.sample}<span class="ev-meta">{id ? 'Contoh sintetis' : 'Synthetic example'}</span>{/if}
-    </header>
-    <div class="log" bind:this={log}>
-      {#each thread.messages as m (m.id)}<ChatMessage
-          {lang}
-          workspace={w}
-          message={m}
-          inspect={(t) => (inspect = t)}
-        />{/each}
-    </div>
-  {:else}
-    <div class="welcome">
-      <MessageSquare size={23} />
-      <h2 class="ev-title">
-        {contexts.length
-          ? id
-            ? 'Tanyakan tentang sumber ini.'
-            : 'Ask about this source.'
-          : id
-            ? 'Apa yang perlu diperiksa?'
-            : 'What would you like to check?'}
-      </h2>
-      <p class="ev-sub">
-        {id
-          ? 'Mulailah dengan pertanyaan. Buka kutipan untuk membaca sumbernya.'
-          : 'Begin with a question. Open a citation to read its source.'}
-      </p>
-    </div>
-    <div class="suggestions" data-tour="assistant-suggestions">
-      {#each suggestions as q}<button disabled={busy || limit} onclick={() => send(q, true)}
-          >{q}<ArrowUp size={14} /></button
-        >{/each}
-    </div>
-  {/if}
-  {#if pending}<div class="pending" role="status">
-      <strong>{pending}</strong>
-      <p>{id ? 'Membaca sumber perkara…' : 'Reading the case record…'}</p>
-    </div>{/if}
-  {#if problem}<div class="ev-notice" role="alert">
-      <p>{problem}</p>
-      {#if limit}<a class="ev-link" href="/billing">{id ? 'Lihat paket' : 'See plan'}</a
-        >{:else if retry}<button class="ev-button" onclick={() => send(retry, draft !== retry)}
-          >{id ? 'Coba lagi' : 'Try again'}</button
-        >{/if}
-    </div>{/if}
+  <div
+    class="conversation-flow"
+    bind:this={flow}
+    role="log"
+    aria-live="polite"
+    aria-relevant="additions"
+    aria-label={id ? 'Pesan percakapan' : 'Conversation messages'}
+  >
+    {#if thread?.messages.length}
+      {#if compact}<header class="thread-title">
+          <h2 class="ev-title">{local(thread.title, lang)}</h2>
+          {#if thread.sample}<span class="ev-meta">{id ? 'Contoh sintetis' : 'Synthetic example'}</span>{/if}
+        </header>{/if}
+      <div class="log">
+        {#each thread.messages as m (m.id)}<ChatMessage
+            {lang}
+            workspace={w}
+            message={m}
+            inspect={(t) => (inspect = t)}
+          />{/each}
+      </div>
+    {:else}
+      <div class="welcome">
+        <p>
+          {contexts.length
+            ? id
+              ? 'Tanyakan tentang sumber terlampir atau tambahkan sumber lain untuk membandingkan.'
+              : 'Ask about the attached sources or add another to compare them.'
+            : id
+              ? 'Tanyakan tentang perkara ini. Anda bisa menyertakan sidang, dokumen, atau temuan.'
+              : 'Ask about this case. You can attach a hearing, a document, or a finding.'}
+        </p>
+        <h3>{id ? 'Pertanyaan yang disarankan' : 'Suggested questions'}</h3>
+        <div class="suggestions" data-tour="assistant-suggestions">
+          {#each suggestions as q}<button disabled={busy || limit} onclick={() => send(q, true)}
+              >{q}<ArrowUp size={14} aria-hidden="true" /></button
+            >{/each}
+        </div>
+      </div>
+    {/if}
+    {#if pending}<div class="pending" role="status">
+        <strong>{pending}</strong>
+        <p>{id ? 'Membaca sumber perkara…' : 'Reading the case record…'}</p>
+      </div>{/if}
+    {#if problem}<div class="ev-notice" role="alert">
+        <p>{problem}</p>
+        {#if limit}<a class="ev-link" href="/billing">{id ? 'Lihat paket' : 'See plan'}</a
+          >{:else if retry}<button class="ev-button" onclick={() => send(retry, draft !== retry)}
+            >{id ? 'Coba lagi' : 'Try again'}</button
+          >{/if}
+      </div>{/if}
   </div>
   <form
     class="composer"
@@ -373,247 +423,461 @@
     }}
   >
     <div class="contexts">
-      {#if !contexts.length}<span class="whole"
-          ><Paperclip size={14} />{id ? 'Seluruh perkara' : 'Whole case'}</span
-        >{/if}
-      {#each contexts as ctx (key(ctx))}<button
-          type="button"
-          class="chip"
-          aria-label={(id ? 'Hapus konteks ' : 'Remove context ') + (sourceOf(w, ctx, lang)?.label || '')}
-          onclick={() => remove(ctx)}>{sourceOf(w, ctx, lang)?.label}<X size={13} /></button
-        >{/each}
-      <button type="button" class="add-context" aria-expanded={pick} onclick={() => (pick = !pick)}
-        ><Plus size={14} />{id ? 'Tambah konteks' : 'Add context'}</button
-      >
+      {#if !contexts.length}
+        <span class="whole"
+          ><FolderOpen size={14} aria-hidden="true" />{id ? 'Seluruh perkara' : 'Whole case'}</span
+        >
+      {:else}
+        {#each contexts as ctx (key(ctx))}
+          {@const label = sourceOf(w, ctx, lang)?.label ?? (id ? 'Sumber' : 'Source')}
+          <button
+            type="button"
+            class="chip"
+            title={label}
+            aria-label={(id ? 'Hapus konteks ' : 'Remove context ') + label}
+            onclick={() => remove(ctx)}
+          >
+            <span>{label}</span><X size={12} aria-hidden="true" />
+          </button>
+        {/each}
+      {/if}
     </div>
-    {#if pick}<fieldset class="context-picker">
-        <legend>{id ? 'Pilih hingga enam sumber' : 'Choose up to six sources'}</legend><label
-          class="ev-search"
-          ><Search size={14} /><input
+    <div class="input-box">
+      <label class="ev-only" for={compact ? 'panel-question' : 'case-question'}
+        >{id ? 'Pertanyaan untuk asisten' : 'Question for the assistant'}</label
+      >
+      <textarea
+        id={compact ? 'panel-question' : 'case-question'}
+        bind:this={composer}
+        bind:value={draft}
+        rows="2"
+        maxlength="8000"
+        placeholder={id ? 'Tulis pertanyaan tentang perkara…' : 'Ask a question about this case…'}
+        onkeydown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+            e.preventDefault();
+            send();
+          }
+        }}
+      ></textarea>
+      <div class="send-row">
+        <button
+          type="button"
+          class="add-context"
+          bind:this={addContextButton}
+          aria-expanded={pick}
+          aria-controls={pick ? pickerId : undefined}
+          onclick={() => showPicker(!pick)}
+          ><Plus size={14} aria-hidden="true" />{id ? 'Tambah konteks' : 'Add context'}</button
+        >
+        <button
+          type="button"
+          class="legal-toggle"
+          aria-pressed={searchLaw}
+          title={lawHint}
+          disabled={discovery === 'unavailable'}
+          onclick={() => (withLegal = !withLegal)}
+        >
+          <Scale size={14} aria-hidden="true" />Pasal.id
+        </button>
+        <button
+          type="submit"
+          class="send"
+          aria-label={id ? 'Kirim pertanyaan' : 'Send question'}
+          title={id ? 'Kirim pertanyaan' : 'Send question'}
+          disabled={!draft.trim() || busy || limit}
+        >
+          <ArrowUp size={18} aria-hidden="true" />
+        </button>
+      </div>
+    </div>
+    {#if pick}
+      <div
+        id={pickerId}
+        class="context-picker"
+        role="group"
+        aria-label={id ? 'Pilih hingga enam sumber' : 'Choose up to six sources'}
+      >
+        <div class="picker-head">
+          <strong>{id ? 'Pilih hingga enam sumber' : 'Choose up to six sources'}</strong>
+          <button type="button" class="done" onclick={() => showPicker(false)}
+            >{id ? 'Selesai' : 'Done'}</button
+          >
+        </div>
+        <label class="ev-search"
+          ><Search size={14} aria-hidden="true" /><input
             type="search"
+            bind:this={sourceSearch}
             bind:value={search}
             placeholder={id ? 'Cari konteks…' : 'Find a source…'}
             aria-label={id ? 'Cari konteks' : 'Find a source'}
           /></label
         >
-        <div>
-          {#each options as option (key(option.ref))}{@const active = contexts.some(
-              (c) => key(c) === key(option.ref)
-            )}<label
+        <div class="choices">
+          {#each options as option (key(option.ref))}
+            {@const active = contexts.some((c) => key(c) === key(option.ref))}
+            <label
               ><input
                 type="checkbox"
                 checked={active}
                 disabled={!active && contexts.length >= 6}
                 onchange={() => toggle(option.ref)}
               />{option.label}</label
-            >{/each}
+            >
+          {:else}<p>{id ? 'Tidak ada sumber yang cocok.' : 'No matching sources.'}</p>{/each}
         </div>
-        <button class="ev-button" type="button" onclick={() => (pick = false)}
-          >{id ? 'Selesai' : 'Done'}</button
-        >
-      </fieldset>{/if}
-    <label class="ev-only" for={compact ? 'panel-question' : 'case-question'}
-      >{id ? 'Pertanyaan untuk asisten' : 'Question for the assistant'}</label
-    >
-    <textarea
-      id={compact ? 'panel-question' : 'case-question'}
-      bind:this={composer}
-      bind:value={draft}
-      rows="3"
-      maxlength="8000"
-      placeholder={id ? 'Tulis pertanyaan tentang perkara…' : 'Ask a question about this case…'}
-      onkeydown={(e) => {
-        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
-          e.preventDefault();
-          send();
-        }
-      }}></textarea>
-    <div class="send-row">
-      <span class="ev-meta"
-        >{id ? 'Jawaban merujuk pada sumber perkara.' : 'Answers reference the case record.'}</span
-      ><button
-        class="ev-button primary"
-        aria-label={id ? 'Kirim pertanyaan' : 'Send question'}
-        disabled={!draft.trim() || busy || limit}><ArrowUp size={16} />{id ? 'Kirim' : 'Send'}</button
-      >
-    </div>
+      </div>
+    {/if}
   </form>
 </div>
 {#if inspect}<Inspector workspace={w} {lang} target={inspect} close={() => (inspect = null)} />{/if}
 
 <style>
   .assistant {
-    min-width: 0;
-  }
-  .panel-head,
-  .thread-title {
     display: flex;
-    justify-content: space-between;
+    flex: 1;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    color: var(--ink);
+  }
+  .compact {
+    height: 100%;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: var(--surface);
+  }
+  .panel-head {
+    flex: none;
+    display: flex;
     align-items: center;
-    gap: 0.7rem;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 10px 10px 10px 16px;
     border-bottom: 1px solid var(--line);
-    padding-bottom: 0.75rem;
-  }
-  .thread-title {
-    display: block;
-  }
-  .thread-title h2 {
-    font-size: 1.7rem;
   }
   .panel-head h2 {
-    font-size: 1.5rem;
+    font: 600 15px/1.4 var(--sans);
   }
   .panel-head .ev-inline {
-    gap: 0.15rem;
+    gap: 2px;
+  }
+  .thread-title {
+    padding: 0 0 12px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .thread-title h2 {
+    font-size: 22px;
+  }
+  .conversation-flow {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 18px 20px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  .log {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
   }
   .welcome {
-    padding: 1.4rem 0 1rem;
+    max-width: 640px;
   }
-  .welcome > :global(svg) {
-    color: var(--accent);
-    margin-bottom: 0.6rem;
+  .welcome p {
+    margin: 0;
+    color: var(--muted);
+    font: 400 14px/1.55 var(--sans);
   }
-  .welcome h2 {
-    font-size: 2.1rem;
+  .welcome h3 {
+    margin: 18px 0 7px;
+    color: var(--muted);
+    font: 600 12px/1.5 var(--sans);
   }
   .suggestions {
     display: grid;
-    gap: 0;
-    margin: 0 0 1.4rem;
+    gap: 6px;
   }
   .suggestions button {
     display: flex;
-    align-items: center;
     justify-content: space-between;
-    gap: 1rem;
-    color: var(--ink);
-    font: 500 0.9rem/1.4 var(--sans);
+    align-items: center;
+    gap: 12px;
+    padding: 10px 14px;
+    min-height: 42px;
     text-align: start;
-    padding: 0.65rem 0.25rem;
-    background: none;
-    border: 0;
-    border-bottom: 1px solid var(--line);
-    min-height: 44px;
+    color: var(--ink-strong);
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font: 500 13.5px/1.5 var(--sans);
     cursor: pointer;
+    transition:
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .suggestions button:hover {
+    border-color: var(--line-strong);
+    background: var(--surface);
   }
   .suggestions button :global(svg) {
     transform: rotate(45deg);
-    color: var(--accent);
-  }
-  .suggestions button:hover {
-    color: var(--accent);
+    color: var(--muted);
   }
   .suggestions button:disabled {
-    opacity: 0.6;
+    opacity: 0.58;
+  }
+  .pending {
+    margin-top: 16px;
+    padding: 10px 0;
+    font-size: 14px;
+  }
+  .pending p {
+    margin: 6px 0 0;
+    color: var(--muted);
+    font-size: 13px;
   }
   .composer {
-    padding: 0.8rem;
+    position: relative;
+    flex: none;
+    display: grid;
+    gap: 7px;
+    padding: 10px 14px max(12px, env(safe-area-inset-bottom));
+    border-top: 1px solid var(--line);
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 0.7rem;
   }
-  .contexts {
+  .contexts,
+  .whole,
+  .chip,
+  .add-context,
+  .send-row,
+  .picker-head,
+  .done {
     display: flex;
     align-items: center;
-    gap: 0.2rem 0.5rem;
+  }
+  .contexts {
+    gap: 4px 6px;
     flex-wrap: wrap;
+    max-height: 82px;
+    overflow: auto;
+    scrollbar-width: thin;
   }
   .whole,
   .chip,
-  .add-context {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    min-height: 34px;
+  .add-context,
+  .done {
+    gap: 5px;
+    font: 600 12px/1.35 var(--sans);
+  }
+  .whole {
+    min-height: 20px;
     color: var(--muted);
-    font: 600 0.77rem var(--sans);
-    text-align: left;
+    font-weight: 500;
   }
   .chip,
-  .add-context {
+  .add-context,
+  .done,
+  .send {
     cursor: pointer;
-    background: none;
-    border: 0;
-    padding: 0.2rem;
-    max-width: 100%;
-    overflow-wrap: anywhere;
+    color: var(--ink);
   }
   .chip {
-    background: var(--paper);
-    padding: 0.45rem 0.5rem;
-    border-radius: 0.45rem;
+    max-width: 100%;
+    min-height: 26px;
+    padding: 2px 7px;
+    background: var(--selected);
+    border: 1px solid var(--line);
+    border-radius: 20px;
   }
-  .add-context {
-    color: var(--accent);
+  .chip span {
+    overflow: hidden;
+    max-width: 28ch;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
-  .composer textarea {
-    width: 100%;
-    font: 400 1rem/1.5 var(--sans);
+  .add-context,
+  .legal-toggle {
+    min-height: 32px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: var(--surface);
+    padding: 4px 10px;
+  }
+  .legal-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font: 600 12px/1.35 var(--sans);
     color: var(--ink);
-    padding: 0.65rem 0.3rem;
-    background: none;
-    border: 0;
-    resize: vertical;
-    max-height: 15rem;
-    min-height: 5.5rem;
+    cursor: pointer;
   }
-  .composer:focus-within {
-    border-color: var(--accent);
+  .legal-toggle[aria-pressed='true'] {
+    color: var(--on-forest);
+    background: var(--forest);
+    border-color: var(--forest);
   }
-  .composer textarea:focus-visible {
-    outline: 1px solid var(--accent);
-    outline-offset: 0;
+  .legal-toggle:disabled {
+    background: var(--surface-2);
+    color: var(--muted);
+    cursor: default;
+  }
+  .add-context:hover,
+  .add-context[aria-expanded='true'],
+  .chip:hover,
+  .done:hover {
+    background: var(--sunken);
+  }
+  .input-box {
+    display: grid;
+    gap: 3px;
+    padding: 6px 7px 6px 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: 16px;
+    background: var(--surface);
+    transition: border-color var(--dur-fast) var(--ease-out);
+  }
+  .input-box:focus-within {
+    border-color: var(--selected-line);
+  }
+  .input-box:has(textarea:focus-visible) {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+  }
+  .input-box textarea {
+    display: block;
+    field-sizing: content;
+    width: 100%;
+    min-height: 46px;
+    max-height: min(140px, 18dvh);
+    padding: 4px 0;
+    border: none;
+    background: transparent;
+    color: var(--ink);
+    font: 400 15px/1.5 var(--sans);
+    resize: none;
+  }
+  .input-box textarea:focus-visible {
+    outline: none;
+  }
+  .send-row,
+  .picker-head {
+    justify-content: space-between;
+    gap: 8px;
   }
   .send-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.8rem;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+  .send {
+    margin-left: auto;
+    flex: none;
+    width: 36px;
+    height: 36px;
+    display: grid;
+    place-items: center;
+    border: 0;
+    border-radius: 50%;
+    color: var(--on-forest);
+    background: var(--forest);
+  }
+  .send:hover:enabled {
+    background: var(--ink-strong);
+    color: var(--paper);
+  }
+  .send:disabled {
+    background: var(--sunken);
+    color: var(--muted);
+    cursor: default;
   }
   .context-picker {
-    border: 1px solid var(--line);
-    margin: 0.5rem 0;
-    padding: 0.75rem;
-    border-radius: 0.4rem;
+    position: absolute;
+    z-index: 2;
+    left: 12px;
+    right: 12px;
+    bottom: calc(100% - 4px);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px;
+    max-height: min(340px, 40dvh);
+    border: 1px solid var(--line-strong);
+    border-radius: 14px;
+    background: var(--surface);
+    box-shadow: var(--shadow-float);
   }
-  .context-picker legend {
-    font-size: 0.8rem;
+  .picker-head {
+    color: var(--ink);
+    font: 600 13px/1.4 var(--sans);
   }
-  .context-picker > div {
-    max-height: 16rem;
+  .context-picker .ev-search input {
+    min-height: 36px;
+    font-size: 14px;
+    padding: 4px 0;
+  }
+  .done {
+    min-height: 32px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+  }
+  .choices {
+    min-height: 0;
     overflow: auto;
-    display: grid;
-    margin: 0.4rem 0;
+    overscroll-behavior: contain;
   }
-  .context-picker > div label {
+  .choices label {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    min-height: 38px;
-    font-size: 0.83rem;
+    gap: 8px;
+    min-height: 36px;
+    padding: 5px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
   }
-  .pending {
-    padding: 0.65rem;
+  .choices label:hover {
+    background: var(--sunken);
   }
-  .pending p {
+  .choices input {
+    width: 16px;
+    height: 16px;
+    flex: none;
+    accent-color: var(--forest);
+  }
+  .choices p {
+    margin: 8px;
     color: var(--muted);
-    font-size: 0.82rem;
+    font-size: 13px;
   }
-  .log {
-    margin-bottom: 1rem;
+  .compact .conversation-flow {
+    padding: 16px;
   }
-  .compact { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; border:0; border-radius:0; background:var(--surface); }
-  .compact .panel-head { flex:none; padding:12px 10px 10px 16px; }
-  .compact .panel-head h2 { font:600 15px/1.4 var(--sans); letter-spacing:-.01em; }
-  .compact .conversation-flow { flex:1; min-height:0; overflow:auto; padding:16px; overscroll-behavior:contain; }
-  .compact .welcome { padding:0 0 12px; }
-  .compact .suggestions { gap:6px; }
-  .compact .suggestions button { padding:11px 14px; border:1px solid var(--line); border-radius:8px; }
-  .compact .composer { flex:none; max-height:55%; overflow:auto; padding:12px 16px max(14px,env(safe-area-inset-bottom)); border:0; border-top:1px solid var(--line); border-radius:0; }
-  .compact .welcome h2 {
-    font-size: 1.75rem;
+  @media (max-width: 600px) {
+    .conversation-flow {
+      padding: 14px 12px;
+    }
+    .composer {
+      padding-inline: 10px;
+    }
+    .input-box textarea {
+      font-size: 16px;
+    }
   }
-  .compact .send-row .ev-meta {
-    max-width: 17ch;
+  @media (prefers-reduced-motion: no-preference) {
+    .context-picker {
+      animation: pick-in var(--dur-fast) var(--ease-out);
+    }
+  }
+  @keyframes pick-in {
+    from {
+      opacity: 0;
+      transform: translateY(5px);
+    }
   }
 </style>

@@ -2,10 +2,12 @@
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import { write } from '$lib/client';
-  import { ArrowLeft, History, Search, SquarePen, Trash2 } from '@lucide/svelte';
+  import { ArrowLeft, Search, SquarePen, Trash2 } from '@lucide/svelte';
   import type { PageData } from './$types';
   import type { ContextRef, Thread } from '@jude/core/domain';
-  import { apiPath, casePath, dateLabel, evidenceKey, local, sourceOf } from '$lib/evidence/records';
+  import { apiPath, casePath, local } from '$lib/evidence/records';
+  import { contextKey, contextLabel, threadContexts } from '$lib/evidence/thread-context';
+  import ContextChip from '$lib/evidence/ContextChip.svelte';
   import Assistant from '$lib/evidence/Assistant.svelte';
   import '$lib/evidence/evidence.css';
   let { data }: { data: PageData } = $props();
@@ -20,33 +22,50 @@
     confirmDelete = $state(''),
     busy = $state(false),
     problem = $state('');
-  const key = (ref: ContextRef) => ('id' in ref ? evidenceKey(ref) : ref.kind);
-  let sources = $derived.by(() => {
-    const options = new Map<string, string>();
-    for (const t of w.threads)
-      for (const m of t.messages)
-        for (const c of m.contexts || []) {
-          if (c.kind === 'case') continue;
-          const source = sourceOf(w, c, lang);
-          if (source) options.set(key(c), source.label);
-        }
-    return [...options];
+  const current = $derived(w.threads.find((thread) => thread.id === active));
+  const invalid = $derived(active && active !== 'new' && !current);
+  const refs = $derived(new Map(w.threads.map((thread) => [thread.id, threadContexts(w, thread)])));
+  const sources = $derived.by(() => {
+    const counts = new Map<string, { ref: ContextRef; count: number }>();
+    for (const { references } of refs.values())
+      for (const ref of references) {
+        const key = contextKey(ref),
+          item = counts.get(key);
+        if (item) item.count++;
+        else counts.set(key, { ref, count: 1 });
+      }
+    return [...counts.values()].sort((a, b) => b.count - a.count).slice(0, 6);
   });
-  let history = $derived(
+  const history = $derived(
     w.threads
       .filter((t) => {
-        const q = query.trim().toLowerCase();
-        const match =
-          !q ||
-          local(t.title, lang).toLowerCase().includes(q) ||
-          t.messages.some((m) => local(m.text, lang).toLowerCase().includes(q));
-        return match && (!scope || t.messages.some((m) => m.contexts?.some((c) => key(c) === scope)));
+        const q = query.trim().toLocaleLowerCase(lang);
+        return (
+          (!q ||
+            [local(t.title, lang), ...t.messages.map((m) => local(m.text, lang))].some((text) =>
+              text.toLocaleLowerCase(lang).includes(q),
+            )) &&
+          (!scope || refs.get(t.id)?.references.some((ref) => contextKey(ref) === scope))
+        );
       })
-      .toSorted((a, b) => b.updated - a.updated)
+      .toSorted((a, b) => b.updated - a.updated),
   );
-  let invalid = $derived(active && active !== 'new' && !w.threads.some((t) => t.id === active));
-  function day(t: Thread) {
-    return dateLabel(t.updated, lang);
+  const dayKey = (ms: number) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta' }).format(ms);
+  function group(thread: Thread) {
+    const d = dayKey(thread.updated),
+      now = Date.now();
+    if (d === dayKey(now)) return id ? 'Hari ini' : 'Today';
+    if (d === dayKey(now - 86_400_000)) return id ? 'Kemarin' : 'Yesterday';
+    return id ? 'Sebelumnya' : 'Earlier';
+  }
+  function when(time: number) {
+    const options: Intl.DateTimeFormatOptions =
+      dayKey(time) === dayKey(Date.now())
+        ? { hour: '2-digit', minute: '2-digit', hour12: false }
+        : { day: 'numeric', month: 'short' };
+    return new Intl.DateTimeFormat(id ? 'id-ID' : 'en-GB', { ...options, timeZone: 'Asia/Jakarta' }).format(
+      time,
+    );
   }
   async function remove(threadId: string) {
     if (busy) return;
@@ -79,19 +98,16 @@
 </script>
 
 <svelte:head><title>{id ? 'Asisten perkara' : 'Case assistant'} · Jude</title></svelte:head>
-<div class="ev-page">
-  <header class="ev-head">
+<div class="ev-page assistant-page">
+  <header class="ev-head page-heading" class:in-thread={active && !invalid}>
     <div>
-      <h1>{id ? 'Asisten perkara' : 'Case assistant'}</h1>
+      <h1>{id ? 'Asisten' : 'Assistant'}</h1>
       <p>
         {id
-          ? 'Ajukan pertanyaan dan telusuri sumber yang dikutip dalam jawabannya.'
-          : 'Ask a question and follow the sources cited in the answer.'}
+          ? 'Gabungkan konteks sidang, dokumen, dan temuan dalam satu pertanyaan. Setiap percakapan menyimpan sumber yang dipakai.'
+          : 'Ask across hearings, documents and findings. Each conversation keeps the sources used to answer it.'}
       </p>
     </div>
-    <a class="ev-button" href={base + '/new'}
-      ><SquarePen size={16} />{id ? 'Percakapan baru' : 'New conversation'}</a
-    >
   </header>
   {#if problem}<p role="alert" class="ev-error">{problem}</p>{/if}
   {#if deleted}<div class="ev-notice ev-inline" role="status">
@@ -105,152 +121,456 @@
       {id ? 'Percakapan tidak ditemukan.' : 'Conversation not found.'}
     </p>{/if}
   <div class="workspace" class:opened={!!active && !invalid}>
-    <aside class="history" data-tour="assistant-history">
-      <h2 class="ev-title"><History size={19} />{id ? 'Riwayat' : 'History'}</h2>
+    <aside
+      class="history"
+      data-tour="assistant-history"
+      aria-label={id ? 'Riwayat percakapan' : 'Conversation history'}
+    >
+      <a class="button primary new" href={base + '/new'}
+        ><SquarePen size={16} />{id ? 'Percakapan baru' : 'New conversation'}</a
+      >
       <label class="ev-search"
         ><Search size={15} /><input
           bind:value={query}
           type="search"
           aria-label={id ? 'Cari percakapan' : 'Search conversations'}
-          placeholder={id ? 'Cari percakapan…' : 'Find a conversation…'}
+          placeholder={id ? 'Cari percakapan…' : 'Search conversations…'}
         /></label
       >
-      {#if sources.length}<select
-          class="ev-select"
-          bind:value={scope}
-          aria-label={id ? 'Filter menurut konteks' : 'Filter by context'}
-          ><option value="">{id ? 'Semua konteks' : 'All contexts'}</option
-          >{#each sources as [key, label]}<option value={key}>{label}</option>{/each}</select
-        >{/if}
-      <ul class="ev-list">
-        {#each history as t, i (t.id)}<li>
-            {#if i === 0 || day(t) !== day(history[i - 1])}<h3>{day(t)}</h3>{/if}
-            <div class="row">
-              <a
-                class="ev-pick"
-                href={base + '/' + encodeURIComponent(t.id)}
-                aria-current={t.id === active ? 'page' : undefined}
-                ><strong>{local(t.title, lang) || (id ? 'Percakapan baru' : 'New conversation')}</strong><span
-                  class="ev-meta"
-                  >{t.messages.length}
-                  {id ? 'pesan' : 'messages'}{t.sample
-                    ? id
-                      ? ' · Contoh sintetis'
-                      : ' · Synthetic example'
-                    : ''}</span
-                ></a
-              ><button
-                class="ev-icon"
-                onclick={() => (confirmDelete = t.id)}
-                aria-label={(id ? 'Hapus percakapan ' : 'Delete conversation ') + local(t.title, lang)}
-                ><Trash2 size={14} /></button
-              >
-            </div>
-            {#if confirmDelete === t.id}<div class="ev-notice">
-                <p>{id ? 'Hapus percakapan ini?' : 'Delete this conversation?'}</p>
-                <div class="ev-actions">
-                  <button class="ev-button" onclick={() => (confirmDelete = '')}
-                    >{id ? 'Batal' : 'Cancel'}</button
-                  ><button class="ev-button" disabled={busy} onclick={() => remove(t.id)}
-                    >{id ? 'Hapus' : 'Delete'}</button
-                  >
-                </div>
-              </div>{/if}
-          </li>{:else}<li class="ev-sub">
+      {#if sources.length > 1}
+        <div
+          class="filters"
+          role="group"
+          aria-label={id ? 'Saring menurut konteks atau sumber kutipan' : 'Filter by context or cited source'}
+        >
+          <button aria-pressed={!scope} onclick={() => (scope = '')}>{id ? 'Semua' : 'All'}</button>
+          {#each sources as { ref } (contextKey(ref))}
+            <button
+              aria-pressed={scope === contextKey(ref)}
+              title={contextLabel(w, ref, lang)}
+              onclick={() => (scope = scope === contextKey(ref) ? '' : contextKey(ref))}
+              >{contextLabel(w, ref, lang)}</button
+            >
+          {/each}
+        </div>
+      {/if}
+      <ul class="threads">
+        {#each history as t, i (t.id)}
+          {@const evidence = refs.get(t.id)!}
+          {@const firstInDay = !i || group(t) !== group(history[i - 1])}
+          <li class="history-row" class:first-in-day={firstInDay}>
+            {#if firstInDay}<h2 class="day">{group(t)}</h2>{/if}
+            <a
+              class="thread"
+              href={base + '/' + encodeURIComponent(t.id)}
+              aria-current={t.id === active ? 'page' : undefined}
+            >
+              <span class="thread-heading">
+                <strong>{local(t.title, lang) || (id ? 'Percakapan baru' : 'New conversation')}</strong>
+                <time datetime={new Date(t.updated).toISOString()}>{when(t.updated)}</time>
+              </span>
+              <small class="thread-meta">
+                <span
+                  >{t.messages.length} {id ? 'pesan' : t.messages.length === 1 ? 'message' : 'messages'}</span
+                >
+                {#if evidence.citationCount}<span
+                    >{evidence.citationCount}
+                    {id ? 'sumber' : evidence.citationCount === 1 ? 'source' : 'sources'}</span
+                  >{/if}
+                {#if t.sample}<span>{id ? 'Contoh sintetis' : 'Synthetic example'}</span>{/if}
+              </small>
+              {#if evidence.used.some((ref) => ref.kind !== 'case')}
+                {@const attached = evidence.used.filter((ref) => ref.kind !== 'case')}
+                <span class="used">
+                  <ContextChip workspace={w} {lang} ref={attached[0]} />
+                  {#if attached.length > 1}<small>+{attached.length - 1}</small>{/if}
+                </span>
+              {/if}
+            </a>
+          </li>
+        {:else}<li class="empty">
             {query || scope
               ? id
                 ? 'Tidak ada percakapan yang cocok.'
                 : 'No matching conversations.'
               : id
-                ? 'Pertanyaan pertama Anda akan memulai riwayat ini.'
-                : 'Your first question starts this history.'}
+                ? 'Percakapan pertama Anda akan muncul di sini.'
+                : 'Your first conversation will appear here.'}
           </li>{/each}
       </ul>
     </aside>
-    <div class="conversation">
-      <a class="mobile-back ev-link" href={base}
-        ><ArrowLeft size={15} />{id ? 'Semua percakapan' : 'All conversations'}</a
-      >
+    <section
+      class="conversation"
+      aria-label={current ? local(current.title, lang) : id ? 'Percakapan baru' : 'New conversation'}
+    >
+      <header class="conv-head">
+        <a class="mobile-back" href={base}
+          ><ArrowLeft size={15} />{id ? 'Semua percakapan' : 'All conversations'}</a
+        >
+        <div class="conv-title">
+          <h2>{current ? local(current.title, lang) : id ? 'Percakapan baru' : 'New conversation'}</h2>
+          {#if current && refs.get(current.id)?.used.length}<div class="used">
+              <small>{id ? 'Konteks yang dipakai' : 'Contexts used'}</small>
+              {#each refs.get(current.id)!.used as ref (contextKey(ref))}<ContextChip
+                  workspace={w}
+                  {lang}
+                  {ref}
+                  link
+                />{/each}
+            </div>{/if}
+        </div>
+        {#if current}{#if current.sample}<span class="sample"
+              >{id ? 'Contoh sintetis' : 'Synthetic example'}</span
+            >{/if}
+          <button
+            class="delete"
+            aria-label={id ? 'Hapus percakapan' : 'Delete conversation'}
+            onclick={() => (confirmDelete = current!.id)}><Trash2 size={16} /></button
+          >{/if}
+      </header>
+      {#if current && confirmDelete === current.id}
+        <div
+          class="confirm"
+          role="group"
+          aria-label={id ? 'Hapus percakapan ini?' : 'Delete this conversation?'}
+        >
+          <span>{id ? 'Hapus percakapan ini?' : 'Delete this conversation?'}</span>
+          <button class="ev-button" onclick={() => (confirmDelete = '')}>{id ? 'Batal' : 'Cancel'}</button>
+          <button class="ev-button" disabled={busy} onclick={() => remove(current!.id)}
+            >{id ? 'Hapus' : 'Delete'}</button
+          >
+        </div>
+      {/if}
       {#key active || 'draft'}<Assistant workspace={w} {lang} threadId={invalid ? undefined : active} />{/key}
-    </div>
+    </section>
   </div>
 </div>
 
 <style>
+  :global(.work:has(.assistant-page)) {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+  :global(.work:has(.assistant-page) > .topbar),
+  :global(.work:has(.assistant-page) > .session-strip) {
+    flex: none;
+  }
+  :global(#case-main:has(.assistant-page)) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    width: 100%;
+    min-height: 0;
+    padding-bottom: 24px;
+  }
+  :global(#case-main:has(.assistant-page) > .invite-wrap) {
+    flex: none;
+  }
+  .assistant-page {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    max-width: 1400px;
+  }
+  .assistant-page > :not(.workspace) {
+    flex: none;
+  }
+  .page-heading {
+    margin-bottom: 24px;
+  }
   .workspace {
+    flex: 1;
+    min-height: 0;
+    max-height: 900px;
     display: grid;
-    grid-template-columns: minmax(13rem, 28%) minmax(0, 1fr);
-    gap: clamp(1rem, 3vw, 2.6rem);
+    grid-template-rows: minmax(0, 1fr);
+    grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
     align-items: start;
+    gap: 16px;
   }
   .history {
+    display: grid;
+    align-content: start;
+    gap: 10px;
     min-width: 0;
-    border-inline-end: 1px solid var(--line);
-    padding-inline-end: 1rem;
+    max-height: 100%;
+    overflow: auto;
+    padding: 2px 4px 2px 0;
   }
-  .history h2 {
+  .new {
+    justify-self: start;
+  }
+  .history .ev-search {
+    min-width: 0;
+    background: var(--surface);
+  }
+  .filters {
+    min-width: 0;
+    display: flex;
+    overflow-x: auto;
+    gap: 6px;
+    padding: 2px;
+    scrollbar-width: thin;
+  }
+  .filters button,
+  .delete {
+    appearance: none;
+    font-family: var(--sans);
+    cursor: pointer;
+  }
+  .filters button {
+    flex: none;
+    max-width: 23ch;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    padding: 4px 10px;
+    min-height: 30px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 12px;
+  }
+  .filters button[aria-pressed='true'] {
+    background: var(--selected);
+    border-color: var(--selected-line);
+  }
+  .threads {
+    display: grid;
+    gap: 0;
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .day,
+  .conv-head small,
+  .sample,
+  .thread small {
+    color: var(--muted);
+    font: 500 12px/1.45 var(--sans);
+  }
+  .day {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
-    font-size: 1.5rem;
-    margin-bottom: 0.7rem;
+    gap: 12px;
+    margin: 16px 0 2px;
+    padding: 0 8px;
+    color: var(--ink-strong);
+    font-weight: 650;
   }
-  .history .ev-select {
-    margin: 0.5rem 0;
-    width: 100%;
+  .day::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line-strong);
   }
-  .history h3 {
-    font: 600 0.78rem var(--sans);
-    color: var(--muted);
-    margin: 1.1rem 0 0.2rem;
-  }
-  .history .row {
-    display: flex;
-    align-items: center;
-  }
-  .history .row .ev-icon {
-    border: 0;
-    background: none;
-    color: var(--muted);
-    width: 36px;
-    min-width: 36px;
-  }
-  .history .ev-pick {
+  .history-row {
     min-width: 0;
-    padding: 0.65rem 0.35rem;
   }
-  .history .ev-pick strong {
-    display: block;
-    font-size: 0.89rem;
+  .history-row + .history-row:not(.first-in-day) {
+    border-top: 1px solid var(--line-strong);
+  }
+  .thread {
+    display: grid;
+    gap: 5px;
+    margin: 3px 0;
+    padding: 10px 11px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    text-decoration: none;
+    min-width: 0;
+    transition:
+      background-color var(--dur-fast) var(--ease-out),
+      border-color var(--dur-fast) var(--ease-out);
+  }
+  .thread:hover {
+    background: var(--sunken);
+  }
+  .thread[aria-current] {
+    border-color: var(--selected-line);
+    background: var(--selected);
+  }
+  .thread[aria-current] small,
+  .thread[aria-current] time {
+    color: color-mix(in srgb, var(--muted) 70%, var(--ink-strong));
+  }
+  .thread strong {
+    color: var(--ink-strong);
+    font: 600 14px/1.35 var(--sans);
     overflow-wrap: anywhere;
+  }
+  .thread-heading {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .thread-heading time {
+    white-space: nowrap;
+    color: var(--muted);
+    font: 500 11.5px/1.4 var(--sans);
+    font-variant-numeric: tabular-nums;
+  }
+  .thread-meta {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    column-gap: 6px;
+  }
+  .thread-meta span + span::before {
+    content: '·';
+    margin-right: 6px;
+  }
+  .used,
+  .confirm {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
+    min-width: 0;
+  }
+  .empty {
+    padding: 8px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .conversation {
+    min-width: 0;
+    height: 100%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+  }
+  .conv-head {
+    flex: none;
+    display: flex;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px 10px;
+    padding: 14px 14px 12px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+  .conv-title {
+    display: grid;
+    flex: 1;
+    min-width: 0;
+    gap: 6px;
+  }
+  .conv-title h2 {
+    font: 400 23px/1.2 var(--display);
+    color: var(--ink-strong);
+    overflow-wrap: anywhere;
+    letter-spacing: -0.005em;
+  }
+  .sample {
+    background: var(--surface-2);
+    border: 1px solid var(--line);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+  .delete {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 6px;
+    color: var(--muted);
+    display: grid;
+    place-items: center;
+    background: transparent;
+  }
+  .delete:hover {
+    background: var(--sunken);
+    color: var(--ink);
+  }
+  .confirm {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--line);
+  }
+  .confirm span {
+    flex: 1;
   }
   .mobile-back {
     display: none;
   }
-  .conversation {
-    min-width: 0;
-    max-width: 57rem;
-  }
-  .history .ev-list > li + li {
-    border: 0;
-  }
-  @container (max-width:745px) {
+  @container (max-width:879px) {
     .workspace {
       display: block;
     }
     .history {
-      border: 0;
+      max-height: 100%;
+      overflow: auto;
       padding: 0;
     }
+    .page-heading.in-thread,
     .workspace.opened .history,
     .workspace:not(.opened) .conversation {
       display: none;
     }
+    .conv-title .used {
+      flex-wrap: nowrap;
+      overflow: auto;
+      scrollbar-width: thin;
+    }
+    .conv-title .used > :global(*) {
+      flex: none;
+    }
     .mobile-back {
       display: inline-flex;
+      flex-basis: 100%;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+      color: var(--muted);
+      text-decoration: none;
     }
-    .workspace.opened .conversation {
-      display: block;
+  }
+  @container (max-width:479px) {
+    .conv-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 5px 8px;
+      padding: 8px 12px 10px;
+    }
+    .mobile-back {
+      grid-row: 1;
+      grid-column: 1;
+      min-height: 32px;
+    }
+    .conv-head .sample {
+      grid-row: 1;
+      grid-column: 2;
+    }
+    .conv-head .delete {
+      grid-row: 1;
+      grid-column: 3;
+    }
+    .conv-title {
+      grid-column: 1/-1;
+      grid-row: 2;
+    }
+    .conv-title h2 {
+      font-size: 21px;
+    }
+  }
+  @media (max-width: 719px) {
+    :global(#case-main:has(.assistant-page)) {
+      padding-bottom: calc(78px + env(safe-area-inset-bottom));
+    }
+    :global(.desk.has-live #case-main:has(.assistant-page)) {
+      padding-bottom: calc(134px + env(safe-area-inset-bottom));
+    }
+  }
+  @media (max-height: 560px) {
+    .workspace {
+      min-height: 340px;
     }
   }
 </style>
