@@ -86,7 +86,7 @@ test('a superseded or abandoned preview cannot repopulate the import form', asyn
   await expect(form.getByRole('button', { name: 'Konfirmasi dan impor' })).toBeDisabled();
 });
 
-for (const destination of ['documents', 'new-dialog']) {
+for (const destination of ['documents', 'loading-cases', 'new-dialog']) {
 test(`a hearing saved after dismissal leaves ${destination} alone`, async ({ page }) => {
   await page.goto('/demo/hearings?new=schedule');
   const base = new URL(page.url()).pathname.split('/').slice(0, 3).join('/');
@@ -107,9 +107,24 @@ test(`a hearing saved after dismissal leaves ${destination} alone`, async ({ pag
   await form.getByRole('button', { name: 'Tutup', exact: true }).click();
   await expect(form).toHaveCount(0);
   await expect(page).toHaveURL(base + '/hearings');
-  if (destination === 'documents') {
-    await page.locator(`a.section-link[href="${base}/documents"]`).click();
-    await expect(page).toHaveURL(base + '/documents');
+  const navigating = deferred(), finishNavigation = deferred();
+  if (destination === 'loading-cases') {
+    await page.route('**/cases/__data.json*', async route => {
+      navigating.resolve();
+      await finishNavigation.promise;
+      await route.continue();
+    });
+  }
+  if (destination !== 'new-dialog') {
+    const link = destination === 'loading-cases'
+      ? page.locator('#workspace-rail .switch-case')
+      : page.locator(`a.section-link[href="${base}/documents"]`);
+    await link.focus();
+    await page.keyboard.press('Enter');
+    if (destination === 'loading-cases') {
+      await navigating.promise;
+      await expect(page.locator('[data-loading-view="cases"]')).toBeVisible();
+    } else await expect(page).toHaveURL(base + '/documents');
   } else {
     await page.getByRole('button', { name: 'Sidang baru', exact: true }).click();
     await form.getByRole('button', { name: /Jadwalkan sidang/ }).click();
@@ -118,8 +133,11 @@ test(`a hearing saved after dismissal leaves ${destination} alone`, async ({ pag
   const response = page.waitForResponse(r => r.request().method() === 'POST' && r.url().endsWith('/hearings'));
   release.resolve();
   await (await response).finished();
+  finishNavigation.resolve();
   await page.waitForLoadState('networkidle');
-  await expect(page).toHaveURL(base + (destination === 'documents' ? '/documents' : '/hearings'));
+  await expect(page).toHaveURL(destination === 'loading-cases'
+    ? '/cases' : base + (destination === 'new-dialog' ? '/hearings' : '/documents'));
+  await expect(page.locator('[data-loading-view]')).toHaveCount(0);
   if (destination === 'new-dialog') {
     await expect(form.getByRole('textbox', { name: 'Judul sidang' })).toHaveValue('Sidang berikutnya');
     await form.getByRole('button', { name: 'Tutup', exact: true }).click();

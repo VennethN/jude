@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isGuestPractice, guestPracticeMinutes } from '@jude/core/domain';
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { goto, invalidate, replaceState } from '$app/navigation';
   import { page } from '$app/state';
@@ -42,6 +43,8 @@
   import '$lib/evidence/evidence.css';
   import Dialog from '../Dialog.svelte';
   import HearingForm from '../HearingForm.svelte';
+  import { canStartHearing } from '../hearing-access';
+  import PracticePrompt from './PracticePrompt.svelte';
   import { formatDate, timecode } from '../format';
   import Transcript from './Transcript.svelte';
   import HearingTransport from './HearingTransport.svelte';
@@ -51,7 +54,7 @@
   import VoiceDialog from './VoiceDialog.svelte';
   import type { LiveTranscriptTurn } from '../microphone';
   import { runReplay } from './replay';
-  import { getCapture, connectCapture, pauseCapture, stopCapture } from './active-recording.svelte';
+  import { getCapture, connectCapture, microphoneStartFailure, pauseCapture, stopCapture, drainCapture } from './active-recording.svelte';
   import { speakerShares, speakerTurns, voice } from './people';
   import './hearing.css';
 
@@ -74,8 +77,9 @@
   let live = $derived(h.mode === 'live'),
     scheduled = $derived(h.mode === 'scheduled'),
     synthetic = $derived(w.caseRecord.label === 'synthetic');
+  const practice = $derived(isGuestPractice(account, w.caseRecord));
   let canRecord = $derived(
-    !synthetic && !h.closed && !account.user.guest && h.recordingPermission?.by === account.user.id
+    !synthetic && !h.closed && (!account.user.guest || practice) && h.recordingPermission?.by === account.user.id
   );
   let ownSession = $derived(synthetic || canRecord),
     key = $derived([account.user.id, w.caseRecord.id, h.id].join('/')),
@@ -115,8 +119,17 @@
     }, 1000);
     return () => clearInterval(timer);
   });
+  let stoppedElapsed = $state<number>();
+  $effect(() => {
+    const scope = key;
+    if (!ready || synthetic) return;
+    try {
+      const saved = localStorage.getItem('jude-voice-ending/' + scope);
+      stoppedElapsed = saved !== null && Number.isFinite(Number(saved)) ? Number(saved) : undefined;
+    } catch { stoppedElapsed = undefined; }
+  });
   let elapsed = $derived(
-    synthetic
+    stoppedElapsed !== undefined ? stoppedElapsed : synthetic
       ? Math.max(replayClock, lines.at(-1)?.t ?? 0)
       : capture
         ? capture.elapsed + (capture.runningSince ? Math.max(0, (now - capture.runningSince) / 1000) : 0)
@@ -129,7 +142,7 @@
     busy = $state(false),
     issue = $state(''),
     boardNotice = $state('');
-  let dialog = $state<'' | 'start' | 'end' | 'capture' | 'view' | 'counsel'>(''),
+  let dialog = $state<'' | 'start' | 'end' | 'view' | 'counsel'>(''),
     keep = $state(false),
     edit = $state<Speaker>(),
     inspect = $state<InspectTarget>(),
@@ -231,6 +244,9 @@
           : en
             ? 'Replaying'
             : 'Memutar ulang'
+      : stoppedElapsed !== undefined
+        ? busy ? (en ? 'Microphone off · sending audio' : 'Mikrofon mati · mengirim audio')
+          : (en ? 'Microphone off' : 'Mikrofon mati')
       : capture
         ? {
             permission: en ? 'Waiting for microphone permission' : 'Menunggu izin mikrofon',
@@ -240,7 +256,8 @@
             paused: en ? 'Microphone paused' : 'Mikrofon dijeda',
             draining: en ? 'Saving audio' : 'Menyimpan audio',
             stopped: en ? 'Stopped' : 'Berhenti',
-            error: en ? 'Check microphone' : 'Periksa mikrofon'
+            error: en ? 'Check microphone' : 'Periksa mikrofon',
+            guest_limit: en ? 'Practice audio limit reached' : 'Batas audio latihan tercapai'
           }[capture.state]
         : en
           ? 'Waiting for microphone'
@@ -296,6 +313,8 @@
     }
   }
   function issueFrom(e: unknown) {
+    if (e instanceof DOMException && e.name === 'NotAllowedError')
+      return en ? 'Microphone access was declined. Allow the microphone in your browser, then choose Connect microphone.' : 'Izin mikrofon ditolak. Izinkan mikrofon di browser, lalu pilih Hubungkan mikrofon.';
     const reason = e instanceof ApiError ? e.code : e instanceof Error ? e.message : '';
     if (reason === 'capture_in_use')
       return en
@@ -303,8 +322,8 @@
         : 'Mikrofon sedang digunakan di sidang atau tab lain.';
     if (reason === 'audio_pending')
       return en
-        ? 'Audio remains on this device. Reconnect the microphone to finish sending it.'
-        : 'Audio masih ada di perangkat ini. Hubungkan kembali mikrofon untuk menyelesaikan pengiriman.';
+        ? 'The microphone is off. Some audio still needs to be sent. Retry saving without turning the microphone on.'
+        : 'Mikrofon sudah mati. Sebagian audio belum selesai dikirim. Coba kirim lagi tanpa menyalakan mikrofon.';
     if (reason === 'capture_connecting')
       return en ? 'Wait for the microphone to connect.' : 'Tunggu sampai mikrofon terhubung.';
     return en
@@ -392,19 +411,14 @@
     }
   }
   async function connect() {
-    if (!canRecord || !live || busy || !h.recordingPermission?.at) return;
+    if (!canRecord || !live || !transcription || busy || capture || !h.recordingPermission?.at) return;
     busy = true;
     issue = '';
     try {
-      await connectCapture(w.caseRecord.id, h.id, account.user.id, keep, h.startedAt, h.language);
+      await connectCapture(w.caseRecord.id, h.id, account.user.id, !account.user.guest && keep, h.startedAt, h.language, practice);
       dialog = '';
     } catch (e) {
-      issue =
-        e instanceof DOMException && e.name === 'NotAllowedError'
-          ? en
-            ? 'Microphone access was declined. You can enable it in browser settings.'
-            : 'Izin mikrofon ditolak. Anda dapat mengaktifkannya di pengaturan peramban.'
-          : issueFrom(e);
+      issue = issueFrom(e);
     } finally {
       busy = false;
     }
@@ -414,8 +428,14 @@
     busy = true;
     issue = '';
     try {
-      if (capture) await stopCapture(key);
+      if (!synthetic) {
+        stoppedElapsed ??= elapsed;
+        try { localStorage.setItem('jude-voice-ending/' + key, String(stoppedElapsed)); } catch {}
+        if (capture) await stopCapture(key);
+        else await drainCapture(w.caseRecord.id, h.id, account.user.id, h.language ?? 'id', practice);
+      }
       await write(apiPath(w, 'hearings/' + encodeURIComponent(h.id) + '/end'), 'POST', {});
+      try { localStorage.removeItem('jude-voice-ending/' + key); } catch {}
       dialog = '';
       closeQuick();
     } catch (e) {
@@ -472,8 +492,9 @@
 {#snippet liveControls()}
   <div class="session-control" data-tour="live-controls">
         <div class="session-label">
-          <Radio size={17} /><b class="status-word">{liveStatus}</b>
-          {#if synthetic}<small class="compact-status">{en ? 'Replay' : 'Contoh'}</small>{/if}<span>{timecode(elapsed)}</span>
+          {#if stoppedElapsed !== undefined}<Square size={17} />{:else}<Radio size={17} />{/if}<b class="status-word">{liveStatus}</b>
+          {#if stoppedElapsed !== undefined}<small class="compact-status">{en ? 'Mic off' : 'Mikrofon mati'}</small>
+          {:else if synthetic}<small class="compact-status">{en ? 'Replay' : 'Contoh'}</small>{/if}<span>{timecode(elapsed)}</span>
         </div>
         <div class="control-actions">
           {#if synthetic && !replayDone}<button
@@ -487,29 +508,28 @@
               }}
               >{#if replayPaused}<Play size={14}/><span>{en ? 'Resume' : 'Lanjutkan'}</span>{:else}<Pause size={14}/><span>{en ? 'Pause' : 'Jeda'}</span>{/if}</button
             >
-          {:else if canRecord && !capture}<button
-              class="button"
-              onclick={() => {
-                issue = '';
-                dialog = 'capture';
-              }}><Mic size={15} />{en ? 'Connect microphone' : 'Hubungkan mikrofon'}</button
+          {:else if canRecord && !capture && stoppedElapsed === undefined}<button
+              class="button primary"
+              disabled={!transcription || busy}
+              onclick={connect}><Mic size={15} />{en ? 'Connect microphone' : 'Hubungkan mikrofon'}</button
             >
-          {:else if capture && canRecord}<button
+          {:else if capture && canRecord && capture.state !== 'guest_limit' && stoppedElapsed === undefined}<button
               class="button"
-              disabled={['connecting', 'draining'].includes(capture.state)}
-              onclick={() => pauseCapture(key, capture?.state !== 'paused')}
+              disabled={busy || ['connecting', 'draining', 'error'].includes(capture.state)}
+              onclick={async () => { try { await pauseCapture(key, capture?.state !== 'paused'); } catch (e) { issue = issueFrom(e); } }}
               >{#if capture.state === 'paused'}<Play size={14} />{en ? 'Resume' : 'Lanjutkan'}{:else}<Pause
                   size={14}
                 />{en ? 'Pause' : 'Jeda'}{/if}</button
             >{/if}
-          {#if ownSession}<button class="button end" onclick={() => (dialog = 'end')}
-              ><Square size={12} />{en ? 'End hearing' : 'Akhiri sidang'}</button
+          {#if ownSession}<button class="button end" disabled={busy || !ready}
+              onclick={() => { if (stoppedElapsed !== undefined) void end(); else dialog = 'end'; }}
+              ><Square size={12} />{stoppedElapsed !== undefined ? (busy ? (en ? 'Saving…' : 'Menyimpan…') : (en ? 'Retry saving' : 'Coba kirim lagi')) : (en ? 'End hearing' : 'Akhiri sidang')}</button
             >{/if}
         </div>
       </div>
 {/snippet}
 
-<article class="hearing-detail" class:live-view={live || scheduled} class:running={live}>
+<article class="hearing-detail" class:practice class:real-live={live && canRecord} class:live-view={live || scheduled} class:running={live}>
   <a class="back" href={base + '/hearings'}><ArrowLeft size={15} />{en ? 'All hearings' : 'Semua sidang'}</a>
   <header class="hearing-heading">
     <PageHeading art="speech" compact>
@@ -526,12 +546,18 @@
     </div>{/if}
   </header>
   {#if live}{@render liveControls()}{/if}
+  {#if practice && (live || scheduled)}
+    {#if capture?.state === 'guest_limit'}<p class="notice" role="status">{en ? `Your ${guestPracticeMinutes} minutes of practice audio have been used. Review the saved transcript and findings.` : `Jatah ${guestPracticeMinutes} menit audio latihan Anda sudah terpakai. Tinjau transkrip dan temuan yang tersimpan.`}</p>
+    {:else}<PracticePrompt workspace={w} {account} {lang}/>{/if}
+  {/if}
+  {#if live && canRecord && !capture && !transcription}<p class="notice" role="status">{en ? 'The transcription service is unavailable. Reopen the hearing to try again.' : 'Layanan transkripsi belum tersedia. Buka kembali sidang untuk mencoba lagi.'}</p>{/if}
+  {#if !issue && !capture && microphoneStartFailure(key)}<p class="notice" role="alert">{issueFrom(microphoneStartFailure(key))}</p>{/if}
   {#if !live && !scheduled}<p class="hearing-meta">
     {new Intl.DateTimeFormat(en ? 'en-GB' : 'id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'Asia/Jakarta'}).format(new Date(h.date))}
     · {modeName}{h.duration ? ' · ' + Math.round(h.duration / 60) + (en ? ' min' : ' mnt') : ''}{#if synthetic}
       <span class="meta-sample"> · {en ? 'Synthetic material' : 'Materi sintetis'}</span>{/if}
   </p>{/if}
-  {#if issue && dialog !== 'capture'}<div class="notice" role="alert">{issue}</div>{/if}
+  {#if issue}<div class="notice" role="alert">{issue}</div>{/if}
   {#if scheduled}
     <div class="appointment">
       <section>
@@ -550,7 +576,7 @@
           <a class="button" href={base + '/hearings/' + activeOther.id}
             >{en ? 'Go to live hearing' : 'Buka sidang berjalan'}<ArrowRight size={15} /></a
           >
-        {:else if !h.closed && (synthetic || (!account.user.guest && account.plan.id !== 'basic' && transcription))}<button
+        {:else if !h.closed && canStartHearing(account, w.caseRecord, transcription)}<button
             class="button primary"
             onclick={() => (dialog = 'start')}
             ><Mic size={16} />{en ? 'Start hearing' : 'Mulai sidang'}</button
@@ -560,7 +586,7 @@
               ? en
                 ? 'This hearing is closed to recording.'
                 : 'Perekaman tidak tersedia dalam sidang tertutup.'
-              : account.user.guest
+              : account.user.guest && !practice
                 ? (en ? 'Sign in to record a private hearing.' : 'Masuk untuk merekam sidang privat.')
                 : account.plan.id === 'basic'
                   ? (en ? 'Live recording requires Advocate Pro or higher.' : 'Rekam langsung tersedia mulai paket Advokat Pro.')
@@ -668,8 +694,7 @@
     {lang}
     {transcription}
     scheduled={h}
-    guest={account.user.guest}
-    livePlan={account.plan.id !== 'basic'}
+    {account}
     close={() => (dialog = '')}
   />
 {:else if dialog === 'end'}<Dialog
@@ -682,6 +707,9 @@
           ? en
             ? 'The example stops here. All testimony and findings remain available for review.'
             : 'Contoh berhenti di sini. Ucapan dan temuan tetap dapat diperiksa.'
+          : busy
+            ? en ? 'The microphone is off. Sending the remaining audio; no new speech is being recorded.'
+              : 'Mikrofon sudah mati. Sisa audio sedang dikirim; suara baru tidak direkam.'
           : en
             ? 'The microphone will stop and remaining audio will be sent before the transcript is filed.'
             : 'Mikrofon akan dihentikan dan sisa audio dikirim sebelum transkrip disimpan.'}
@@ -693,37 +721,6 @@
           >{en ? 'Continue hearing' : 'Lanjutkan sidang'}</button
         >
       </div>
-    </div></Dialog
-  >
-{:else if dialog === 'capture'}<Dialog
-    title={en ? 'Connect this microphone' : 'Hubungkan mikrofon perangkat ini'}
-    {lang}
-    close={() => {
-      if (!busy) dialog = '';
-    }}
-    ><div class="stack">
-      <p>
-        {en
-          ? 'This device will send speech from the hearing for transcription.'
-          : 'Perangkat ini akan mengirim suara sidang untuk ditranskripsikan.'}
-      </p>
-      <label class="check"
-        ><input type="checkbox" bind:checked={keep} />
-        {en
-          ? 'Also retain the audio recording in this case.'
-          : 'Simpan juga rekaman audio dalam perkara ini.'}</label
-      >{#if issue}<p class="error-text" role="alert">{issue}</p>{/if}<button
-        class="button primary"
-        disabled={busy}
-        onclick={connect}
-        ><Mic size={16} />{busy
-          ? en
-            ? 'Connecting…'
-            : 'Menghubungkan…'
-          : en
-            ? 'Enable microphone'
-            : 'Aktifkan mikrofon'}</button
-      >
     </div></Dialog
   >
 {:else if dialog === 'counsel'}<Dialog
@@ -754,6 +751,8 @@
     {lang}
     close={() => (dialog = '')}
     ><div class="stack">
+      {#if live && canRecord && !capture && !account.user.guest}<label class="check"><input type="checkbox" bind:checked={keep}/>
+        {en ? 'Also retain the audio recording when connecting this microphone.' : 'Simpan juga rekaman audio saat menghubungkan mikrofon ini.'}</label>{/if}
       <label class="field"
         >{en ? 'Transcript text size' : 'Ukuran teks transkrip'}<select
           value={account.prefs.liveTextSize ?? 1}

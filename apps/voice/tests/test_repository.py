@@ -11,7 +11,7 @@ from uuid import uuid4
 from jude_voice.repository import Repository, VoiceError, now_ms, pack
 
 
-class VoiceRepositoryTest(unittest.TestCase):
+class VoiceRepositoryFixture(unittest.TestCase):
     """Uses the same migrations for SQLite and the optional PostgreSQL test DSN."""
 
     def setUp(self):
@@ -153,6 +153,8 @@ class VoiceRepositoryTest(unittest.TestCase):
             text=name if text is None else text,
         )
 
+
+class VoiceRepositoryTest(VoiceRepositoryFixture):
     def test_tenants_roles_membership_archive_and_session_revocation(self):
         self.assertEqual(self.repo.case(self.viewer, "case")["title"], "case")
         self.expect_error(404, self.repo.case, self.owner, "secret")
@@ -206,6 +208,148 @@ class VoiceRepositoryTest(unittest.TestCase):
         self.assertEqual(
             self.expect_error(402, self.repo.acquire, self.owner, "case", "hearing"), "feature_not_in_plan"
         )
+
+    def guest_practice(self):
+        self.execute("UPDATE organizations SET demo_id='case' WHERE id='org-a'")
+        self.execute("UPDATE case_members SET role='owner' WHERE case_id='case' AND user_id='guest'")
+        for number, hid in enumerate(("practice-1", "practice-2"), 2):
+            hearing = {"id": hid, "caseId": "case", "mode": "live", "recordingPermission": {"by": "guest"}}
+            self.execute(
+                "INSERT INTO case_entities(case_id,kind,id,ordinal,body) VALUES('case','hearings',?,?,?)",
+                (hid, number, pack(hearing)),
+            )
+
+    def test_guest_live_requires_the_owned_private_demo_and_personal_consent(self):
+        self.guest_practice()
+        live = (self.guest, "case", "practice-1")
+        self.assertEqual(self.repo.check_recording(*live)["id"], "practice-1")
+        self.expect_error(404, self.repo.acquire, self.guest, "secret", "practice-1")
+        self.expect_error(403, self.repo.acquire, self.guest, "case", "hearing")
+        self.execute("UPDATE organizations SET demo_id='demo' WHERE id='org-a'")
+        self.expect_error(403, self.repo.acquire, *live)
+        self.expect_error(403, self.repo.acquire, self.guest, "demo", "h3")
+        self.execute("UPDATE organizations SET demo_id='case' WHERE id='org-a'")
+        self.execute("UPDATE cases SET synthetic=1 WHERE id='case'")
+        self.expect_error(403, self.repo.acquire, *live)
+        self.execute("UPDATE cases SET synthetic=0 WHERE id='case'")
+        self.execute("UPDATE case_members SET role='editor' WHERE case_id='case' AND user_id='guest'")
+        self.expect_error(403, self.repo.acquire, *live)
+        self.execute("UPDATE case_members SET role='owner' WHERE case_id='case' AND user_id='guest'")
+        self.execute("UPDATE organizations SET plan_id='basic' WHERE id='org-a'")
+        self.assertEqual(self.expect_error(402, self.repo.acquire, *live), "feature_not_in_plan")
+        self.execute("UPDATE organizations SET plan_id='pro' WHERE id='org-a'")
+        lease = self.repo.acquire(*live)
+        self.execute("UPDATE organizations SET demo_id=NULL WHERE id='org-a'")
+        self.expect_error(403, self.repo.renew, *live, lease)
+        self.execute("UPDATE organizations SET demo_id='case' WHERE id='org-a'")
+        hearing = {**self.repo.check_recording(*live), "mode": "recorded"}
+        self.execute("UPDATE case_entities SET body=? WHERE case_id='case' AND id='practice-1'", (pack(hearing),))
+        self.assertEqual(self.expect_error(409, self.repo.renew, *live, lease), "not_live")
+
+    def test_guest_practice_keeps_only_transcripts_and_cannot_upload(self):
+        self.guest_practice()
+        live = (self.guest, "case", "practice-1")
+        lease = self.repo.acquire(*live)
+        turn = {"lease": lease, "epoch": "epoch-1", "turn_id": "speech", "start": 1, "pcm": b"\x01\0" * 24000}
+        self.assertEqual(self.expect_error(403, self.repo.begin_capture, *live, **turn, keep=True), "guest_transcript_only")
+        self.expect_error(403, self.repo.check_recording, self.guest, "case")
+        self.expect_error(403, self.repo.previous_upload, self.guest, "case", "file")
+        self.expect_error(
+            403, self.repo.add_recording, self.guest, "case",
+            title="Upload", date="2026-11-07", filename="sample.wav", mime="audio/wav", audio=b"audio",
+            duration=1, permission=True, segments=[{"start": 0, "end": 1, "text": "Hello", "speaker": "A"}],
+        )
+        self.assertIsNone(self.repo.begin_capture(*live, **turn, keep=False))
+        saved = self.repo.save_stream_result(*live, lease=lease, epoch="epoch-1", result_id="result-one",
+            segments=[{"start": 1.0, "end": 1.5, "text": "Testimony.", "speaker": "0"}])
+        self.assertIsNotNone(saved["statementId"])
+        self.assertEqual(self.repo.capture_resume_offset(*live, lease=lease, turn_id="speech"), 0.5)
+        self.repo.complete_capture(*live, lease=lease, epoch="epoch-1", turn_id="speech")
+        self.expect_error(403, self.repo.finalize_speakers, *live, {saved["statementId"]: "other"})
+        self.assertEqual(self.repo.statements(*live)[0]["text"], "Testimony.")
+        self.assertIsNone(self.repo.voice_turns(*live)[0]["object_key"])
+        self.expect_error(404, self.repo.audio, *live)
+        self.assertFalse(any(p.is_file() for p in (self.root / "files").rglob("*")))
+
+    def test_guest_audio_budget_is_lifetime_sample_accurate_and_atomic_across_hearings(self):
+        self.guest_practice()
+        hearings = ("practice-1", "practice-2")
+        leases = {hid: self.repo.acquire(self.guest, "case", hid) for hid in hearings}
+        starts = {f"turn-{index}": 1000 + index * 30 for index in range(9)}
+        starts["almost"] = 1600
+
+        def begin(hid, tid, pcm, epoch="epoch-1"):
+            return self.repo.begin_capture(
+                self.guest, "case", hid, epoch=epoch, lease=leases[hid], turn_id=tid,
+                start=starts.get(tid, 2000), pcm=pcm, keep=False
+            )
+
+        full = bytes(30 * 48_000)
+        for index in range(9):
+            begin(hearings[index % 2], f"turn-{index}", full)
+        begin(hearings[0], "almost", full[:-2])  # One PCM sample remains.
+        self.assertEqual(self.repo.check_recording(self.guest, "case", hearings[0])["id"], hearings[0])
+        self.repo.release("case", hearings[0], leases[hearings[0]])
+        leases[hearings[0]] = self.repo.acquire(self.guest, "case", hearings[0])
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            retries = list(pool.map(lambda n: begin(hearings[0], "almost", full[:-2], f"retry-{n}"), range(2)))
+        self.assertEqual(retries, [None, None])
+
+        def admit(hid):
+            try:
+                begin(hid, "final-sample", b"\x01\0")
+                return hid
+            except VoiceError as exc:
+                return (exc.status, exc.code)
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(admit, hearings))
+        self.assertEqual(results.count((402, "guest_live_limit")), 1)
+        winner = next(hid for hid in hearings if hid in results)
+        counter = "SELECT amount FROM usage_counts WHERE org_id='org-a' AND period='lifetime' AND quota='guest_live_pcm_bytes'"
+        self.assertEqual(self.one(counter)["amount"], 300 * 48_000)
+        self.assertEqual(self.one("SELECT count(*) AS n FROM voice_turns")["n"], 11)
+        self.assertEqual(self.expect_error(402, begin, winner, "extra", bytes(2)), "guest_live_limit")
+        self.assertEqual(self.expect_error(402, self.repo.check_recording, self.guest, "case", winner), "guest_live_limit")
+
+        # The AWS result watermark survives epoch recovery at the limit, with one durable statement.
+        practice = (self.guest, "case", hearings[0])
+        segments = [{"start": 1600, "end": 1600.5, "text": "Tercatat.", "speaker": "0"}]
+        saved = self.repo.save_stream_result(*practice, lease=leases[hearings[0]], epoch="epoch-1",
+                                             result_id="result", segments=segments)
+        self.assertIsNone(begin(hearings[0], "almost", full[:-2], "recovery"))
+        self.assertEqual(self.repo.capture_resume_offset(*practice, lease=leases[hearings[0]], turn_id="almost"), 0.5)
+        recovered = self.repo.save_stream_result(*practice, lease=leases[hearings[0]], epoch="recovery",
+                                                 result_id="recovered", segments=segments)
+        self.assertEqual(recovered["statementId"], saved["statementId"])
+        self.assertEqual(len(self.repo.statements(*practice)), 1)
+        # A pending final turn can finish on a replacement socket, and a lost ACK can be replayed.
+        self.repo.release("case", winner, leases[winner])
+        leases[winner] = self.repo.acquire(self.guest, "case", winner)
+        self.assertIsNone(begin(winner, "final-sample", b"\x01\0", "reconnect"))
+        receipt = self.repo.complete_capture(self.guest, "case", winner, lease=leases[winner],
+                                             epoch="reconnect", turn_id="final-sample")
+        self.assertEqual(begin(winner, "final-sample", b"\x01\0", "lost-ack"), receipt)
+        self.assertEqual(self.one(counter)["amount"], 300 * 48_000)
+        self.execute("DELETE FROM voice_turns WHERE hearing_id='practice-1'")
+        self.execute("UPDATE usage_counts SET period='2001-01' WHERE quota='hours'")
+        self.assertEqual(self.expect_error(402, begin, winner, "next-month", bytes(2)), "guest_live_limit")
+        # The ordinary paid recording path in the same org retains its own plan allowance.
+        paid = self.repo.acquire(self.owner, "case", "hearing")
+        self.turn("paid", paid)
+        self.assertEqual(self.one(counter)["amount"], 300 * 48_000)
+        # A second guest's own demo organisation has an independent allowance.
+        self.execute("UPDATE users SET guest=1 WHERE id='other'")
+        self.execute("UPDATE organizations SET demo_id='secret' WHERE id='org-b'")
+        self.execute(
+            "INSERT INTO case_entities(case_id,kind,id,ordinal,body) VALUES('secret','hearings','separate',0,?)",
+            (pack({"id": "separate", "caseId": "secret", "mode": "live", "recordingPermission": {"by": "other"}}),),
+        )
+        other = self.repo.session(f"{3:064x}")
+        other_lease = self.repo.acquire(other, "secret", "separate")
+        self.repo.begin_capture(other, "secret", "separate", lease=other_lease, epoch="other-epoch",
+                                turn_id="first", start=0, pcm=bytes(48_000), keep=False)
+        self.assertEqual(self.one("SELECT amount FROM usage_counts WHERE org_id='org-b' AND period='lifetime'")["amount"], 48_000)
 
     def test_recorder_lease_replay_and_finalization(self):
         lease = self.repo.acquire(self.owner, "case", "hearing")

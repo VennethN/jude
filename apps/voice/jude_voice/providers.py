@@ -13,6 +13,7 @@ from .transcribe import (
     recognize,
     transcription_available,
 )
+from .voiceprints import upload_samples
 
 __all__ = [
     "ProviderError",
@@ -129,7 +130,7 @@ def windows(turns, duration: float):
             start = stop
 
 
-async def transcribe_file(data: bytes, suffix: str, language: str):
+async def transcribe_file(data: bytes, suffix: str, language: str, *, voice_samples=None):
     """Return (native segments, duration) from one recording-wide AWS stream.
 
     Speaker labels are anonymous and scoped to this upload. No pyannote model
@@ -143,6 +144,8 @@ async def transcribe_file(data: bytes, suffix: str, language: str):
         _, result = await recognize(pcm, SAMPLE_RATE, language)
         if not result:
             raise ValueError("No intelligible speech was found.")
+        if voice_samples is not None:
+            voice_samples.extend(upload_samples(pcm, result, SAMPLE_RATE))
         return result, duration
 
 

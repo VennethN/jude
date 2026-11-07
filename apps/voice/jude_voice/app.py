@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import re
+import traceback
 from contextlib import asynccontextmanager, suppress
 from datetime import date as date_type
 from pathlib import Path
@@ -31,9 +32,10 @@ from .providers import (
     transcription_available,
     wav_header,
 )
-from .repository import Repository, VoiceError
+from .repository import Repository, VoiceError, anonymous_id
 from .speakers import run_worker
 from .transcribe import TranscribeStream
+from .voiceprints import VoiceprintWorker
 
 AUDIO_FORMATS = {".mp3", ".wav", ".mp4", ".m4a", ".mpeg", ".mpga", ".webm"}
 ID = re.compile(r"^[a-zA-Z0-9_-]{1,90}$")
@@ -55,12 +57,17 @@ def allowed_origin(conn):
 @asynccontextmanager
 async def lifespan(_app):
     worker = asyncio.create_task(run_worker(repo))
+    matcher = VoiceprintWorker(repo)
+    matcher.start()
+    _app.state.voiceprints = matcher if matcher.task else None
     try:
         yield
     finally:
         worker.cancel()
         with suppress(asyncio.CancelledError):
             await worker
+        await matcher.close()
+        _app.state.voiceprints = None
 
 
 app = FastAPI(title="Jude Voice", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -164,8 +171,10 @@ async def upload(case_id: str, request: Request):
             return failure(413, "file_too_large", "Audio must contain up to 25 MB.")
         language = "en" if form.get("lang") == "en" else "id"
         await asyncio.to_thread(repo.check_recording, session, case_id, size=len(data))
+        matcher = getattr(request.app.state, "voiceprints", None)
+        samples = [] if matcher else None
         try:
-            segments, duration = await transcribe_file(data, suffix, language)
+            segments, duration = await transcribe_file(data, suffix, language, voice_samples=samples)
         except (ValueError, TypeError):
             return failure(
                 422, "validation", "The file must have readable speech and fit within 30 minutes."
@@ -185,6 +194,10 @@ async def upload(case_id: str, request: Request):
             idempotency_key=key,
             language=language,
         )
+        if matcher and samples:
+            for label, pcm, rate in samples:
+                matcher.submit((session, case_id), result["id"],
+                               anonymous_id(result["id"], "", label), pcm, rate)
         return JSONResponse(result, status_code=201)
 
 
@@ -338,14 +351,18 @@ async def socket(ws: WebSocket, case_id: str, hearing_id: str):
 
 async def receive_turns(ws, session, case_id, hearing_id, lease):
     try:
-        await stream_turns(ws, repo, session, case_id, hearing_id, lease, decode_turn, TranscribeStream)
+        await stream_turns(ws, repo, session, case_id, hearing_id, lease, decode_turn, TranscribeStream,
+                           voiceprints=None if session.guest else getattr(ws.app.state, "voiceprints", None))
     except WebSocketDisconnect:
         pass
     except VoiceError as exc:
-        logging.getLogger(__name__).warning("voice_stream_rejected code=%s", exc.code)
+        # Function/line locations diagnose validation failures without logging
+        # private transcripts, audio, session cookies, or provider credentials.
+        locations = " > ".join(f"{frame.name}:{frame.lineno}" for frame in traceback.extract_tb(exc.__traceback__))
+        logging.getLogger(__name__).warning("voice_stream_rejected code=%s at=%s", exc.code, locations)
         with suppress(RuntimeError, WebSocketDisconnect):
             await ws.send_json({"type": "error", "code": exc.code})
-            await ws.close(code=1008)
+            await ws.close(code=1008, reason="guest_live_limit" if exc.code == "guest_live_limit" else "")
     except (ValueError, binascii.Error, KeyError):
         logging.getLogger(__name__).warning("voice_stream_rejected code=invalid_capture")
         with suppress(RuntimeError):

@@ -9,6 +9,15 @@ export interface Database {
   query<T>(sql: string, args?: Scalar[]): Promise<T[]>;
   forUpdate: string;
 }
+/** Table/column clauses are fixed by the caller. All row values remain bound parameters. */
+export async function insertRows(db: Database, columns: string, rows: Scalar[][], onConflict = '') {
+  for (let offset = 0; offset < rows.length; offset += 100) {
+    const batch = rows.slice(offset, offset + 100);
+    const tuples = batch.map((row, index) =>
+      '(' + row.map((_, column) => '$' + (index * row.length + column + 1)).join(',') + ')');
+    await db.query('INSERT INTO ' + columns + ' VALUES ' + tuples.join(',') + ' ' + onConflict, batch.flat());
+  }
+}
 interface Driver {
   transaction<T>(work: (db: Database) => Promise<T>): Promise<T>;
 }

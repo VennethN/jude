@@ -15,7 +15,7 @@ import type {
 } from '../src/domain';
 import { browser } from './api-client';
 import { transaction } from '../src/server/db';
-import { mutateWorkspace, seedOrganization } from '../src/server/cases';
+import { emptyWorkspace, insertWorkspace, makeCase, mutateWorkspace } from '../src/server/cases';
 import { runAnalysisWorker } from '../src/server/jobs';
 import { purgeExpired, retentionMs } from '../src/server/retention';
 import { getOriginal, putOriginal } from '../src/server/providers/storage';
@@ -92,7 +92,7 @@ describe('case API', () => {
     expect((await b.request(path + '/findings/f1', 'PATCH', { reviewed: true })).status).toBe(404);
     const ws = await a.ok<Workspace>(path + '/workspace');
     expect(ws.findings[0].sources.length).toBeGreaterThan(0);
-    expect(ws.documents.length).toBe(5);
+    expect(ws.documents).toHaveLength(7);
     await a.ok(path + '/findings/f1', 'PATCH', { reviewed: true, note: 'Cek halaman empat.' });
     expect((await a.ok<Workspace>(path + '/workspace')).findings.find((f) => f.id === 'f1')!.note).toBe(
       'Cek halaman empat.',
@@ -116,7 +116,13 @@ describe('case API', () => {
     const first = await a.ok<CaseRecord>('cases', 'POST', { title: 'Perkara A' }, key);
     // Reproduce the example records created by an older release for an account with real work.
     const legacy = await transaction(async (db) => {
-      await seedOrganization(db, session.organization.id);
+      const refs: Record<string, string> = {};
+      for (const title of ['Gudang Contoh Lama', 'Arisan Contoh Lama']) {
+        const workspace = emptyWorkspace({ ...makeCase({title}), label: 'synthetic' });
+        await insertWorkspace(db, session.organization.id, workspace, session.user.id);
+        refs['c' + (Object.keys(refs).length + 1)] = workspace.caseRecord.id;
+      }
+      await db.query('UPDATE organizations SET demo_id=$1,demo_refs=$2 WHERE id=$3', [refs.c1, JSON.stringify(refs), session.organization.id]);
       return db.query<{ id: string }>('SELECT id FROM cases WHERE org_id=$1 AND synthetic=1', [session.organization.id]);
     });
     expect(legacy.length).toBeGreaterThan(1);
@@ -420,7 +426,7 @@ describe('case API', () => {
 
   test('archive transfers include private recordings and only retained microphone turns', async () => {
     const a = browser(),
-      session = await a.ok<SessionInfo>('auth/demo', 'POST'),
+      session = await a.ok<SessionInfo>('auth/signup', 'POST', { name:'Archive test', email:randomUUID()+'@example.test', password:'Private-case-1', planId:'pro' }),
       org = session.organization.id;
     const c = await a.ok<CaseRecord>('cases', 'POST', { title: 'Private recording' }),
       base = 'cases/' + c.id;
@@ -537,9 +543,33 @@ describe('case API', () => {
     expect(state.boards.find((b) => b.id === board.id)!.cards[0]).toMatchObject(card);
     expect(state.boards.find((b) => b.id === board.id)!.name).toBe('Updated preparation');
   });
+  test('purging a hearing forgets aggregated voiceprints only in its own case', async () => {
+    const a = browser();
+    await a.ok<SessionInfo>('auth/signup', 'POST', {
+      name: 'Voice retention', email: randomUUID() + '@example.test', password: 'Recording-1234',
+    });
+    const c = await a.ok<CaseRecord>('cases', 'POST', { title: 'Voice retention' });
+    const other = await a.ok<CaseRecord>('cases', 'POST', { title: 'Separate voices' });
+    const base = 'cases/' + c.id;
+    const hearing = await a.ok<{ id: string }>(base + '/hearings', 'POST', {
+      title: 'Scheduled hearing', date: '2026-11-07', flow: 'schedule',
+    });
+    await transaction(async (db) => {
+      for (const cid of [c.id, other.id])
+        await db.query("INSERT INTO voiceprints(case_id,speaker_id,model,embedding) VALUES($1,'speaker','synthetic','[1,0]')", [cid]);
+      await db.query("INSERT INTO voiceprint_bindings(case_id,hearing_id,source_speaker,speaker_id) VALUES($1,$2,'source','speaker')", [c.id, hearing.id]);
+    });
+    await a.ok(base + '/hearings/' + hearing.id, 'DELETE');
+    await transaction(db => db.query('UPDATE case_trash SET deleted_at=$1 WHERE case_id=$2 AND id=$3',
+      [Date.now() - retentionMs() - 1000, c.id, hearing.id]));
+    await purgeExpired();
+    expect(await transaction(db => db.query('SELECT case_id FROM voiceprints WHERE case_id=$1', [c.id]))).toHaveLength(0);
+    expect(await transaction(db => db.query('SELECT case_id FROM voiceprint_bindings WHERE case_id=$1', [c.id]))).toHaveLength(0);
+    expect(await transaction(db => db.query('SELECT case_id FROM voiceprints WHERE case_id=$1', [other.id]))).toHaveLength(1);
+  });
   test('deletion releases storage immediately and the retention worker purges originals and case data', async () => {
     const a = browser(),
-      me = await a.ok<SessionInfo>('auth/demo', 'POST');
+      me = await a.ok<SessionInfo>('auth/signup', 'POST', { name:'Retention test', email:randomUUID()+'@example.test', password:'Private-case-2', planId:'pro' });
     const c = await a.ok<CaseRecord>('cases', 'POST', { title: 'Retention' }),
       base = 'cases/' + c.id;
     const file = new FormData(),

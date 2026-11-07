@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { isGuestPractice, guestPracticeMinutes } from '@jude/core/domain';
   import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto, invalidateAll } from '$app/navigation';
@@ -6,6 +7,7 @@
   import { needsReview, type Hearing } from '@jude/core/domain';
   import { api } from '$lib/client';
   import Dialog from '$lib/workspace/Dialog.svelte';
+  import { canStartHearing } from '$lib/workspace/hearing-access';
   import HearingForm from '$lib/workspace/HearingForm.svelte';
   import HearingRow from '$lib/workspace/HearingRow.svelte';
   import { formatDate } from '$lib/workspace/format';
@@ -14,7 +16,8 @@
     en = $derived(data.lang === 'en'),
     base = $derived('/case/' + w.caseRecord.id + '/hearings');
   const live = $derived(w.hearings.find((h) => h.mode === 'live'));
-  const canStart = $derived(w.caseRecord.label === 'synthetic' || (!data.account.user.guest && data.account.plan.id !== 'basic' && data.transcription));
+  const practice = $derived(isGuestPractice(data.account, w.caseRecord));
+  const canStart = $derived(canStartHearing(data.account, w.caseRecord, data.transcription));
   let query = $state(''),
     reviewOnly = $state(false),
     create = $state(false),
@@ -86,17 +89,17 @@
     <PageHeading art="speech">
       <h1>{en ? 'Hearings' : 'Sidang'}</h1>
       <p>
-        {en
+        {practice ? (en ? `Read the warehouse case hearings or try ${guestPracticeMinutes} minutes of live testimony.` : `Baca sidang perkara gudang atau coba ${guestPracticeMinutes} menit kesaksian langsung.`) : en
           ? 'A complete record of every examination. Record live, upload audio or import a transcript.'
           : 'Catatan lengkap setiap pemeriksaan. Rekam langsung, unggah audio, atau impor transkrip.'}
       </p>
     </PageHeading>
     {#if !w.caseRecord.archived}<div class="toolbar" data-tour="hearings-new">
         {#if live}<a class="button" href={base + '/' + live.id}
-            ><Mic size={16} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a
-          >{:else if canStart}<button
+            ><Mic size={16} />{practice ? (en ? 'Open practice hearing' : 'Buka sidang latihan') : (en ? 'Open live hearing' : 'Buka sidang langsung')}</a
+          >{:else if canStart || practice}<button
             class="button"
-            onclick={() => open('live')}><Mic size={16} />{en ? 'Record live' : 'Rekam langsung'}</button
+            onclick={() => open('live')}><Mic size={16} />{practice ? (en ? 'Practice live testimony' : 'Latihan kesaksian langsung') : (en ? 'Record live' : 'Rekam langsung')}</button
           >{/if}<button class="button primary" onclick={() => open()}
           ><Plus size={16} />{en ? 'New hearing' : 'Sidang baru'}</button
         >
@@ -178,8 +181,7 @@
     {scheduled}
     {close}
     transcription={data.transcription}
-    guest={data.account.user.guest}
-    livePlan={data.account.plan.id !== 'basic'}
+    account={data.account}
   />{/if}
 {#if removing}<Dialog
     title={en ? 'Remove this hearing?' : 'Hapus sidang ini?'}

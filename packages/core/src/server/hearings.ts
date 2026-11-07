@@ -20,7 +20,7 @@ function hearingTime(value: unknown) {
   if (t && !/^([01]\d|2[0-3])[:.][0-5]\d$/.test(t)) invalid('time');
   return t;
 }
-export function addHearing(w: Workspace, fields: Fields, userId: string) {
+export function addHearing(w: Workspace, fields: Fields, userId: string, practice = false) {
   const flow = choice(fields.flow ?? 'schedule', ['schedule', 'live', 'import'], 'flow');
   const h: Hearing = {
     id: randomUUID(),
@@ -33,10 +33,10 @@ export function addHearing(w: Workspace, fields: Fields, userId: string) {
     closed: fields.closed === undefined ? false : bool(fields.closed, 'closed'),
   };
   w.hearings.push(h);
-  if (flow === 'live') return startHearing(w, h.id, fields, userId);
+  if (flow === 'live') return startHearing(w, h.id, fields, userId, practice);
   return h;
 }
-export function startHearing(w: Workspace, id: string, fields: Fields, userId: string) {
+export function startHearing(w: Workspace, id: string, fields: Fields, userId: string, practice = false) {
   const h = required(w.hearings, (h) => h.id === id);
   if (h.closed || fields.closed === true || fields.recordingPermission !== true)
     throw new ApiError(
@@ -52,7 +52,9 @@ export function startHearing(w: Workspace, id: string, fields: Fields, userId: s
   h.recordingPermission = {
     at: h.startedAt,
     by: userId,
-    text: 'I confirm the presiding judge permitted recording in this open hearing.',
+    text: practice
+      ? 'I consent to have my voice transcribed for this practice hearing.'
+      : 'I confirm the presiding judge permitted recording in this open hearing.',
   };
   return h;
 }

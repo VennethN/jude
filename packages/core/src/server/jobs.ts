@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { readWorkspace, mutateWorkspace, workspaceIn } from './cases';
 import { transaction } from './db';
-import { queueStatementIn, recoverStatements } from './queue';
+import { analysisEligibleCase, queueStatementIn, recoverStatements } from './queue';
 import { purgeExpired } from './retention';
 import { runSemanticIndexBatch } from './semantic-index';
 
@@ -26,7 +26,7 @@ async function claim(): Promise<Job | null> {
     const now = Date.now();
     const [next] = await db.query<Omit<Job, 'lease'>>(
       'SELECT j.case_id,c.org_id,j.statement_id,j.attempts FROM analysis_jobs j JOIN cases c ON c.id=j.case_id ' +
-        'WHERE j.available_at<=$1 AND j.lease_until<=$1 AND c.deleted_at IS NULL AND c.archived=0 ORDER BY j.available_at,j.statement_id LIMIT 1' +
+        'WHERE j.available_at<=$1 AND j.lease_until<=$1 AND ' + analysisEligibleCase + ' ORDER BY j.available_at,j.statement_id LIMIT 1' +
         (db.forUpdate ? ' FOR UPDATE OF j SKIP LOCKED' : ''),
       [now],
     );
