@@ -1,35 +1,15 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { Client } from 'pg';
-import { afterAll, beforeAll, expect, test, vi } from 'vitest';
+import { expect, test, vi } from 'vitest';
+import { useIsolatedDatabase } from './isolated-db';
 import type { CaseRecord, SessionInfo, Workspace } from '../src/domain';
 import { emptyWorkspace, insertWorkspace, makeCase } from '../src/server/cases';
 import { bundledArchiveFiles } from '../src/server/bundled-case';
 import { transaction } from '../src/server/db';
+import { purgeExpired, retentionMs } from '../src/server/retention';
 import * as documents from '../src/server/documents';
 import { browser } from './api-client';
 
-const schema = 'jude_guest_' + randomUUID().replaceAll('-', '');
-let pg: Client | undefined;
-beforeAll(async () => {
-  const dsn = process.env.JUDE_TEST_DATABASE_URL;
-  if (dsn) {
-    pg = new Client({ connectionString: dsn });
-    await pg.connect();
-    await pg.query('CREATE SCHEMA "' + schema + '"');
-    const url = new URL(dsn);
-    url.searchParams.set('options', '-c search_path=' + schema);
-    process.env.DATABASE_URL = url.href;
-  } else {
-    delete process.env.DATABASE_URL;
-    process.env.JUDE_DB_PATH = ':memory:';
-  }
-});
-afterAll(async () => {
-  if (pg) {
-    await pg.query('DROP SCHEMA "' + schema + '" CASCADE');
-    await pg.end();
-  }
-});
+useIsolatedDatabase('guest');
 
 test('each new guest gets one editable case with linked historical records, two sourced accounts and a startable hearing', async () => {
   const a = browser(), b = browser();
@@ -61,6 +41,14 @@ test('each new guest gets one editable case with linked historical records, two 
   expect((await b.request(path+'/documents/'+refs.d8+'/original')).status).toBe(404);
   await a.ok(path+'/findings/'+refs.f1,'PATCH',{note:'guest-specific review'});
   expect((await b.ok<Workspace>('cases/'+second.demo!.caseId+'/workspace')).findings.find(f => f.id===refs.f1)?.note).toBe('');
+  // Purging one reference must leave the shipped original readable in the other case.
+  await a.ok(path + '/documents/' + refs.d8, 'DELETE');
+  await transaction(db => db.query('UPDATE case_trash SET deleted_at=$1 WHERE case_id=$2 AND id=$3',
+    [Date.now() - retentionMs() - 1000, caseId, refs.d8]));
+  await purgeExpired();
+  expect((await a.request(path + '/documents/' + refs.d8 + '/original')).status).toBe(404);
+  const kept = await b.request('cases/' + second.demo!.caseId + '/documents/d8/original');
+  expect(await kept.text()).toBe(new TextDecoder().decode(archive['documents/d8/original.txt']));
 });
 
 test('concurrent upgrades preserve edits and bookmarks in the prior guest case and install one practice archive', async () => {
