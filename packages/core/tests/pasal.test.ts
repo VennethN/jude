@@ -324,6 +324,7 @@ test.each(['verified', 'uncited', 'outage'] as const)(
       w.statements[0].phase = 'queued';
     });
     const l10n = { id: 'Periksa dokumen pendukung.', en: 'Check the supporting record.' };
+    const question = { id: 'Dapatkah Anda memeriksa tanggalnya?', en: 'Could you check the date?' };
     const ai = vi.spyOn(model, 'structured').mockImplementation(async (task) =>
       task === 'review'
         ? { accept: true }
@@ -335,7 +336,7 @@ test.each(['verified', 'uncited', 'outage'] as const)(
             explanation: l10n,
             verify: l10n,
             uncertainty: l10n,
-            question: 'Dapatkah Anda memeriksa tanggalnya?',
+            question,
             sources: [{ passageId, match: quote, relation: 'context' }],
           },
     );
@@ -379,6 +380,8 @@ test.each(['verified', 'uncited', 'outage'] as const)(
       hearingId: h.id,
       statementId: line.id,
       said,
+      question: question.id,
+      questionTranslation: question,
       sources: [{ passageId, match: quote, relation: 'context' }],
     });
     expect(result.connections).toHaveLength(1);

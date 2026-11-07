@@ -6,7 +6,7 @@ import { displayTitle, displayCourt, displaySpeaker, findingQuestion } from '../
 
 const workspace: Workspace = {
   version: 1, caseRecord: cases[0], documents, speakers, statements, passages, findings,
-  hearings: [], findings, connections: [], boards: [], threads: [], legal: [], replies: [],
+  hearings: [], connections: [], boards: [], threads: [], legal: [], replies: [],
 };
 describe('synthetic interface labels', () => {
   it('translates display labels without changing any original record or evidence', () => {
