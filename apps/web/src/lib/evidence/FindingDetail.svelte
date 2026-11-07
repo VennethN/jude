@@ -10,7 +10,6 @@
     Copy,
     MessageSquare,
     PanelsTopLeft,
-    Play,
     ArrowUpRight,
     Bookmark,
     BookOpenText,
@@ -19,7 +18,7 @@
   } from '@lucide/svelte';
   import { write } from '$lib/client';
   import type { Finding, InspectTarget, Lang, Workspace } from '@jude/core/domain';
-  import { apiPath, assistantPath, boardPath, local, sourceOf } from './records';
+  import { apiPath, assistantPath, boardPath, local } from './records';
   import Inspector from './Inspector.svelte';
 
   let {
@@ -38,8 +37,6 @@
   let article: HTMLElement;
   let id = $derived(lang === 'id');
   let line = $derived(w.statements.find((s) => s.id === f.statementId));
-  let hearing = $derived(w.hearings.find((h) => h.id === f.hearingId));
-  let testimony = $derived(sourceOf(w, { kind: 'statement', id: f.statementId }, lang));
   let note = $state(untrack(() => f.note));
   let noteOpen = $state(untrack(() => !!f.note));
   async function openNote() {
@@ -191,9 +188,6 @@
           : id
             ? 'Simpan pernyataan'
             : 'Bookmark line'}</button
-      >{/if}
-    {#if testimony && hearing?.audio}<a class="text-link" href={testimony.href + '&play=1'}
-        ><Play size={13} />{id ? 'Putar dari sini' : 'Play from here'}</a
       >{/if}
   </div>
   <details class="reason">

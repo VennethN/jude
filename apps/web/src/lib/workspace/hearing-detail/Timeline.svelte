@@ -71,6 +71,7 @@
       <small>{en ? 'Findings' : 'Temuan'}</small>
       <div bind:clientWidth={markerWidth} style:height={markRows * 23 + 'px'}>
         {#each marked as item (item.f.id)}<button
+            disabled={!ready}
             title={item.f.title[lang]}
             aria-label={item.f.title[lang] + ' · ' + timecode(item.time)}
             style:left={markerWidth ? item.x + 'px' : (100 * item.time) / length + '%'}

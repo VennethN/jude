@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { ArrowRight, ArrowUpRight, ChevronDown, ChevronUp, ClipboardCopy, FileText, Play, X } from '@lucide/svelte';
+  import { ArrowRight, ArrowUpRight, ChevronDown, ChevronUp, ClipboardCopy, FileText, X } from '@lucide/svelte';
   import type { Finding, Lang, Reply, Workspace } from '@jude/core/domain';
   import Dialog from '../Dialog.svelte';
   import SheetHandle from '../SheetHandle.svelte';
@@ -17,7 +17,6 @@
     finding,
     reply,
     findings,
-    play,
     select,
     close
   }: {
@@ -27,7 +26,6 @@
     finding?: Finding;
     reply?: Reply;
     findings: Finding[];
-    play?: (time:number) => void;
     select: (id: string) => void;
     close: () => void;
   } = $props();
@@ -130,7 +128,6 @@
       {#if statement && speaker}<section class="comparison">
         <h3><span class="speaker-dot" data-tone={speaker.role} aria-hidden="true">{speaker.letters}</span>{en ? 'In court' : 'Di sidang'} · {speaker.name}</h3>
         <p>“<Match text={excerpt(statement.text,finding.said)} term={finding.said}/>”</p>
-        {#if play}<button class="text-action" onclick={() => play?.(statement!.t)}><Play size={13}/>{en ? 'Play from here' : 'Putar dari sini'}</button>{/if}
       </section>{/if}
       {#if source}<section class="comparison written"><h3><a href={source.href}><FileText size={13}/>{source.label}<ArrowUpRight size={12}/></a></h3>
         <p>“<Match text={excerpt(source.text,first?.match)} term={first?.match}/>”</p>
@@ -172,7 +169,7 @@
 
 <style>
   .quick { display:flex; flex-direction:column; min-width:0; color:var(--ink-strong,var(--ink)); background:var(--surface); }
-  aside.quick { position:sticky; top:calc(var(--hearing-sticky) + var(--player-height) + 12px); min-height:360px; max-height:calc(100dvh - var(--hearing-sticky) - var(--player-height) - 25px); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  aside.quick { position:sticky; top:var(--hearing-sticky); max-height:calc(100dvh - var(--hearing-sticky) - 12px); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
   :global(dialog.side:has(.quick.overlay)) { width:min(560px,100%); }
   .quick.overlay { height:100%; }
   .look-head,.look-head > div,.statusline,.comparison h3,.comparison h3 a,.text-action,.suggestions li>div { display:flex; align-items:center; gap:6px; }

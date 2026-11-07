@@ -5,12 +5,12 @@
   import { timecode } from '../format';
   import { voice } from './people';
 
-  let { hearing, lines, speakers, findings, lang, current, duration, playing, rate, error,
-    seek, toggle, setRate, openFinding, height = $bindable(0) }: {
+  let { hearing, lines, speakers, findings, lang, current, duration, playing, rate, error, ready,
+    seek, toggle, setRate, openFinding }: {
     hearing: Hearing; lines: Statement[]; speakers: Speaker[]; findings: Finding[]; lang: Lang;
-    current: number; duration: number; playing: boolean; rate: number; error: boolean;
+    current: number; duration: number; playing: boolean; rate: number; error: boolean; ready: boolean;
     seek: (time: number) => void; toggle: () => void; setRate: (rate: number) => void;
-    openFinding: (id: string) => void; height?: number;
+    openFinding: (id: string) => void;
   } = $props();
   const en = $derived(lang === 'en');
   const currentLine = $derived(lines.findLast((line) => line.t <= current));
@@ -18,13 +18,13 @@
     (en ? 'Transcript replay · no original audio' : 'Transkrip contoh · tanpa rekaman audio'));
 </script>
 
-<section class="player" bind:clientHeight={height} aria-label={label} data-tour="hearing player">
+<section class="player" aria-label={label} data-tour="hearing player">
   <div class="controls">
-    <button class="transport" aria-label={en ? 'Back 10 seconds' : 'Mundur 10 detik'} onclick={() => seek(Math.max(0, current - 10))}><RotateCcw size={17}/></button>
-    <button class="transport play" aria-label={playing ? (en ? 'Pause' : 'Jeda') : (en ? 'Play' : 'Putar')} disabled={error} onclick={toggle}>{#if playing}<Pause size={18}/>{:else}<Play size={18}/>{/if}</button>
-    <button class="transport" aria-label={en ? 'Forward 10 seconds' : 'Maju 10 detik'} onclick={() => seek(Math.min(duration, current + 10))}><RotateCw size={17}/></button>
+    <button class="transport" aria-label={en ? 'Back 10 seconds' : 'Mundur 10 detik'} disabled={!ready} onclick={() => seek(Math.max(0, current - 10))}><RotateCcw size={17}/></button>
+    <button class="transport play" aria-label={playing ? (en ? 'Pause' : 'Jeda') : (en ? 'Play' : 'Putar')} disabled={!ready || error} onclick={toggle}>{#if playing}<Pause size={18}/>{:else}<Play size={18}/>{/if}</button>
+    <button class="transport" aria-label={en ? 'Forward 10 seconds' : 'Maju 10 detik'} disabled={!ready} onclick={() => seek(Math.min(duration, current + 10))}><RotateCw size={17}/></button>
     <span class="clock">{timecode(current)} / {timecode(duration)}</span>
-    <select aria-label={en ? 'Playback speed' : 'Kecepatan putar'} value={String(rate)} onchange={(event) => setRate(Number(event.currentTarget.value))}>
+    <select disabled={!ready} aria-label={en ? 'Playback speed' : 'Kecepatan putar'} value={String(rate)} onchange={(event) => setRate(Number(event.currentTarget.value))}>
       <option value="1">1×</option><option value="1.5">1.5×</option><option value="2">2×</option>
     </select>
     <span class="kind">{label}</span>
@@ -43,7 +43,7 @@
 </section>
 
 <style>
-  .player { position:sticky; top:var(--hearing-sticky,68px); z-index:4; min-width:0; border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:10px 14px 12px; margin:0 0 16px; }
+  .player { min-width:0; border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:10px 14px 12px; margin:0 0 16px; }
   .controls,.current { display:flex; align-items:center; gap:6px; }
   .controls { flex-wrap:wrap; margin-bottom:8px; }
   .transport { height:36px; width:36px; display:grid; place-items:center; color:var(--ink); border:1px solid transparent; background:transparent; border-radius:6px; }
@@ -58,13 +58,11 @@
   .current p { margin:2px 0 0; }
   .speaker { flex:none; display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:var(--tone); color:white; font:600 10px var(--sans); }
   .failed { color:var(--accent); padding:8px 0 0; font-size:13px; }
-  @media(max-width:719px) { .player { position:static; padding:10px; } .transport { height:42px; width:36px; } .kind { flex-basis:100%; font-size:11px; } }
   @media(max-width:719px) {
-    .player { padding:10px 14px 12px; }
     .controls { display:grid; grid-template-columns:44px 44px 44px minmax(0,1fr); gap:6px; }
     .transport { width:44px; height:44px; }
     .controls select { grid-column:1/span 2; justify-self:start; min-width:58px; height:38px; }
-    .controls .kind { grid-column:3/span 2; text-align:right; }
+    .controls .kind { grid-column:3/span 2; text-align:right; font-size:11px; }
     .clock { margin:0; font-size:12.5px; white-space:nowrap; }
   }
 </style>
