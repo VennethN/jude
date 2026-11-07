@@ -280,6 +280,35 @@ class VoiceRepositoryTest(unittest.TestCase):
                 self.expect_error(403, self.repo.committed_turn, self.viewer, "case", "hearing", turn_id)
         self.assertEqual(len(self.repo.statements(self.owner, "case", "hearing")), 1)
 
+    def test_audio_is_kept_before_recognition_and_out_of_order_retries_charge_once(self):
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        kept = {"turn_id": "first", "start": 1.25, "pcm": b"\x01\x00" * 4800, "keep": True}
+        transient = {"turn_id": "later", "start": 1.45, "pcm": b"\x02\x00" * 8400, "keep": False}
+        def begin(turn):
+            return self.repo.begin_turn(self.owner, "case", "hearing", lease=lease, **turn)
+
+        self.assertIsNone(begin(kept))
+        self.assertIsNone(begin(transient))
+        self.assertIsNone(self.repo.committed_turn(self.owner, "case", "hearing", "first"))
+        self.assertEqual(self.repo.statements(self.owner, "case", "hearing"), [])
+        captured = self.repo.voice_turns(self.viewer, "case", "hearing")
+        self.assertEqual([(t["start_seconds"], t["bytes"]) for t in captured], [(1.25, 9600), (1.45, 16800)])
+        self.assertEqual(self.repo.storage.get(captured[0]["object_key"]), kept["pcm"])
+        self.assertIsNone(captured[1]["object_key"])
+        self.expect_error(409, begin, {**kept, "pcm": transient["pcm"]})
+
+        self.repo.release("case", "hearing", lease)
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        self.assertIsNone(begin(kept))
+        for tid in ["later", "first"]:
+            receipt = self.repo.finish_turn(self.owner, "case", "hearing", lease=lease, turn_id=tid, text=tid)
+            self.assertEqual(receipt["statementId"], "mic-hearing-" + tid)
+        self.assertEqual([s["text"] for s in self.repo.statements(self.viewer, "case", "hearing")], ["first", "later"])
+        self.assertEqual(begin(kept)["statementId"], "mic-hearing-first")
+        self.assertEqual(self.one("SELECT amount FROM usage_counts")["amount"], 550)
+        self.assertEqual(self.one("SELECT count(*) AS n FROM analysis_jobs")["n"], 2)
+        self.assertEqual(self.one("SELECT count(*) AS n FROM voice_pending_transcripts")["n"], 0)
+
     def test_replay_is_synthetic_case_scoped_and_retry_safe(self):
         with ThreadPoolExecutor(max_workers=2) as pool:
             previews = list(

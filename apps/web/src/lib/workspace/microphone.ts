@@ -24,6 +24,7 @@ export interface Recorder {
   paused: (value: boolean) => Promise<void>;
 }
 export type CaptureState =
+  | 'permission'
   | 'connecting'
   | 'recording'
   | 'offline'
@@ -48,11 +49,15 @@ function database(): Promise<IDBDatabase> {
     req.onerror = () => reject(req.error);
   });
 }
-async function oldestTurn(db: IDBDatabase, scope: string): Promise<CapturedTurn | undefined> {
+async function nextTurn(db: IDBDatabase, scope: string, sent: ReadonlyMap<string, number>): Promise<CapturedTurn | undefined> {
   return new Promise((resolve, reject) => {
     const range = IDBKeyRange.bound([scope, 0], [scope, Number.MAX_SAFE_INTEGER]);
     const r = db.transaction('turns').objectStore('turns').index('timeInScope').openCursor(range);
-    r.onsuccess = () => resolve(r.result?.value);
+    r.onsuccess = () => {
+      const cursor = r.result;
+      if (cursor && sent.has(String(cursor.primaryKey))) cursor.continue();
+      else resolve(cursor?.value);
+    };
     r.onerror = () => reject(r.error);
   });
 }
@@ -94,6 +99,7 @@ export async function capture(
     throw new Error('Microphone requires HTTPS and a supported browser.');
   const scope = [userId, caseId, hearingId].join('/'),
     db = await database();
+  state('permission');
   const stream = await navigator.mediaDevices
     .getUserMedia({
       audio: { channelCount: 1, noiseSuppression: true, echoCancellation: false },
@@ -102,6 +108,7 @@ export async function capture(
       db.close();
       throw cause;
     });
+  state('connecting');
   const context = new AudioContext({ sampleRate });
   try {
     await context.audioWorklet.addModule('/voice-capture.js');
@@ -118,13 +125,17 @@ export async function capture(
   node.connect(context.destination);
   let ws: WebSocket | undefined,
     ready = false,
-    inFlight = '',
+    windowSize = 1,
     stopped = false,
     paused = false,
     draining = false,
     retry: ReturnType<typeof setTimeout> | undefined,
     pumpBusy = false,
+    pumpRequested = false,
     saveChain = Promise.resolve();
+  const inFlight = new Map<string, number>();
+  let caption: { turn: string; time: number; committed: boolean } | undefined;
+  let refreshing = false, refreshNeeded = false, latestCaptionTime = -1;
   let chunks: Int16Array<ArrayBuffer>[] = [],
     samples = 0,
     silent = 0,
@@ -147,28 +158,53 @@ export async function capture(
   try {
     lock = await navigator.wakeLock?.request('screen');
   } catch {}
+  // Refreshing a large case can be slower than the next microphone turn.
+  async function refreshTranscript() {
+    refreshNeeded = true;
+    if (refreshing) return;
+    refreshing = true;
+    try {
+      while (refreshNeeded && !stopped) {
+        refreshNeeded = false;
+        const displayed = caption?.committed ? caption : undefined;
+        await invalidate('jude:case');
+        if (displayed && displayed === caption) { caption = undefined; partial(); }
+      }
+    } catch {
+      // The turn is durable. Workspace events can still reconcile its caption.
+    } finally { refreshing = false; }
+  }
   async function pump() {
-    if (!ready || inFlight || pumpBusy || stopped) return;
+    if (pumpBusy) { pumpRequested = true; return; }
+    if (!ready || stopped || !ws || inFlight.size >= windowSize) return;
+    const socket = ws;
     pumpBusy = true;
     try {
-      const next = await oldestTurn(db, scope);
-      if (!next || !ready || ws?.readyState !== WebSocket.OPEN) return;
-      inFlight = next.id;
-      try {
-        ws.send(JSON.stringify({ id: next.id, t: next.t, keep: next.keep, pcm: base64(next.pcm) }));
-      } catch {
-        inFlight = '';
-        ws.close();
+      while (socket === ws && ready && !stopped && inFlight.size < windowSize) {
+        const next = await nextTurn(db, scope, inFlight);
+        if (!next || socket !== ws || socket.readyState !== WebSocket.OPEN) break;
+        inFlight.set(next.id, next.t);
+        try {
+          socket.send(JSON.stringify({ id: next.id, t: next.t, keep: next.keep, pcm: base64(next.pcm) }));
+        } catch {
+          inFlight.delete(next.id);
+          socket.close();
+          break;
+        }
       }
     } finally {
       pumpBusy = false;
+      if (pumpRequested) {
+        pumpRequested = false;
+        void pump().catch(() => state('error'));
+      }
     }
   }
   function connect() {
     if (stopped) return;
     state(draining ? 'draining' : 'connecting');
     ready = false;
-    inFlight = '';
+    inFlight.clear();
     const connected = new WebSocket(
       (location.protocol === 'https:' ? 'wss://' : 'ws://') +
         location.host +
@@ -185,28 +221,28 @@ export async function capture(
       try {
         const m = JSON.parse(e.data);
         if (m.type === 'ready') {
+          windowSize = Number.isSafeInteger(m.maxInFlight) ? Math.max(1, Math.min(3, m.maxInFlight)) : 1;
           ready = true;
           state(draining ? 'draining' : paused ? 'paused' : 'recording');
           await pump();
-        } else if (m.type === 'partial' && inFlight && typeof m.text === 'string') {
+        } else if (m.type === 'partial' && typeof m.text === 'string') {
+          const turn = m.turnId ?? [...inFlight.keys()].find(id => m.id === 'mic-' + hearingId + '-' + id || m.id === id);
+          const time = inFlight.get(turn);
+          if (time === undefined || time < latestCaptionTime) return;
+          latestCaptionTime = time;
+          caption = { turn, time, committed: false };
           partial({
-            id: m.statementId ?? m.id ?? 'mic-' + hearingId + '-' + inFlight,
+            id: m.statementId ?? 'mic-' + hearingId + '-' + turn,
             text: m.text,
             speakerId: typeof m.speakerId === 'string' ? m.speakerId : undefined,
-            t: typeof m.t === 'number' ? m.t : undefined,
+            t: time,
           });
-        } else if (m.type === 'ack' && m.id === inFlight) {
+        } else if (m.type === 'ack' && inFlight.has(m.id)) {
           await storeTurn(db, m.id);
-          let refreshed = false;
-          try {
-            await invalidate('jude:case');
-            refreshed = true;
-          } catch {
-            // The server already committed the turn. A later refresh can reconcile its preview.
-          }
-          if (stopped || connected !== ws || inFlight !== m.id) return;
-          if (refreshed) partial();
-          inFlight = '';
+          if (stopped || connected !== ws) return;
+          inFlight.delete(m.id);
+          if (caption && caption.turn === m.id) caption.committed = true;
+          void refreshTranscript();
           await pump();
         }
       } catch {
@@ -216,7 +252,7 @@ export async function capture(
     connected.onclose = () => {
       if (connected !== ws) return;
       ready = false;
-      inFlight = '';
+      inFlight.clear();
       if (!stopped) {
         state('offline');
         retry = setTimeout(connect, 3000);
@@ -283,7 +319,7 @@ export async function capture(
       return;
     }
     const voicedWindow = samples - firstVoicedSample;
-    const limit = ready && !inFlight && !pumpBusy ? liveCaptionSamples : queuedTurnSamples;
+    const limit = ready && inFlight.size < windowSize ? liveCaptionSamples : queuedTurnSamples;
     if (
       voicedWindow >= limit ||
       (voicedWindow >= minimumVoicedWindow && (silent >= speechEndSilence || samples >= queuedTurnSamples))

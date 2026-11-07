@@ -233,6 +233,7 @@
             : 'Memutar ulang'
       : capture
         ? {
+            permission: en ? 'Waiting for microphone permission' : 'Menunggu izin mikrofon',
             connecting: en ? 'Connecting' : 'Menghubungkan',
             recording: en ? 'Recording' : 'Merekam',
             offline: en ? 'Offline · buffering' : 'Luring · menyimpan lokal',
@@ -242,8 +243,8 @@
             error: en ? 'Check microphone' : 'Periksa mikrofon'
           }[capture.state]
         : en
-          ? 'Live transcript'
-          : 'Transkrip langsung'
+          ? 'Waiting for microphone'
+          : 'Menunggu mikrofon'
   );
   function weight(f: Finding) {
     return (f.isNew ? 4 : 0) + (f.status === 'potential_inconsistency' ? 2 : 1);

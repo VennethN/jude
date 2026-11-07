@@ -230,14 +230,22 @@ def statement_id(hearing_id, turn_id):
     return value if len(value) <= 120 else "mic-" + hashlib.sha256(value.encode()).hexdigest()
 
 
-def _committed_turn(graph, hearing_id, turn_id):
-    row = graph.tx.one(
-        "SELECT s.id AS statement_id FROM voice_turns t "
+def _turn_state(graph, hearing_id, turn_id):
+    return graph.tx.one(
+        "SELECT t.start_seconds,p.fingerprint,s.id AS statement_id FROM voice_turns t "
+        "LEFT JOIN voice_pending_transcripts p ON p.case_id=t.case_id AND p.hearing_id=t.hearing_id AND p.turn_id=t.id "
         "LEFT JOIN case_entities s ON s.case_id=t.case_id AND s.kind='statements' AND s.id=? "
         "WHERE t.case_id=? AND t.hearing_id=? AND t.id=?",
         (statement_id(hearing_id, turn_id), graph.id, hearing_id, turn_id),
     )
-    return {"id": turn_id, "statementId": row["statement_id"]} if row is not None else None
+
+
+def _receipt(row, turn_id, fingerprint=None):
+    if row and row["fingerprint"] is None:
+        return {"id": turn_id, "statementId": row["statement_id"]}
+    if row and fingerprint is not None and row["fingerprint"] != fingerprint:
+        raise VoiceError(409, "turn_conflict", "This turn ID belongs to different audio.")
+    return None
 
 
 def _turns(tx, case_id, hearing_id):
@@ -491,7 +499,7 @@ class Repository:
     def committed_turn(self, session, case_id, hearing_id, turn_id):
         with self._case(session, case_id, "write") as graph:
             _live(session, graph, hearing_id)
-            return _committed_turn(graph, hearing_id, turn_id)
+            return _receipt(_turn_state(graph, hearing_id, turn_id), turn_id)
 
     def _require_lease(self, graph, hearing_id, lease):
         valid = graph.tx.one(
@@ -501,30 +509,25 @@ class Repository:
         if not valid:
             raise VoiceError(409, "lease_expired", "The recording session has expired.")
 
-    def store_turn(
-        self, session, case_id, hearing_id, *, lease, turn_id, start, pcm, keep, text, speaker=None
-    ):
+    def begin_turn(self, session, case_id, hearing_id, *, lease, turn_id, start, pcm, keep):
+        """Persist authorised capture and meter the original samples before model work begins."""
         if not isinstance(turn_id, str) or not re.fullmatch(r"[\w-]{1,90}", turn_id, flags=re.ASCII):
             invalid()
-        if (
-            not isinstance(keep, bool)
-            or not isinstance(text, str)
-            or len(text) > 30_000
-            or not 0 < len(pcm) <= 1_500_000
-            or len(pcm) % 2
-        ):
+        if not isinstance(keep, bool) or not isinstance(pcm, bytes) or not 0 < len(pcm) <= 1_500_000 or len(pcm) % 2:
             invalid()
         check_number(start, 0, 604800)
-        sid = statement_id(hearing_id, turn_id)
-        result = {"id": turn_id, "statementId": sid if text.strip() else None}
         size = len(pcm) if keep else 0
         duration = len(pcm) / 48_000
+        digest = hashlib.sha256()
+        digest.update(f"{float(start).hex()}:{int(keep)}:".encode())
+        digest.update(pcm)
+        fingerprint = digest.hexdigest()
         with self._case(session, case_id, "write") as graph:
             _live(session, graph, hearing_id)
             self._require_lease(graph, hearing_id, lease)
-            prior = _committed_turn(graph, hearing_id, turn_id)
+            prior = _turn_state(graph, hearing_id, turn_id)
             if prior is not None:
-                return prior
+                return _receipt(prior, turn_id, fingerprint)
             _quota(graph.tx, session.org_id, duration, size, live=True)
         key = f"{session.org_id}/{case_id}/{hearing_id}/{uuid4()}.pcm" if keep else None
         if key:
@@ -534,41 +537,66 @@ class Repository:
             with self._case(session, case_id, "write") as graph:
                 hearing = _live(session, graph, hearing_id)
                 self._require_lease(graph, hearing_id, lease)
-                existing = _committed_turn(graph, hearing_id, turn_id)
+                existing = _turn_state(graph, hearing_id, turn_id)
                 if existing is not None:
-                    return existing
+                    return _receipt(existing, turn_id, fingerprint)
                 period = _quota(graph.tx, session.org_id, duration, size, live=True)
                 graph.tx.execute(
                     "INSERT INTO voice_turns(case_id,hearing_id,id,start_seconds,bytes,object_key) VALUES(?,?,?,?,?,?)",
                     (case_id, hearing_id, turn_id, start, len(pcm), key),
                 )
-                if text.strip():
-                    voice = _anonymous(graph, hearing_id, sid, speaker)
-                    graph.put(
-                        "statements",
-                        {
-                            "id": sid,
-                            "hearingId": hearing_id,
-                            "speakerId": voice,
-                            "t": start,
-                            "text": text.strip(),
-                            "phase": "queued",
-                        },
-                    )
+                graph.tx.execute(
+                    "INSERT INTO voice_pending_transcripts(case_id,hearing_id,turn_id,fingerprint) VALUES(?,?,?,?)",
+                    (case_id, hearing_id, turn_id, fingerprint),
+                )
+                hearing["duration"] = max(hearing.get("duration") or 0, start + duration)
                 if key:
                     hearing["audio"] = f"/api/live/{case_id}/{hearing_id}/audio"
-                    graph.put("hearings", hearing)
-                    graph.tx.execute(
-                        "INSERT INTO voice_diarization_jobs(case_id,hearing_id,available_at) VALUES(?,?,?) "
-                        "ON CONFLICT(case_id,hearing_id) DO UPDATE SET available_at=excluded.available_at,attempts=0",
-                        (case_id, hearing_id, now_ms()),
-                    )
+                graph.put("hearings", hearing)
                 _meter(graph.tx, session.org_id, period, duration)
             registered = True
-            return result
+            return None
         finally:
             if key and not registered:
                 self.storage.remove(key)
+
+    def finish_turn(self, session, case_id, hearing_id, *, lease, turn_id, text, speaker=None):
+        if not isinstance(text, str) or len(text) > 30_000:
+            invalid()
+        with self._case(session, case_id, "write") as graph:
+            _live(session, graph, hearing_id)
+            self._require_lease(graph, hearing_id, lease)
+            captured = _turn_state(graph, hearing_id, turn_id)
+            if not captured:
+                not_found()
+            done = _receipt(captured, turn_id)
+            if done is not None:
+                return done
+            words = text.strip()
+            sid = statement_id(hearing_id, turn_id) if words else None
+            if words:
+                graph.put("statements", {
+                    "id": sid, "hearingId": hearing_id,
+                    "speakerId": _anonymous(graph, hearing_id, sid, speaker),
+                    "t": captured["start_seconds"], "text": words, "phase": "queued",
+                })
+            graph.tx.execute(
+                "DELETE FROM voice_pending_transcripts WHERE case_id=? AND hearing_id=? AND turn_id=?",
+                (case_id, hearing_id, turn_id),
+            )
+            graph.tx.execute(
+                "INSERT INTO voice_diarization_jobs(case_id,hearing_id,available_at) "
+                "SELECT case_id,hearing_id,? FROM voice_turns WHERE case_id=? AND hearing_id=? AND id=? AND object_key IS NOT NULL "
+                "ON CONFLICT(case_id,hearing_id) DO UPDATE SET available_at=excluded.available_at,attempts=0",
+                (now_ms(), case_id, hearing_id, turn_id),
+            )
+            return {"id": turn_id, "statementId": sid}
+
+    def store_turn(self, session, case_id, hearing_id, *, lease, turn_id, start, pcm, keep, text, speaker=None):
+        if not isinstance(text, str) or len(text) > 30_000:
+            invalid()
+        prior = self.begin_turn(session, case_id, hearing_id, lease=lease, turn_id=turn_id, start=start, pcm=pcm, keep=keep)
+        return prior or self.finish_turn(session, case_id, hearing_id, lease=lease, turn_id=turn_id, text=text, speaker=speaker)
 
     def voice_turns(self, session, case_id, hearing_id):
         with self._case(session, case_id) as graph:
@@ -578,7 +606,10 @@ class Repository:
     def statements(self, session, case_id, hearing_id):
         with self._case(session, case_id) as graph:
             graph.need("hearings", hearing_id)
-            return [line for line in graph.all("statements") if line["hearingId"] == hearing_id]
+            return sorted(
+                (line for line in graph.all("statements") if line["hearingId"] == hearing_id),
+                key=lambda line: (line["t"], line["id"]),
+            )
 
     def audio(self, session, case_id, hearing_id):
         with self._case(session, case_id) as graph:
