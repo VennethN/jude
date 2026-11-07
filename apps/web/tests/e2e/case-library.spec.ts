@@ -7,14 +7,21 @@ test('case cards link findings independently and search by number', async ({ pag
   const account = await demo.json();
   await page.goto('/cases');
   const active = page.getByRole('list', { name: 'Perkara aktif' });
-  await expect(active.getByRole('article')).toHaveCount(3);
-  const live = active.getByRole('article').filter({ hasText: 'Langsung' });
-  await expect(live).toContainText('3 sidang');
-  await expect(live.getByRole('link', { name: '3 perlu dicek' })).toHaveAttribute('href', '/case/' + account.demo.caseId + '/findings');
-  const search = page.getByRole('searchbox', { name: 'Cari perkara' });
-  await search.fill(' 087/pid ');
   await expect(active.getByRole('article')).toHaveCount(1);
-  await expect(active).toContainText('Perkara Penipuan Arisan Daring');
+  const practice = active.getByRole('article').filter({ hasText: 'Gudang Cakung' });
+  await expect(practice).toContainText('3 sidang');
+  await expect(practice).toContainText('7 dokumen');
+  await expect(practice).not.toContainText('Langsung');
+  await expect(practice.getByRole('link', { name: '3 perlu dicek' })).toHaveAttribute('href', '/case/' + account.demo.caseId + '/findings');
+  const filed = await page.request.post('/api/cases', { headers: { origin: baseURL! },
+    data: { title: 'Arsip Mediasi', reference: '087/Pdt/2026' } });
+  expect(filed.ok()).toBe(true);
+  await page.reload();
+  await expect(active.getByRole('article')).toHaveCount(2);
+  const search = page.getByRole('searchbox', { name: 'Cari perkara' });
+  await search.fill(' 087/pdt ');
+  await expect(active.getByRole('article')).toHaveCount(1);
+  await expect(active).toContainText('Arsip Mediasi');
   await search.fill('no cases match this reference');
   await expect(active).toContainText('Tidak ada perkara yang cocok.');
   await page.goto('/case/absent-case-register-test');

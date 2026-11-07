@@ -1,4 +1,4 @@
-import { invalidate } from '$app/navigation';
+import { prepareMicrophone, type PreparedMicrophone } from './microphone-input';
 
 export interface LiveTranscriptTurn {
   id: string;
@@ -30,6 +30,7 @@ export type CaptureState =
   | 'paused'
   | 'draining'
   | 'stopped'
+  | 'service_error'
   | 'guest_limit'
   | 'error';
 function database(): Promise<IDBDatabase> {
@@ -96,39 +97,34 @@ export async function capture(
   language: 'id' | 'en' = 'id',
   guestPractice = false,
   recoverOnly = false,
+  prepared?: PreparedMicrophone,
 ): Promise<Recorder> {
-  if (!recoverOnly && (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode))
-    throw new Error('Microphone requires HTTPS and a supported browser.');
-  const scope = [userId, caseId, hearingId].join('/'),
-    db = await database();
+  const input = recoverOnly ? undefined : prepared ?? prepareMicrophone();
+  const scope = [userId, caseId, hearingId].join('/');
+  state(recoverOnly ? 'draining' : 'permission');
+  const db = await database().catch(error => { input?.release(); throw error; });
   if (recoverOnly && !(await queuedCount(db, scope))) {
     db.close();
     state('stopped');
     return { stop: async () => {}, paused: async () => {} };
   }
-  state(recoverOnly ? 'draining' : 'permission');
-  const stream = recoverOnly ? undefined : await navigator.mediaDevices
-    .getUserMedia({
-      audio: { channelCount: 1, noiseSuppression: true, echoCancellation: false },
-    })
-    .catch((cause) => {
-      db.close();
-      throw cause;
-    });
+  const media = await input?.ready.catch(error => { db.close(); throw error; });
+  const stream = media?.stream, context = media?.context;
   state('connecting');
-  const context = recoverOnly ? undefined : new AudioContext({ sampleRate });
-  try {
-    await context?.audioWorklet.addModule('/voice-capture.js');
-    await context?.resume();
-  } catch (e) {
-    stream?.getTracks().forEach((t) => t.stop());
-    await context?.close();
-    db.close();
-    throw e;
+  let source: MediaStreamAudioSourceNode | undefined, node: AudioWorkletNode | undefined;
+  if (context && stream) {
+    try {
+      await context.audioWorklet.addModule('/voice-capture.js');
+      source = context.createMediaStreamSource(stream);
+      node = new AudioWorkletNode(context, 'jude-capture');
+      source.connect(node);
+      node.connect(context.destination);
+    } catch {
+      input?.release();
+      db.close();
+      throw new Error('microphone_worklet');
+    }
   }
-  const source = context && stream ? context.createMediaStreamSource(stream) : undefined,
-    node = context ? new AudioWorkletNode(context, 'jude-capture') : undefined;
-  if (source && node && context) { source.connect(node); node.connect(context.destination); }
   let ws: WebSocket | undefined,
     ready = false,
     windowSize = 1,
@@ -149,13 +145,20 @@ export async function capture(
   let handoffRetries = 0;
   let guestLimitReached = false;
   let pauseTransition = Promise.resolve();
+  function stopGuestPractice() {
+    if (guestLimitReached) return;
+    terminalError = guestLimitReached = true;
+    ready = false;
+    partial();
+    void (finishing ??= finish()).catch(() => state('error'));
+  }
   function requestDrain() {
     if (!ready || !ws || stopSent || inFlight.size || (!rotating && !captureSettled)) return;
     stopSent = true;
     ws.send(JSON.stringify({ type: 'stop' }));
   }
-  let caption: { turn: string; time: number; committed: boolean } | undefined;
-  let refreshing = false, refreshNeeded = false, latestCaptionTime = -1;
+  let caption: { resultId: string; value: LiveTranscriptTurn } | undefined;
+  let latestCaptionTime = -1;
   let chunks: Int16Array<ArrayBuffer>[] = [],
     samples = 0,
     turnStart = 0;
@@ -176,22 +179,6 @@ export async function capture(
   try {
     lock = await navigator.wakeLock?.request('screen');
   } catch {}
-  // Refreshing a large case can be slower than the next microphone turn.
-  async function refreshTranscript() {
-    refreshNeeded = true;
-    if (refreshing) return;
-    refreshing = true;
-    try {
-      while (refreshNeeded && !stopped) {
-        refreshNeeded = false;
-        const displayed = caption?.committed ? caption : undefined;
-        await invalidate('jude:case');
-        if (displayed && displayed === caption) { caption = undefined; partial(); }
-      }
-    } catch {
-      // The turn is durable. Workspace events can still reconcile its caption.
-    } finally { refreshing = false; }
-  }
   async function pump() {
     if (pumpBusy) { pumpRequested = true; return; }
     if (!ready || stopped || !ws || stopSent || inFlight.size >= windowSize) return;
@@ -249,7 +236,7 @@ export async function capture(
       try {
         const m = JSON.parse(e.data);
         if (m.type === 'ready') {
-          if (m.protocol !== 2) { terminalError = true; connected.close(); state('error'); return; }
+          if (m.protocol !== 2) { terminalError = true; connected.close(); state('service_error'); return; }
           handoffRetries = 0;
           windowSize = Number.isSafeInteger(m.maxInFlight) ? Math.max(1, Math.min(3, m.maxInFlight)) : 1;
           ready = true;
@@ -257,16 +244,19 @@ export async function capture(
           await pump();
         } else if (m.type === 'partial' && typeof m.text === 'string') {
           const turn = m.turnId ?? [...submitted.keys()].find(id => m.id === 'mic-' + hearingId + '-' + id || m.id === id);
-          const time = submitted.get(turn);
-          if (time === undefined || time < latestCaptionTime) return;
+          const packetStart = submitted.get(turn);
+          if (packetStart === undefined) return;
+          const time = typeof m.t === 'number' && Number.isFinite(m.t) ? m.t : packetStart;
+          if (time < latestCaptionTime) return;
           latestCaptionTime = time;
-          caption = { turn, time, committed: false };
-          partial({
+          const value = {
             id: m.statementId ?? 'mic-' + hearingId + '-' + turn,
             text: m.text,
             speakerId: typeof m.speakerId === 'string' ? m.speakerId : undefined,
             t: time,
-          });
+          };
+          caption = { resultId: m.id, value };
+          partial(value);
         } else if (m.type === 'accepted' && submitted.has(m.id)) {
           lastProgress = Date.now();
           inFlight.delete(m.id);
@@ -276,15 +266,24 @@ export async function capture(
           rotating = true;
           requestDrain();
         } else if (m.type === 'transcript') {
-          void refreshTranscript();
+          // Keep the last words visible until the case event delivers the saved row.
+          // Transcript.svelte reconciles the provisional row by this durable ID.
+          if (caption && m.id === caption.resultId && typeof m.statementId === 'string') {
+            partial({ ...caption.value, id: m.statementId });
+            caption = undefined;
+          }
         } else if (m.type === 'stopped') {
           providerStopped = true;
           ready = false;
           connected.close();
         } else if (m.type === 'error') {
+          if (guestPractice && m.code === 'guest_live_limit') {
+            stopGuestPractice();
+            return;
+          }
           terminalError = m.code !== 'transcription_interrupted';
           connected.close();
-          state('error');
+          state(terminalError ? 'service_error' : 'offline');
         } else if (m.type === 'ack' && submitted.has(m.id)) {
           lastProgress = Date.now();
           reconnects = 0;
@@ -292,8 +291,6 @@ export async function capture(
           if (stopped || connected !== ws) return;
           inFlight.delete(m.id);
           submitted.delete(m.id);
-          if (caption && caption.turn === m.id) caption.committed = true;
-          void refreshTranscript();
           await pump();
         }
       } catch {
@@ -304,11 +301,9 @@ export async function capture(
       if (connected !== ws) return;
       ready = false;
       inFlight.clear();
-      if (!stopped) {
+      if (!stopped && !guestLimitReached) {
         if (guestPractice && event.code === 1008 && event.reason === 'guest_live_limit') {
-          terminalError = guestLimitReached = true;
-          partial();
-          void (finishing ??= finish()).catch(() => state('error'));
+          stopGuestPractice();
           return;
         }
         // A clean pause drain can close just before Python releases its lease.
@@ -323,7 +318,7 @@ export async function capture(
           terminalError = true;
           paused = true;
           void stopInput();
-          state('error');
+          state('service_error');
           return;
         }
         if (providerStopped && (draining || paused) && !rotating) return;
@@ -411,7 +406,7 @@ export async function capture(
     await stopInput();
     await saveChain;
     captureSettled = true;
-    if (!guestLimitReached) state(terminalError ? 'error' : 'draining');
+    if (!guestLimitReached) state(terminalError ? 'service_error' : 'draining');
     await pump();
     lastProgress = Date.now();
     const deadline = Date.now() + 120000;
@@ -436,7 +431,7 @@ export async function capture(
     db.close();
     window.removeEventListener('beforeunload', checkUnload);
     if (guestLimitReached) { state('guest_limit'); return; }
-    state(storageError || terminalError ? 'error' : remaining || !providerStopped ? 'offline' : 'stopped');
+    state(storageError ? 'error' : terminalError ? 'service_error' : remaining || !providerStopped ? 'offline' : 'stopped');
     if (storageError) throw new Error('audio_storage_failed');
     if (remaining || !providerStopped) throw new Error('audio_pending');
   }

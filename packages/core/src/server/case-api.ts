@@ -1,4 +1,5 @@
 import { transcriptionAvailable } from './voice-capabilities';
+import { workspaceSync } from './workspace-sync';
 import { removeSourceIn, restoreSourceIn, retentionMs } from './retention';
 import { retainedMarker } from './retained-evidence';
 import { createHash, randomUUID } from 'node:crypto';
@@ -413,6 +414,8 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
       const { exportArchive } = await import('./archive');
       return exportArchive(org, caseId);
     }
+    if (resource === 'workspace' && !id && (event.url.searchParams.has('sync') || event.url.searchParams.has('since')))
+      return workspaceSync(session, caseId, event.url.searchParams.get('since'));
     const w = await readWorkspace(org, caseId);
     if (!resource || (resource === 'workspace' && !id)) return { ...w, legalDiscovery: legalDiscoveryMode(w) };
     if (resource === 'shell' && !id)

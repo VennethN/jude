@@ -7,7 +7,8 @@ test('the map index preserves full source names and works independently of canva
   const docs = index.locator('[data-kind="document"] .index-entry');
   const names = ['BAP Saksi Rina Hartati', 'BAP Saksi Dimas Prasetyo', 'Laporan Log Akses Gerbang & CCTV'];
   for (const [i,name] of names.entries()) await expect(docs.nth(i)).toHaveText(name);
-  await expect(hearings.nth(2)).toHaveAccessibleDescription(/Langsung/);
+  await expect(hearings.nth(2)).toHaveAccessibleDescription(/Sidang 3 · Pemeriksaan saksi Dimas Prasetyo/);
+  await expect(hearings.nth(2)).not.toHaveAccessibleDescription(/Langsung/);
 
   for (const width of [1440,390]) {
     await page.setViewportSize({ width, height:width === 390 ? 844 : 900 });

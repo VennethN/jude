@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { recordWorkspaceRevision } from './workspace-revisions';
 import type { CaseRecord, CaseSummary, Workspace } from '../domain';
 import { needsReview } from '../domain';
 import { numberGroupedVoices } from '../speakers';
@@ -94,7 +95,7 @@ async function saveEntries(
 export async function insertWorkspace(db: Database, orgId: string, workspace: Workspace, creator?: string) {
   const record = workspace.caseRecord;
   await db.query(
-    'INSERT INTO cases(id,org_id,record,version,updated_at,synthetic) VALUES($1,$2,$3,$4,$5,$6)',
+    'INSERT INTO cases(id,org_id,record,version,updated_at,synthetic,workspace_epoch) VALUES($1,$2,$3,$4,$5,$6,$7)',
     [
       record.id,
       orgId,
@@ -102,6 +103,7 @@ export async function insertWorkspace(db: Database, orgId: string, workspace: Wo
       workspace.version,
       Date.now(),
       Number(record.label === 'synthetic'),
+      randomUUID(),
     ],
   );
   await db.query(
@@ -173,6 +175,7 @@ export async function changeIn<T>(
   orgId: string,
   caseId: string,
   edit: (workspace: Workspace) => T,
+  options: { stream?: boolean } = {},
 ) {
   const raw = await storedWorkspace(db, orgId, caseId, true);
   const removed = await removedSources(db, caseId);
@@ -192,6 +195,7 @@ export async function changeIn<T>(
     previousRecord === JSON.stringify(workspace.caseRecord)
   )
     return result;
+  const recordUnchanged = previousRecord === JSON.stringify(workspace.caseRecord);
   workspace.version++;
   workspace.caseRecord.updated = new Date().toISOString();
   await db.query('UPDATE cases SET record=$1,version=$2,updated_at=$3 WHERE id=$4', [
@@ -201,12 +205,20 @@ export async function changeIn<T>(
     caseId,
   ]);
   await saveEntries(db, caseId, before, stored);
+  // Stream writers may update existing entities or append. Everything else deliberately leaves
+  // a revision gap, so readers recover through the established full snapshot and projection.
+  if (options.stream && recordUnchanged &&
+      [...before].every(([key, entry]) => after.has(key) && after.get(key)!.ordinal === entry.ordinal)) {
+    await recordWorkspaceRevision(db, caseId, workspace.version,
+      [...after].filter(([key, entry]) => before.get(key)?.body !== entry.body || !before.has(key))
+        .map(([, { kind, id }]) => ({ kind, id })));
+  }
   return result;
 }
 export const readWorkspace = (orgId: string, caseId: string) =>
   transaction((db) => workspaceIn(db, orgId, caseId));
-export function mutateWorkspace<T>(orgId: string, caseId: string, edit: (workspace: Workspace) => T) {
-  return transaction((db) => changeIn(db, orgId, caseId, edit));
+export function mutateWorkspace<T>(orgId: string, caseId: string, edit: (workspace: Workspace) => T, options: { stream?: boolean } = {}) {
+  return transaction((db) => changeIn(db, orgId, caseId, edit, options));
 }
 
 export function makeCase(fields: Fields): CaseRecord {

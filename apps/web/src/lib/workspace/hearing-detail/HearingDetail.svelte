@@ -53,6 +53,7 @@
   import HearingFindings from './HearingFindings.svelte';
   import VoiceDialog from './VoiceDialog.svelte';
   import type { LiveTranscriptTurn } from '../microphone';
+  import { prepareMicrophone } from '../microphone-input';
   import { runReplay } from './replay';
   import { getCapture, connectCapture, microphoneStartFailure, pauseCapture, stopCapture, drainCapture } from './active-recording.svelte';
   import { speakerShares, speakerTurns, voice } from './people';
@@ -256,7 +257,8 @@
             paused: en ? 'Microphone paused' : 'Mikrofon dijeda',
             draining: en ? 'Saving audio' : 'Menyimpan audio',
             stopped: en ? 'Stopped' : 'Berhenti',
-            error: en ? 'Check microphone' : 'Periksa mikrofon',
+            error: en ? 'Recording interrupted' : 'Perekaman terhenti',
+            service_error: en ? 'Transcription disconnected' : 'Transkripsi terputus',
             guest_limit: en ? 'Practice audio limit reached' : 'Batas audio latihan tercapai'
           }[capture.state]
         : en
@@ -313,9 +315,21 @@
     }
   }
   function issueFrom(e: unknown) {
-    if (e instanceof DOMException && e.name === 'NotAllowedError')
-      return en ? 'Microphone access was declined. Allow the microphone in your browser, then choose Connect microphone.' : 'Izin mikrofon ditolak. Izinkan mikrofon di browser, lalu pilih Hubungkan mikrofon.';
     const reason = e instanceof ApiError ? e.code : e instanceof Error ? e.message : '';
+    if (reason === 'microphone_denied')
+      return en ? 'Microphone access is blocked. Allow this site in your browser and your browser in system microphone settings, then choose Connect microphone.' : 'Akses mikrofon diblokir. Izinkan situs ini di browser dan browser Anda di pengaturan mikrofon sistem, lalu pilih Hubungkan mikrofon.';
+    if (reason === 'microphone_policy')
+      return en ? 'This browser view blocks the microphone. Open the hearing in a browser tab and choose Connect microphone.' : 'Tampilan browser ini memblokir mikrofon. Buka sidang di tab browser dan pilih Hubungkan mikrofon.';
+    if (reason === 'microphone_missing')
+      return en ? 'No microphone input was found. Connect or select an input device, then try again.' : 'Perangkat masukan mikrofon tidak ditemukan. Hubungkan atau pilih mikrofon, lalu coba lagi.';
+    if (reason === 'microphone_open_failed')
+      return en ? 'The browser could not open the selected input. Check the microphone and try again.' : 'Browser tidak dapat membuka masukan yang dipilih. Periksa mikrofon dan coba lagi.';
+    if (reason === 'microphone_device_busy')
+      return en ? 'The audio input could not be opened. Check the selected microphone and other apps using it.' : 'Perangkat audio tidak dapat dibuka. Periksa mikrofon yang dipilih dan aplikasi lain yang menggunakannya.';
+    if (reason === 'microphone_audio_start' || reason === 'microphone_worklet')
+      return en ? 'The browser could not start audio processing. Reopen the hearing in a browser tab, then choose Connect microphone.' : 'Browser tidak dapat memulai pemrosesan audio. Buka kembali sidang di tab browser, lalu pilih Hubungkan mikrofon.';
+    if (reason === 'microphone_unsupported')
+      return en ? 'Microphone recording requires HTTPS or localhost and a supported browser.' : 'Perekaman mikrofon memerlukan HTTPS atau localhost dan browser yang didukung.';
     if (reason === 'capture_in_use')
       return en
         ? 'A microphone is already in use in another hearing or tab.'
@@ -411,13 +425,23 @@
     }
   }
   async function connect() {
-    if (!canRecord || !live || !transcription || busy || capture || !h.recordingPermission?.at) return;
+    const retry = capture?.state === 'service_error';
+    if (!canRecord || !live || !transcription || busy || (capture && !retry) || stoppedElapsed !== undefined || !h.recordingPermission?.at) return;
     busy = true;
     issue = '';
+    const input = prepareMicrophone();
     try {
-      await connectCapture(w.caseRecord.id, h.id, account.user.id, !account.user.guest && keep, h.startedAt, h.language, practice);
+      if (retry) {
+        try { await stopCapture(key); }
+        catch (error) {
+          // Unacknowledged audio keeps its local IDs and is retried by the new connection.
+          if (!(error instanceof Error && error.message === 'audio_pending')) throw error;
+        }
+      }
+      await connectCapture(w.caseRecord.id, h.id, account.user.id, !account.user.guest && keep, h.startedAt, h.language, practice, false, input);
       dialog = '';
     } catch (e) {
+      input.release();
       issue = issueFrom(e);
     } finally {
       busy = false;
@@ -508,10 +532,10 @@
               }}
               >{#if replayPaused}<Play size={14}/><span>{en ? 'Resume' : 'Lanjutkan'}</span>{:else}<Pause size={14}/><span>{en ? 'Pause' : 'Jeda'}</span>{/if}</button
             >
-          {:else if canRecord && !capture && stoppedElapsed === undefined}<button
+          {:else if canRecord && (!capture || capture.state === 'service_error') && stoppedElapsed === undefined}<button
               class="button primary"
               disabled={!transcription || busy}
-              onclick={connect}><Mic size={15} />{en ? 'Connect microphone' : 'Hubungkan mikrofon'}</button
+              onclick={connect}><Mic size={15} />{capture?.state === 'service_error' ? (en ? 'Reconnect transcription' : 'Hubungkan ulang transkripsi') : (en ? 'Connect microphone' : 'Hubungkan mikrofon')}</button
             >
           {:else if capture && canRecord && capture.state !== 'guest_limit' && stoppedElapsed === undefined}<button
               class="button"
@@ -551,6 +575,7 @@
     {:else}<PracticePrompt workspace={w} {account} {lang}/>{/if}
   {/if}
   {#if live && canRecord && !capture && !transcription}<p class="notice" role="status">{en ? 'The transcription service is unavailable. Reopen the hearing to try again.' : 'Layanan transkripsi belum tersedia. Buka kembali sidang untuk mencoba lagi.'}</p>{/if}
+  {#if !issue && stoppedElapsed === undefined && capture?.state === 'service_error'}<p class="notice" role="alert">{en ? 'The microphone opened, but the transcription connection ended. Reconnect to continue sending audio.' : 'Mikrofon berhasil dibuka, tetapi koneksi transkripsi terputus. Hubungkan ulang untuk melanjutkan pengiriman audio.'}</p>{/if}
   {#if !issue && !capture && microphoneStartFailure(key)}<p class="notice" role="alert">{issueFrom(microphoneStartFailure(key))}</p>{/if}
   {#if !live && !scheduled}<p class="hearing-meta">
     {new Intl.DateTimeFormat(en ? 'en-GB' : 'id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'Asia/Jakarta'}).format(new Date(h.date))}

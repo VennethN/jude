@@ -83,6 +83,7 @@ class CaseEntities:
         self.record = json.loads(row["record"])
         self.record["archived"] = bool(row["archived"])
         self.changed = False
+        self.revision_entities = set()
 
     def all(self, kind):
         rows = self.tx.all(
@@ -103,14 +104,19 @@ class CaseEntities:
     def need(self, kind, entity_id):
         return self.get(kind, entity_id) or not_found()
 
-    def put(self, kind, value):
+    def put(self, kind, value, *, notify=True):
         self.tx.execute(
             "INSERT INTO case_entities(case_id,kind,id,ordinal,body) "
             "SELECT ?,?,?,COALESCE(MAX(ordinal)+1,0),? FROM case_entities WHERE case_id=? AND kind=? "
             "ON CONFLICT(case_id,kind,id) DO UPDATE SET body=excluded.body",
             (self.id, kind, value["id"], pack(value), self.id, kind),
         )
-        self.changed = True
+        self.changed = self.changed or notify
+        self.revision_entities.add((kind, value["id"]))
+        if kind == "statements":
+            # Quiet captures persist duration without a workspace notification. Publish that
+            # hearing's latest clock alongside the next final transcript.
+            self.revision_entities.add(("hearings", value["hearingId"]))
         if kind == "statements" and not self.synthetic and value.get("phase") == "queued":
             self.tx.execute(
                 "INSERT INTO analysis_jobs(case_id,statement_id,available_at) VALUES(?,?,?) "
@@ -124,6 +130,18 @@ class CaseEntities:
             self.tx.execute(
                 "UPDATE cases SET record=?,version=version+1,updated_at=? WHERE id=?",
                 (pack(self.record), now_ms(), self.id),
+            )
+            version = self.tx.one("SELECT version FROM cases WHERE id=?", (self.id,))["version"]
+            self.tx.execute(
+                "INSERT INTO case_workspace_revisions(case_id,version,changes) VALUES(?,?,?)",
+                (self.id, version, pack([
+                    {"kind": kind, "id": entity_id}
+                    for kind, entity_id in sorted(self.revision_entities)
+                ])),
+            )
+            self.tx.execute(
+                "DELETE FROM case_workspace_revisions WHERE case_id=? AND version<=?",
+                (self.id, version - 128),
             )
 
 
@@ -696,18 +714,19 @@ class Repository:
         digest.update(f"{float(start).hex()}:{int(keep)}:".encode())
         digest.update(pcm)
         fingerprint = digest.hexdigest()
-        with self._case(session, case_id, "write") as graph:
-            _live(session, graph, hearing_id)
-            self._require_lease(graph, hearing_id, lease)
-            if session.guest and keep:
-                raise VoiceError(403, "guest_transcript_only", "The guest demo saves transcripts only.")
-            prior = _turn_state(graph, hearing_id, turn_id)
-            if prior is not None:
-                return _receipt(prior, turn_id, fingerprint)
-            _guest_live_usage(graph.tx, session, len(pcm))
-            _quota(graph.tx, session.org_id, duration, size, live=True)
         key = f"{session.org_id}/{case_id}/{hearing_id}/{uuid4()}.pcm" if keep else None
         if key:
+            # Authorize the external file write first. Transcript-only audio has
+            # no external write and can be admitted in one database transaction.
+            with self._case(session, case_id, "write") as graph:
+                _live(session, graph, hearing_id)
+                self._require_lease(graph, hearing_id, lease)
+                if session.guest:
+                    raise VoiceError(403, "guest_transcript_only", "The guest demo saves transcripts only.")
+                prior = _turn_state(graph, hearing_id, turn_id)
+                if prior is not None:
+                    return _receipt(prior, turn_id, fingerprint)
+                _quota(graph.tx, session.org_id, duration, size, live=True)
             self.storage.put(key, pcm, "application/octet-stream")
         registered = False
         try:
@@ -728,9 +747,12 @@ class Repository:
                     (case_id, hearing_id, turn_id, fingerprint),
                 )
                 hearing["duration"] = max(hearing.get("duration") or 0, start + duration)
+                audio_added = bool(key and not hearing.get("audio"))
                 if key:
                     hearing["audio"] = f"/api/live/{case_id}/{hearing_id}/audio"
-                graph.put("hearings", hearing)
+                # The live clock runs locally. Final words, newly available playback,
+                # findings and ending the hearing publish the latest stored duration.
+                graph.put("hearings", hearing, notify=audio_added)
                 _meter(graph.tx, session.org_id, period, duration)
             registered = True
             return None

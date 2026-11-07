@@ -7,7 +7,7 @@ test('case shortcuts respect focus, chords and modal ownership', async ({ page }
   const rail = page.getByRole('navigation', { name: 'Bagian perkara' });
   await expect(rail.getByRole('link', { name: 'Temuan' })).toHaveAccessibleDescription(/\d+ perlu diperiksa/);
   await expect(rail.getByRole('link', { name: 'Dokumen' })).toHaveAccessibleDescription(/\d+ dokumen/);
-  await expect(rail.getByRole('link', { name: 'Sidang' })).toHaveAccessibleDescription(/berlangsung/);
+  await expect(rail.getByRole('link', { name: 'Sidang' })).toHaveAccessibleDescription('Sidang');
   await page.keyboard.press('Control+k');
   const search = page.getByRole('dialog', { name: 'Cari dalam berkas perkara' });
   const query = search.getByRole('combobox');
@@ -113,7 +113,8 @@ test('the overview invitation starts its first tour step and keeps keyboard owne
   await expect(page.getByRole('dialog')).toHaveCount(1);
   await page.keyboard.press('ArrowRight');
   await expect(tour).toHaveAttribute('data-step','hearing');
-  await expect(page).toHaveURL(/\/hearings\/h3$/);
+  await expect(page).toHaveURL(/\/hearings\/[^/]+$/);
+  await expect(page.locator('[data-tour~="transcript"]')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(tour).toHaveCount(0);
 });

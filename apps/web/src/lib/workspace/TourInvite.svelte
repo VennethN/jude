@@ -8,8 +8,8 @@
   const title = $derived(en ? 'See how Jude works' : 'Lihat cara kerja Jude');
   const description = $derived(
     register ? (en ? 'Find your case files and see how to start a case.' : 'Temukan berkas Anda dan lihat cara membuka perkara baru.') : !demo ? (en ? 'Explore this case and the controls for hearings, exhibits, and findings.' : 'Kenali perkara ini serta kontrol sidang, dokumen, dan temuannya.') : en
-      ? 'Follow testimony from the synthetic hearing to the exact passage in the case file. Allow about a minute.'
-      : 'Ikuti satu keterangan dari sidang contoh sampai ke kalimat persis di berkas perkara sintetis. Luangkan sekitar satu menit.',
+      ? 'Follow a witness statement to the passage that supports or challenges it. Allow about a minute.'
+      : 'Telusuri keterangan saksi hingga kutipan dokumen yang mendukung atau menyanggahnya. Luangkan sekitar satu menit.',
   );
   let ready = $state(false);
   onMount(() => { ready = true; });

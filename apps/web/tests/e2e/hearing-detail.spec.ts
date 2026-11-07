@@ -30,53 +30,24 @@ test('jump from a hearing finding to the exact line and retain a bookmark and sp
   await expect(page.getByRole('searchbox', { name: 'Cari kata atau pembicara' })).toHaveCount(0);
 });
 
-test('replay on a phone without a microphone and start a scheduled example after ending it', async ({
-  page
-}) => {
+test('the warehouse archive opens historical and scheduled hearings on a phone without starting audio', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  let replayRequests = 0;
+  page.on('request', request => { if (new URL(request.url()).pathname.endsWith('/replay')) replayRequests++; });
   await page.addInitScript(() => {
-    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {
-      value: () => {
-        throw new Error('UNEXPECTED_MICROPHONE_REQUEST');
-      }
-    });
+    Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: () => {
+      sessionStorage.setItem('unexpected-mic', 'true');
+      throw new DOMException('Unexpected permission request', 'NotAllowedError');
+    } });
   });
   await page.goto('/demo/hearings/h3');
-  await expect(page.locator('[data-sid="replay-h3-0"]')).toContainText('kunci Gudang B', { timeout: 12000 });
-  await page.getByRole('button', { name: 'Jeda', exact: true }).click();
-  await expect(page.getByText('Putar ulang dijeda')).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Hubungkan mikrofon' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Akhiri sidang' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Akhiri dan tinjau' }).click();
-  await expect(page.getByText('Transkrip contoh · tanpa rekaman audio')).toBeVisible();
+  await expect(page.getByText('Transkrip tersimpan tanpa audio')).toBeVisible();
+  await expect(page.locator('audio')).toHaveCount(0);
   await page.goto('/demo/hearings/h4');
-  await page.getByRole('button', { name: 'Mulai sidang' }).click();
-  const form = page.getByRole('dialog');
-  await expect(form.getByRole('button', { name: 'Mulai sidang' })).toBeDisabled();
-  await form.getByRole('checkbox', { name: /Hakim ketua/ }).check();
-  await form.getByRole('button', { name: 'Mulai sidang' }).click();
-  const partial = page.locator('[data-partial-id="replay-h4-0"]');
-  await expect(partial).toBeVisible({timeout:10000});
-  await expect(partial.locator('.name')).toHaveText('Hakim Ketua');
-  await partial.evaluate(node => node.setAttribute('data-preserved-test', 'first-speaker'));
-  const early = await partial.locator('.words').textContent();
-  await expect.poll(() => partial.locator('.words').textContent()).not.toBe(early);
-  await page.getByRole('button',{name:'Jeda',exact:true}).click();
-  const paused = await partial.locator('.words').textContent();
-  await page.waitForTimeout(450);
-  await expect(partial.locator('.words')).toHaveText(paused!);
-  await expect(partial).not.toHaveClass(/speaking/);
-  await expect(partial.locator('.caret')).toHaveCSS('animation-name','none');
-  await page.getByRole('button',{name:'Lanjutkan',exact:true}).click();
-  const finalized = page.locator('[data-sid="replay-h4-0"]');
-  await expect(finalized).toBeVisible({timeout:12000});
-  await expect(finalized).toHaveAttribute('data-preserved-test','first-speaker');
-  await expect(partial).toHaveCount(0);
-  await expect(finalized.locator('.when')).toHaveText('00:00:06');
-  await expect(page.locator('[data-partial-id="replay-h4-1"] .name')).toHaveText(/Penasihat Hukum|Kuasa Hukum/,{timeout:6000});
-  await page.getByRole('button', { name: /Giliran Anda/ }).click();
-  await expect(page.getByRole('dialog')).toContainText('Tanggapan Anda');
-  await expect(page.getByRole('dialog').getByRole('link').first()).toHaveAttribute('href', /\/findings\//);
+  await expect(page.getByText('Sidang ini belum dimulai.')).toBeVisible();
+  await expect(page.getByRole('blockquote')).toContainText('Gerbang Timur');
+  expect(await page.evaluate(() => sessionStorage.getItem('unexpected-mic'))).toBeNull();
+  expect(replayRequests).toBe(0);
 });
 
 test('an imported transcript stays searchable with an accessible time index', async ({ page }) => {
@@ -147,23 +118,14 @@ test('an imported recording seeks to linked testimony and plays only when reques
     .toBeGreaterThan(2);
 });
 
-test('the hearing player keeps time across speeds and findings return to their source statement', async ({ page }) => {
+test('historical transcript findings return to their source statement without invented audio', async ({ page }) => {
   await page.goto('/demo/hearings/h2');
-  const player = page.locator('.player');
-  await expect(player).toContainText('Transkrip contoh · tanpa rekaman audio');
+  await expect(page.getByText('Transkrip tersimpan tanpa audio')).toBeVisible();
   await expect(page.locator('audio')).toHaveCount(0);
-  const width = await player.evaluate(element => element.getBoundingClientRect().width);
-  expect(width).toBeGreaterThan(900);
-  const slider = player.getByRole('slider');
-  await player.getByRole('button', { name: 'Maju 10 detik' }).click();
-  await expect(slider).toHaveAttribute('aria-valuetext','00:00:10');
-  await player.getByRole('combobox', { name: 'Kecepatan putar' }).selectOption('2');
-  await player.getByRole('button', { name: 'Putar', exact:true }).click();
-  await expect.poll(() => slider.inputValue()).not.toBe('10');
-  await player.getByRole('button', { name: 'Jeda', exact:true }).click();
-  const frozen = await slider.inputValue();
-  await page.waitForTimeout(350);
-  await expect(slider).toHaveValue(frozen);
+  const timeline = page.getByRole('slider', { name: 'Geser linimasa transkrip' });
+  await timeline.focus();
+  await timeline.press('ArrowRight');
+  await expect(timeline).not.toHaveValue('0');
   const finding = page.locator('.finding-index a[href$="/f1"]');
   await finding.click();
   const quick = page.getByRole('complementary',{name:'Temuan',exact:true});
@@ -208,7 +170,7 @@ test('the finding reaches the desk gutter and retains both source excerpts on a 
   const confirmReadingPosition = async () => {
     await line.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
     await expect.poll(() => page.evaluate(() => {
-      const player = document.querySelector('.player')!;
+      const player = document.querySelector('.text-notice')!;
       const transcript = document.querySelector('.transcript-panel')!;
       const statement = document.querySelector('#line-s208 .words')!;
       const box = statement.getBoundingClientRect();

@@ -1,6 +1,7 @@
 <script lang="ts">
  import { isGuestPractice, guestPracticeMinutes } from '@jude/core/domain';
  import { connectStartedHearing } from './hearing-detail/active-recording.svelte';
+ import { prepareMicrophone, type PreparedMicrophone } from './microphone-input';
  import { goto } from '$app/navigation';
  import { page } from '$app/state';
  import { onDestroy } from 'svelte';
@@ -19,6 +20,7 @@
  let uploadKey = '';
  let keep = $state(false);
  let active = true;
+ let pendingInput: PreparedMicrophone | undefined;
  let previewRequest: AbortController | undefined;
  let previewing=$state(false),submitting=$state(false);
  const busy=$derived(previewing||submitting);
@@ -35,6 +37,7 @@
  $effect(()=>{
    const requested=scheduled?'live':['live','schedule','import','audio'].includes(initial)?initial as Flow:'';
    flow=requested;
+   if(isGuestPractice(account,w.caseRecord))language=lang;
    title=scheduled?.title[lang]??(requested==='live' && isGuestPractice(account,w.caseRecord) ? practiceTitle : '');
    date=scheduled?.date??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta'}).format(new Date());
  });
@@ -62,10 +65,15 @@
    previewRequest=undefined;
    previewing=false;
  }
- function dismiss() {
-   if(!confirmDiscard())return;
+ function retire() {
    active=false;
    cancelPreview();
+   pendingInput?.release();
+   pendingInput=undefined;
+ }
+ function dismiss() {
+   if(!confirmDiscard())return;
+   retire();
    close();
  }
  function back() {
@@ -73,7 +81,7 @@
    cancelPreview();
    flow='';draft=[];file=undefined;message='';importBaseline='';
  }
- onDestroy(()=>{active=false;cancelPreview()});
+ onDestroy(retire);
  async function preview(f?:File,input?:HTMLInputElement) {
    if(submitting)return;
    if(!confirmDiscard()){
@@ -100,18 +108,36 @@
      if(previewRequest===request){previewRequest=undefined;previewing=false}
    }
  }
- async function submit(e:SubmitEvent){e.preventDefault();if(busy||!flow||flow==='import'&&!draft.length)return;submitting=true;message='';const originPath=page.url.pathname;const caseId=w.caseRecord.id;try{let h:Hearing;
+ async function submit(e:SubmitEvent){
+   e.preventDefault();
+   if(busy||!flow||flow==='import'&&!draft.length)return;
+   submitting=true;
+   message='';
+   const originPath=page.url.pathname,caseId=w.caseRecord.id;
+   const useMicrophone=flow==='live' && !demo && canRecord && permission && !closed && !otherLive;
+   const input=useMicrophone ? prepareMicrophone() : undefined;
+   pendingInput=input;
+   let handedOff=false;
+   try{let h:Hearing;
    if(flow==='audio'){const form=new FormData();form.set('file',file!);form.set('title',title);form.set('date',date);form.set('lang',language);form.set('recordingPermission',String(permission&&!closed));h=await api<Hearing>('/api/live/'+w.caseRecord.id+'/upload','POST',form,{'Idempotency-Key':uploadKey})}
    else {const body={title,date,time,flow,language,recordingPermission:permission,closed,turns:flow==='import'?draft:undefined};h=await api<Hearing>(scheduled?prefix+'/'+scheduled.id+'/start':prefix+(flow==='import'?'/import':''),'POST',body)}
    // A retired form must not interrupt a newer navigation by refreshing its
    // previous route while the destination is still loading.
    if(!active||page.url.pathname!==originPath)return;
-   const autoConnect=flow==='live' && !demo && canRecord && permission && !closed && h.mode==='live' && h.recordingPermission?.by===account.user.id;
+   const autoConnect=h.mode==='live' && h.recordingPermission?.by===account.user.id;
    const destination='/case/'+caseId+'/hearings/'+h.id;
    const userId=account.user.id, guestSession=guest, retain=!guestSession && keep;
+   pendingInput=undefined;
    dismiss();await goto(destination,{invalidateAll:true});
-   if(autoConnect && location.pathname===destination)connectStartedHearing(caseId,h.id,userId,retain,h.startedAt,h.language,guestSession);
- }catch(e){if(active)fail(e)}finally{submitting=false}}
+   if(input && autoConnect && location.pathname===destination){
+     handedOff=true;
+     connectStartedHearing(caseId,h.id,userId,retain,h.startedAt,h.language,guestSession,input);
+   }
+ }catch(e){if(active)fail(e)}finally{
+   if(!handedOff)input?.release();
+   pendingInput=undefined;
+   submitting=false;
+ }}
 </script>
 <Dialog title={flow?choices.find(x=>x.id===flow)!.title:(en?'New hearing':'Sidang baru')} {lang} close={dismiss} wide={flow==='import'&&draft.length>0}>
 <div class="hearing-intake" class:choosing={!flow}>

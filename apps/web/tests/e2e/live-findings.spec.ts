@@ -1,39 +1,70 @@
-import { expect, test } from '@playwright/test';
-import { needsReview, type Workspace } from '@jude/core/domain';
+import { DatabaseSync } from 'node:sqlite';
+import { expect } from '@playwright/test';
+import type { Finding, Workspace } from '@jude/core/domain';
+import type { WorkspaceSync } from '@jude/core/domain';
+import { test } from './fixtures/practice';
 
-test('a live finding arrives with its testimony and opens the cited comparison in place', async ({
-  page,
-}) => {
+test('a live finding arrives with its testimony and opens the cited comparison in place', async ({ page, practiceServer }) => {
   await page.setViewportSize({ width: 1484, height: 786 });
-  await page.goto('/demo/assistant');
-  const { origin, pathname } = new URL(page.url());
-  const caseId = pathname.split('/')[2];
-  const api = '/api/cases/' + caseId + '/workspace';
-  const initial: Workspace = await (await page.request.get(api)).json();
-  const hearing = initial.hearings.find((h) => h.number === 3)!;
-  const path = '/case/' + caseId + '/hearings/' + hearing.id;
-  const replay = '/api/live/' + caseId + '/' + hearing.id + '/replay';
-
-  const initialCount = initial.findings.filter((f) => f.hearingId === hearing.id && needsReview(f)).length;
-  for (let cursor = 0; cursor < 3; cursor++) {
-    const response = await page.request.post(replay, { headers: { origin }, data: { cursor } });
-    expect(response.ok()).toBe(true);
-  }
-  const before: Workspace = await (await page.request.get(api)).json();
-  expect(before.findings.filter((f) => f.hearingId === hearing.id && needsReview(f))).toHaveLength(initialCount);
-
-  await page.goto(path);
+  await page.goto('/demo/hearings/h4');
+  const path = new URL(page.url()).pathname;
+  const [, , caseId, , hearingId] = path.split('/');
+  const api = '/api/cases/' + caseId;
+  const started = await page.request.post(api + '/hearings/' + hearingId + '/start', {
+    headers: { origin: practiceServer.origin }, data: { closed: false, recordingPermission: true },
+  });
+  expect(started.ok()).toBe(true);
+  let eventStreams = 0;
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === api + '/events') eventStreams++;
+  });
+  await page.reload();
   const attention = page.locator('[data-tour="live-attention"]');
   await expect(page.locator('.hear-reading .finding-index')).toBeVisible();
   await expect(attention).toHaveCount(0);
-  const lead = attention.locator('.lead');
-  await expect(lead).toBeVisible({ timeout: 18000 });
-  await page.getByRole('button', { name: 'Jeda', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Lanjutkan', exact: true })).toBeVisible();
 
-  const current: Workspace = await (await page.request.get(api)).json();
-  const finding = current.findings.find((f) => f.id === 'f-replay-' + hearing.id + '-3')!;
-  expect(finding).toBeDefined();
+  // Simulate a voice turn and the analysis worker delivering its cited result to this isolated database.
+  const w: Workspace = await (await page.request.get(api + '/workspace')).json();
+  const source = w.passages.find(p => p.id === 'd8p1')!;
+  const statementId = 'practice-recognized-turn';
+  const text = 'Saya Rina Hartati. Saya baru masuk Gerbang Timur pukul setengah sepuluh malam.';
+  const detail = { id: 'Periksa waktu masuk yang dicatat petugas.', en: 'Check the entry time recorded by the gate officer.' };
+  const finding: Finding = { id: 'finding-' + statementId, hearingId, statementId, status: 'potential_inconsistency',
+    title: detail, explanation: detail, verify: detail, question: 'Pukul berapa Anda masuk Gerbang Timur?',
+    said: text, sources: [{ passageId: source.id, relation: 'conflicts', match: '20:07:41' }], reviewed: false, note: '' };
+  const refreshed = page.waitForResponse(response => {
+    const url = new URL(response.url());
+    return url.pathname === api + '/workspace' && url.searchParams.has('since');
+  });
+  const db = new DatabaseSync(practiceServer.database);
+  try {
+    db.exec('BEGIN IMMEDIATE');
+    const insert = db.prepare('INSERT INTO case_entities(case_id,kind,id,ordinal,body) VALUES(?,?,?,?,?)');
+    insert.run(caseId, 'statements', statementId, w.statements.length, JSON.stringify({
+      id: statementId, hearingId, speakerId: 'rina', t: 1, text, phase: 'complete',
+    }));
+    insert.run(caseId, 'findings', finding.id, w.findings.length, JSON.stringify(finding));
+    db.prepare('UPDATE cases SET version=version+1,updated_at=? WHERE id=?').run(Date.now(), caseId);
+    db.prepare('INSERT INTO case_workspace_revisions(case_id,version,changes) VALUES(?,?,?)').run(
+      caseId, w.version + 1, JSON.stringify([{ kind: 'statements', id: statementId }, { kind: 'findings', id: finding.id }]),
+    );
+    db.exec('COMMIT');
+  } finally { db.close(); }
+
+  const response = await refreshed;
+  const bytes = await response.body();
+  const delta: WorkspaceSync = JSON.parse(bytes.toString());
+  expect(delta.kind).toBe('delta');
+  if (delta.kind === 'delta') {
+    expect(delta.upserts.map(entry => entry.value.id).sort()).toEqual([finding.id, statementId].sort());
+    expect(delta.upserts.some(entry => entry.kind === 'documents' || entry.kind === 'passages')).toBe(false);
+  }
+  expect(bytes.length).toBeLessThan(Buffer.byteLength(JSON.stringify(w)) / 10);
+  console.log('Live workspace transfer: ' + Buffer.byteLength(JSON.stringify(w)) + ' → ' + bytes.length + ' bytes');
+
+  const lead = attention.locator('.lead');
+  await expect(lead).toBeVisible({ timeout: 10000 });
+  expect(eventStreams).toBe(1);
   await expect(lead).toContainText(finding.title.id);
   await expect(lead).toContainText(finding.question);
   await lead.click();

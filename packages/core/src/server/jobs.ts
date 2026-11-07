@@ -73,7 +73,7 @@ async function processOne(job: Job) {
       await mutateWorkspace(job.org_id, job.case_id, (w) => {
         const line = w.statements.find((s) => s.id === job.statement_id);
         if (line?.phase === 'queued') line.phase = 'saved';
-      }).catch(() => undefined);
+      }, { stream: true }).catch(() => undefined);
       await finish(job);
     } else {
       await transaction((db) =>

@@ -12,14 +12,14 @@ const allowedCases =
 
 export async function caseGuard(session: SessionInfo, id: string) {
   const [row] = await transaction((db) =>
-    db.query<{ version: number; role: string; synthetic: number }>(
-      'SELECT c.version,cm.role,c.synthetic ' + allowedCases + ' AND c.id=$3',
+    db.query<{ version: number; role: string; synthetic: number; workspace_epoch: string }>(
+      'SELECT c.version,cm.role,c.synthetic,c.workspace_epoch ' + allowedCases + ' AND c.id=$3',
       [session.organization.id, session.user.id, id],
     ),
   );
   if (!row) return;
   const legal = legalDiscoveryMode({ caseRecord: { label: row.synthetic ? 'synthetic' : 'private' } });
-  return { scope: workspaceScope(session), id, version: JSON.stringify([row.version, row.role, legal]) };
+  return { scope: workspaceScope(session), id, version: JSON.stringify([row.version, row.role, legal, row.workspace_epoch]) };
 }
 
 export async function registerGuard(session: SessionInfo) {

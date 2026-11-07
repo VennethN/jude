@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './fixtures/practice';
 
 for (const width of [1440, 390]) test(`ending a hearing retries saved audio without restarting the microphone at ${width}px`, async ({ page }, info) => {
   await page.setViewportSize({ width, height: 900 });

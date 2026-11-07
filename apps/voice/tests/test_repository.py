@@ -496,6 +496,42 @@ class VoiceRepositoryTest(VoiceRepositoryFixture):
             start=start, pcm=b"\x10\x00" * 24_000, keep=keep,
         )
 
+    def test_only_visible_recording_changes_advance_the_workspace_version(self):
+        def version():
+            return self.one("SELECT version FROM cases WHERE id='case'")["version"]
+
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        initial = version()
+        self.capture(lease, "first", start=0, keep=False)
+        self.repo.complete_capture(self.owner, "case", "hearing", lease=lease, epoch="epoch-1", turn_id="first")
+        self.assertEqual(version(), initial)
+        self.capture(lease, "retained", start=1, keep=True)
+        self.assertEqual(version(), initial + 1)
+        self.capture(lease, "later", start=2, keep=True)
+        self.assertEqual(version(), initial + 1)
+        hearing = json.loads(self.one("SELECT body FROM case_entities WHERE case_id='case' AND kind='hearings' AND id='hearing'")["body"])
+        self.assertEqual(hearing["duration"], 3)
+        self.assertTrue(hearing["audio"])
+        self.repo.save_stream_result(self.owner, "case", "hearing", lease=lease, epoch="epoch-1",
+                                     result_id="words", segments=[{"start": 1, "end": 1.5, "text": "Saya tiba.", "speaker": "0"}])
+        self.assertEqual(version(), initial + 2)
+
+    def test_workspace_revisions_record_ids_and_publish_the_latest_hearing_with_final_words(self):
+        lease = self.repo.acquire(self.owner, "case", "hearing")
+        self.capture(lease, "first", start=0, keep=True)
+        self.capture(lease, "second", start=1, keep=True)
+        self.repo.save_stream_result(self.owner, "case", "hearing", lease=lease, epoch="epoch-1",
+                                     result_id="words", segments=[{"start": 1, "end": 1.5, "text": "Private final words.", "speaker": "0"}])
+        version = self.one("SELECT version FROM cases WHERE id='case'")["version"]
+        row = self.one("SELECT changes FROM case_workspace_revisions WHERE case_id='case' AND version=?", (version,))
+        changes = json.loads(row["changes"])
+        self.assertIn({"kind": "hearings", "id": "hearing"}, changes)
+        self.assertTrue(any(item["kind"] == "statements" for item in changes))
+        self.assertTrue(any(item["kind"] == "speakers" for item in changes))
+        self.assertNotIn("Private final words", row["changes"])
+        self.assertEqual(json.loads(self.one("SELECT body FROM case_entities WHERE case_id='case' AND kind='hearings' AND id='hearing'")["body"])["duration"], 2)
+        self.assertEqual(self.one("SELECT COUNT(*) AS n FROM case_workspace_revisions WHERE case_id='case'")["n"], 2)
+
     def recorded_job(self):
         hearing = json.loads(self.one(
             "SELECT body FROM case_entities WHERE case_id='case' AND kind='hearings'"

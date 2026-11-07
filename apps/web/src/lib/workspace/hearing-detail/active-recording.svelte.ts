@@ -1,4 +1,5 @@
 import type { Lang } from '@jude/core/domain';
+import { prepareMicrophone, type PreparedMicrophone } from '../microphone-input';
 import type { CaptureState, LiveTranscriptTurn, Recorder } from '../microphone';
 
 type Session = { key: string; state: CaptureState; partial?: LiveTranscriptTurn; elapsed: number; runningSince: number };
@@ -16,9 +17,9 @@ export function microphoneStartFailure(key: string) {
 }
 
 // Only called after an explicitly submitted hearing has opened in this browser.
-export function connectStartedHearing(caseId: string, hearingId: string, userId: string, keep: boolean, startedAt: string | undefined, language?: Lang, practice = false) {
+export function connectStartedHearing(caseId: string, hearingId: string, userId: string, keep: boolean, startedAt: string | undefined, language: Lang | undefined, practice: boolean, input: PreparedMicrophone) {
   const key = [userId, caseId, hearingId].join('/');
-  void connectCapture(caseId, hearingId, userId, keep, startedAt, language, practice).catch(error => {
+  void connectCapture(caseId, hearingId, userId, keep, startedAt, language, practice, false, input).catch(error => {
     startFailure = { key, error };
   });
 }
@@ -31,13 +32,15 @@ export async function connectCapture(
   startedAt: string | undefined,
   language: Lang = 'id',
   practice = false,
-  recoverOnly = false
+  recoverOnly = false,
+  prepared?: PreparedMicrophone,
 ) {
   const key = [userId, caseId, hearingId].join('/');
   startFailure = undefined;
-  if (active) throw new Error('capture_in_use');
+  if (active) { prepared?.release(); throw new Error('capture_in_use'); }
+  const input = recoverOnly ? undefined : prepared ?? prepareMicrophone();
   const elapsed = startedAt ? Math.max(0, (Date.now() - Date.parse(startedAt)) / 1000) : 0;
-  active = { key, state: 'connecting', elapsed, runningSince: 0 };
+  active = { key, state: recoverOnly ? 'draining' : 'permission', elapsed, runningSince: 0 };
   try {
     if (navigator.locks) {
       await new Promise<void>((resolve, reject) => {
@@ -76,9 +79,11 @@ export async function connectCapture(
       },
       language,
       practice,
-      recoverOnly
+      recoverOnly,
+      input,
     );
   } catch (error) {
+    input?.release();
     release?.();
     release = undefined;
     active = null;

@@ -51,6 +51,8 @@
     en = $derived(data.lang === 'en'),
     account = $derived(data.account);
   const base = $derived(w ? '/case/' + w.caseRecord.id : '');
+  const activeCaseId = $derived(w?.caseRecord.id);
+  const activeScope = $derived(workspaceScope(account));
   const prefs = $derived(account.prefs),
     section = $derived(page.url.pathname.split('/')[3] ?? '');
   const nav = $derived([
@@ -146,19 +148,30 @@
     m.addEventListener('change', sync);
     return () => m.removeEventListener('change', sync);
   });
-  $effect(() => watchWorkspace(workspaceScope(data.account), () => {
+  $effect(() => watchWorkspace(activeScope, () => {
     void invalidate((key) => ['jude:session', 'jude:case', 'jude:case-library'].includes(key.href));
   }));
   $effect(() => {
-    const id = w?.caseRecord.id;
-    if (!id) return;
+    const id = activeCaseId;
+    if (!id || !activeScope) return;
     const stream = new EventSource('/api/cases/' + id + '/events');
-    const refresh = (e: MessageEvent) => {
+    let newest = 0, loading = false, closed = false;
+    const refresh = async (e: MessageEvent) => {
       try {
         const msg = JSON.parse(e.data);
         const version = msg.version ?? msg.data?.version;
-        if (typeof version === 'number' && version !== page.data.workspace?.version)
-          void invalidate('jude:case');
+        if (msg.caseId !== id || !Number.isSafeInteger(version) || version <= newest ||
+            version <= (page.data.workspace?.version ?? 0)) return;
+        newest = version;
+        if (loading) return;
+        loading = true;
+        try {
+          let requested: number;
+          do {
+            requested = newest;
+            await invalidate('jude:case');
+          } while (!closed && newest > requested && newest > (page.data.workspace?.version ?? 0));
+        } finally { loading = false; }
       } catch {}
     };
     stream.onmessage = refresh;
@@ -168,7 +181,7 @@
       // An HTTP permission failure during reconnect never delivers an SSE message.
       if (stream.readyState === EventSource.CLOSED) void invalidate('jude:case');
     };
-    return () => stream.close();
+    return () => { closed = true; stream.close(); };
   });
   async function save(options: Preferences) {
     try {
@@ -365,7 +378,7 @@
 >
   <a class="skip" href="#case-main">{en ? 'Skip to content' : 'Ke isi utama'}</a>
   <aside class="rail" id="workspace-rail">
-    <a class="brand" href="/cases" aria-label="Jude"><BrandLockup monochrome/></a>
+    <a class="brand" href="/cases" aria-label="Jude."><BrandLockup monochrome/></a>
     {#if w}
       <a
         class="switch-case"

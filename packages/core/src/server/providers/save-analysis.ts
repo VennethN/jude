@@ -52,5 +52,5 @@ export async function analyzeSaved(org: string, caseId: string, line: Statement)
           why: result.explanation,
         });
     }
-  });
+  }, { stream: true });
 }

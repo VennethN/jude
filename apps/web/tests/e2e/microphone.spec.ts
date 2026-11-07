@@ -56,6 +56,12 @@ async function setup(
   beforeStart?: () => Promise<void>,
 ) {
   const file = await readFile(new URL('../../src/lib/workspace/microphone.ts', import.meta.url), 'utf8');
+  const input = await readFile(new URL('../../src/lib/workspace/microphone-input.ts', import.meta.url), 'utf8');
+  await page.route('**/__capture-test__/microphone-input', route => route.fulfill({
+    contentType: 'application/javascript', body: ts.transpileModule(input, {
+      compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
+    }).outputText,
+  }));
   const compiled = ts.transpileModule(file, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;
@@ -360,7 +366,7 @@ test('policy rejection preserves pending audio and stops automatic retries witho
     });
     ws.send(JSON.stringify({ type: 'ready', protocol: 2, maxInFlight: 1 }));
   });
-  await expect(page.locator('#status')).toHaveText('error', { timeout: 6000 });
+  await expect(page.locator('#status')).toHaveText('service_error', { timeout: 6000 });
   expect((await stored(page)).length).toBeGreaterThan(0);
   const started = Date.now();
   const result = await page.evaluate(() => window.captureFixture.recorder.stop().then(() => 'done', () => 'pending'));
@@ -461,7 +467,7 @@ test('failed ending can retry stored audio without obtaining another microphone 
     });
     ws.send(JSON.stringify({ type: 'ready', protocol: 2, maxInFlight: 3 }));
   });
-  await expect(page.locator('#status')).toHaveText('error', { timeout: 6000 });
+  await expect(page.locator('#status')).toHaveText('service_error', { timeout: 6000 });
   expect(await page.evaluate(() => window.captureFixture.stream.getTracks().map(t => t.readyState))).toEqual(['ended']);
   expect(await page.evaluate(() => window.captureFixture.recorder.stop().then(() => 'done', e => e.message))).toBe('audio_pending');
   const pending = await stored(page);

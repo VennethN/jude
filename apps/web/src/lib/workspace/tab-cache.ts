@@ -1,8 +1,8 @@
 import { browser } from '$app/environment';
 import { error, redirect } from '@sveltejs/kit';
-import type { CaseSummary, Workspace } from '@jude/core/domain';
+import { mergeWorkspaceSync, type CaseSummary, type Workspace, type WorkspaceSync } from '@jude/core/domain';
 
-type Entry<T> = { version: string; value: Promise<T> };
+type Entry<T> = { version: string; value: Promise<T>; cursor?: string };
 const snapshots = new Map<string, Entry<Workspace>>();
 const register = new Map<string, Entry<CaseSummary[]>>();
 let scope = '';
@@ -63,13 +63,42 @@ async function read<T>(fetcher: typeof fetch, path: string, activeScope: string)
     if (response.status === 403 || response.status === 404) return workspaceAccessLost();
     error(response.status, 'Gagal memuat ruang kerja.');
   }
-  return response.json();
+  const value = await response.json();
+  if (browser && scope !== activeScope) return reloadWorkspace(window.location.href);
+  return value;
 }
 
 export function caseSnapshot(fetcher: typeof fetch, guard: { scope: string; id: string; version: string }) {
-  return loadVersion(snapshots, guard.id, guard.version, () =>
-    read<Workspace>(fetcher, '/api/cases/' + encodeURIComponent(guard.id) + '/workspace', guard.scope),
-  );
+  const path = '/api/cases/' + encodeURIComponent(guard.id) + '/workspace';
+  if (!browser) return read<WorkspaceSync>(fetcher, path + '?sync=1', guard.scope)
+    .then(update => mergeWorkspaceSync(undefined, update));
+  select(guard.scope);
+  const previous = snapshots.get(guard.id);
+  if (previous?.version === guard.version) return previous.value;
+  let entry: Entry<Workspace>;
+  const value = Promise.resolve().then(async () => {
+    const before = previous ? await previous.value.catch(() => undefined) : undefined;
+    if (scope !== guard.scope) return reloadWorkspace(window.location.href);
+    let update = await read<WorkspaceSync>(fetcher,
+      path + (before && previous?.cursor ? '?since=' + encodeURIComponent(previous.cursor) : '?sync=1'), guard.scope);
+    let workspace: Workspace;
+    try { workspace = mergeWorkspaceSync(before, update); }
+    catch {
+      // An unexpected ordering or local race is repaired with a full authorized snapshot.
+      update = await read<WorkspaceSync>(fetcher, path + '?sync=1', guard.scope);
+      workspace = mergeWorkspaceSync(undefined, update);
+    }
+    entry.cursor = update.cursor;
+    return workspace;
+  });
+  entry = { version: guard.version, value };
+  snapshots.delete(guard.id);
+  snapshots.set(guard.id, entry);
+  if (snapshots.size > 6) snapshots.delete(snapshots.keys().next().value!);
+  void value.catch(() => {
+    if (snapshots.get(guard.id) === entry) snapshots.delete(guard.id);
+  });
+  return value;
 }
 
 export function caseRegister(fetcher: typeof fetch, guard: { scope: string; version: string }) {

@@ -4,7 +4,7 @@
 
 <span class="jude-lockup" aria-hidden="true">
   <span class="jude-initial" class:monochrome></span>
-  <span class="jude-name">ude.</span>
+  <span class="jude-name">jude.</span>
 </span>
 
 <style>
@@ -28,9 +28,11 @@
     mask: url('/brand/jude-mono.png') center / contain no-repeat;
   }
   .jude-name {
-    display: var(--jude-name-display, inline);
+    display: var(--jude-name-display, inline-block);
     margin-inline-start: -.035em;
   }
+  /* The illustrated initial occupies this letter's place in the visible wordmark. */
+  .jude-name::first-letter { font-size: 0; letter-spacing: 0; }
   @media (forced-colors: active) {
     .jude-lockup .jude-initial {
       forced-color-adjust: none;
