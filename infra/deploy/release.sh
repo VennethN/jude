@@ -49,13 +49,25 @@ docker run -d --name jude-app --network jude --restart unless-stopped \
 
 healthy=false
 for attempt in {1..30}; do
-  if docker exec jude-app node -e "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"; then
+  if docker exec -i jude-app node --input-type=module <<'CHECK_SERVICES'
+const services = [3000, 3001];
+const ready = await Promise.all(services.map(async (port) => {
+  try {
+    const url = 'http://127.0.0.1:' + port + '/healthz';
+    return (await fetch(url, { signal: AbortSignal.timeout(2000) })).ok;
+  } catch {
+    return false;
+  }
+}));
+process.exit(ready.every(Boolean) ? 0 : 1);
+CHECK_SERVICES
+  then
     healthy=true
     break
   fi
   sleep 2
 done
-if ! "$healthy"; then echo "The Jude application failed its local readiness check." >&2; exit 1; fi
+if ! "$healthy"; then echo "The Jude web or voice process failed its local readiness check." >&2; exit 1; fi
 
 docker run -d --name jude-proxy --network jude --restart unless-stopped \
   --read-only --cap-drop ALL --security-opt no-new-privileges \

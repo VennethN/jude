@@ -1,6 +1,6 @@
 # Hosting Jude on AWS
 
-Jude runs on one Amazon Linux 2023 EC2 instance in Jakarta. Caddy terminates HTTPS and proxies HTTP, event streams and WebSockets to the Node application over a private Docker network. The application uses the existing RDS PostgreSQL instance, writes originals to a private S3 bucket encrypted with a rotating KMS key, and calls OpenAI directly when a key is configured.
+Jude runs on one Amazon Linux 2023 EC2 instance in Jakarta. Caddy terminates HTTPS and proxies HTTP, event streams and WebSockets to the web service over a private Docker network. The combined EC2 release runs the web and voice applications as separate Node processes. The application uses the existing RDS PostgreSQL instance, writes originals to a private S3 bucket encrypted with a rotating KMS key, and calls OpenAI directly when a key is configured.
 
 Run the following commands from the repository root. Cloud commands in this guide use the operator’s AWS identity. Set `AWS_REGION=ap-southeast-3` in that shell.
 
@@ -60,7 +60,7 @@ The instance profile reads the application secret and release digest, pulls from
 
 ## Build and release
 
-Build an x86-64 Linux image for the default EC2 instance. The image includes the web build, voice server, migrations, synthetic originals, OCR language packs, PDF tools, LibreOffice and ffmpeg. Use a unique image tag for each release.
+Build an x86-64 Linux image for the default EC2 instance. The default `release` image starts both processes with `node scripts/start.mjs`. It includes migrations, synthetic originals, OCR language packs, PDF tools, LibreOffice and ffmpeg. Use a unique image tag for each release.
 
 ```sh
 repository=$(terraform -chdir=infra/terraform output -raw app_registry)
@@ -79,6 +79,16 @@ aws ssm start-session --region ap-southeast-3 --target "$(terraform -chdir=infra
 ```
 
 Inside the SSM session, use `sudo systemctl status jude`, `sudo journalctl -u jude`, `sudo docker logs jude-app`, and `sudo docker logs jude-proxy` to diagnose startup. A host with a missing application secret retries startup every 30 seconds.
+
+## Running the web service independently
+
+The `web` Docker target contains the SvelteKit build and its Node entry point. Start it with `node apps/web/server.mjs` from the workspace root. It listens on `PORT` (3000 by default). Supply the same database, origins, storage configuration and runtime secrets as the combined service. `/healthz` checks database readiness. Set `VOICE_ORIGIN` to an internal voice HTTP origin to enable proxied live endpoints and WebSockets.
+
+```sh
+docker buildx build --platform linux/amd64 --target web --tag jude-web:release --load .
+```
+
+The independent voice process, Docker target, and streaming route are described in the [voice deployment guide](../../voice/docs/aws.md).
 
 ## Subsequent releases and recovery
 
