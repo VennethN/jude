@@ -1,16 +1,32 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
   import { X } from '@lucide/svelte';
+  import { cubicOut } from 'svelte/easing';
+  import type { TransitionConfig } from 'svelte/transition';
   let { title, close, lang = 'id', children, wide = false, side = false }: {title:string; close:()=>void; lang?:'id'|'en'; children:Snippet; wide?:boolean;side?:boolean} = $props();
   let dialog:HTMLDialogElement;
   const id = $props.id();
+  function reveal(_node: Element, { side }: { side: boolean }): TransitionConfig {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) return { duration: 0 };
+    const fromBottom = side && matchMedia('(max-width: 620px)').matches;
+    return {
+      duration: side ? 260 : 170,
+      easing: cubicOut,
+      css: (t, u) => {
+        const shift = side
+          ? 'translate' + (fromBottom ? 'Y' : 'X') + '(' + (u * 28) + 'px)'
+          : 'translateY(' + (u * 5) + 'px) scale(' + (1 - u * .015) + ')';
+        return 'opacity:' + t + ';transform:' + shift;
+      },
+    };
+  }
   onMount(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     dialog.showModal();
     return () => { if (dialog?.open) dialog.close(); before?.focus({preventScroll:true}); };
   });
 </script>
-<dialog class:wide class:side bind:this={dialog} aria-labelledby={id} oncancel={(e)=>{e.preventDefault();close()}} onclick={(e)=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()}}}>
+<dialog class:wide class:side bind:this={dialog} transition:reveal|global={{ side }} aria-labelledby={id} oncancel={(e)=>{e.preventDefault();close()}} onclick={(e)=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)close()}}}>
   <div class="dialog-head" class:sr-only={side}><h2 id={id}>{title}</h2><button class="icon-button" tabindex={side?-1:0} aria-label={lang==='id'?'Tutup':'Close'} onclick={close}><X size={19}/></button></div>
   {@render children()}
 </dialog>
