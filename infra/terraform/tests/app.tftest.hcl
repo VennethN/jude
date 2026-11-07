@@ -1,3 +1,7 @@
+variables {
+  enable_voice_host = false
+}
+
 mock_provider "aws" {
   mock_data "aws_availability_zones" {
     defaults = { names = ["ap-southeast-3a", "ap-southeast-3b"] }
