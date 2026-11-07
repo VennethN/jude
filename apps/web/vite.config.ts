@@ -1,5 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, searchForWorkspaceRoot } from 'vite';
+import { voiceProxy } from './scripts/voice-proxy.js';
 
 export default defineConfig({
   plugins: [sveltekit()],
@@ -18,11 +19,7 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api/live/': {
-        target: process.env.VOICE_ORIGIN || 'http://127.0.0.1:3001',
-        ws: true,
-        changeOrigin: false,
-      },
+      '/api/live/': voiceProxy(process.env),
     },
     fs: {
       allow: [searchForWorkspaceRoot(process.cwd())],
@@ -30,6 +27,8 @@ export default defineConfig({
         '.env',
         '.env.*',
         '**/.git/**',
+        '**/.local-access/**',
+        '**/.aws/**',
         '**/.jude-data/**',
         '**/*.sqlite*',
         '**/*.tfvars',
