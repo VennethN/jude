@@ -142,5 +142,10 @@ test('the public comparison links work without JavaScript', async ({ browser, ba
 		await expect(page.getByRole('link',{name:'Lihat cara kerjanya'})).toHaveAttribute('href','#lp-how');
 		await page.locator('.desk-picker > summary').click();
     await expect(page.locator('.desk-picker .direct-sources a')).toHaveCount(3);
+		await page.locator('.nav-right').getByRole('button', { name: 'EN · English' }).click();
+		await expect(page.locator('.sheet blockquote')).toContainText('half past nine at night');
+		await expect(page.locator('.sheet .sample')).toContainText('English translation');
+		await expect(page.locator('.page-sheet')).toContainText('WITNESS EXAMINATION RECORD (BAP)');
+		await expect(page.locator('.page-sample')).toHaveAttribute('href', '/demo/documents/d1?p=d1p4');
 	} finally {await context.close();}
 });

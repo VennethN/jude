@@ -24,28 +24,28 @@
     storyScroll?.scrollTo(target);
     if (target) target.focus({ preventScroll: true });
   }
-	let raised=$derived(around(record.testimony,sources[0].mark));
-  let statementSlip=$derived(deskQuote('statement',record).join(''));
-	let bapQuote=$derived(around(record.written,sources[1].mark));
-	let introCited=$derived(around(record.intro,'pukul 10.00 WIB'));
+	let raised=$derived(around(record.testimony,sources[0].mark[lang]));
+  let statementSlip=$derived(deskQuote('statement',record,lang).join(''));
+	let bapQuote=$derived(around(record.written,sources[1].mark[lang]));
+	let introCited=$derived(around(record.intro,t('lp.paper.introTime')));
 	let quietLines=$derived([
 		{who:'lp.whoPu' as const, speaker:'pu', text:record.firstQuestion},
 		{who:'role.witness' as const, speaker:'rina', text:record.firstAnswer},
 		{who:'lp.whoPu' as const, speaker:'pu', text:record.timeQuestion}
 	]);
 	let samplePage=$derived({
-		heading:['PRO JUSTITIA','BERITA ACARA PEMERIKSAAN SAKSI'],
-		labels:{q:'Pertanyaan',a:'Jawaban'},folio:'4 / 6',
+		heading:['PRO JUSTITIA',t('lp.paper.heading')],
+		labels:{q:t('lp.paper.question'),a:t('lp.paper.answer')},folio:'4 / 6',
 		items:[
-			{n:3,q:'Apa tugas Saudari di Gudang B?',a:record.schedule,mark:''},
-			{n:4,q:'Kapan Saudari tiba di Gudang B pada hari Sabtu, 14 Maret 2026?',a:record.written,mark:sources[1].mark},
-			{n:5,q:'Apakah Saudari melihat kendaraan keluar dari gerbang timur malam itu?',a:record.vehicle,mark:''}
+			{n:3,q:t('lp.paper.duties'),a:record.schedule,mark:''},
+			{n:4,q:t('lp.paper.arrival'),a:record.written,mark:sources[1].mark[lang]},
+			{n:5,q:t('lp.paper.vehicle'),a:record.vehicle,mark:''}
 		]
 	});
 	let slips=$derived([
-		{id:'bap',meta:'lp.g.bapMeta' as const,text:deskQuote('written',record).join(''),mark:sources[1].mark,rel:'conflicts' as const,href:sources[1].href},
-		{id:'log',meta:'lp.g.logMeta' as const,text:record.gate,mark:sources[2].mark,rel:'conflicts' as const,href:sources[2].href},
-		{id:'shift',meta:'lp.g.shiftMeta' as const,text:deskQuote('shift',record).join(''),mark:'',rel:'context' as const,href:'/demo/hearings/h2?s=s214'},
+		{id:'bap',meta:'lp.g.bapMeta' as const,text:deskQuote('written',record,lang).join(''),mark:sources[1].mark[lang],rel:'conflicts' as const,href:sources[1].href},
+		{id:'log',meta:'lp.g.logMeta' as const,text:record.gate,mark:sources[2].mark[lang],rel:'conflicts' as const,href:sources[2].href},
+		{id:'shift',meta:'lp.g.shiftMeta' as const,text:deskQuote('shift',record,lang).join(''),mark:'',rel:'context' as const,href:'/demo/hearings/h2?s=s214'},
 		{id:'law',meta:'lp.g.lawMeta' as const,text:record.charge,mark:'',rel:'related' as const,href:'/demo/documents/d4?p=d4p4'}
 	]);
 	async function replay() {
@@ -120,7 +120,7 @@
 
 
 {#snippet initials(id:string,size:number)}
-	<span aria-hidden="true" class="source-disc" data-role={id} style:--disc-size={size+'px'}>{id==='rina'?'R':id.toUpperCase()}</span>
+	<span aria-hidden="true" class="source-disc" data-role={id} style:--disc-size={size+'px'}>{id==='rina'?'R':id==='pu' && lang==='en'?'P':id.toUpperCase()}</span>
 {/snippet}
 <div class="lp" bind:this={root} class:scrolly class:pinned class:show-pin={phoneDesk}>
   <LandingSectionNav {lang} onJump={jump}/>
@@ -142,13 +142,13 @@
 
       <figure class="sheet paper" class:run={playing} class:held={offscreen || hidden} bind:this={sheet}>
         <figcaption class="sheet-bar">
-          <span class="sample">{t("lp.sample")}</span>
+          <span class="sample">{t("lp.translatedSample")}</span>
           {#if scrolly}<button class="replay" onclick={replay}><RotateCcw size={14} />{t("lp.replay")}</button>{/if}
         </figcaption>
         <div class="compare">
           <div class="side">
             <h2 class="side-label">{t("lp.testimony")}</h2>
-            <blockquote class="quote" lang="id">“…<span class="hl one">{raised[1]}</span>…”</blockquote>
+            <blockquote class="quote" lang={lang}>“…<span class="hl one">{raised[1]}</span>…”</blockquote>
             <a class="source" href={sources[0].href}>
               <Icon name="mic" size={15} />{t("lp.transcript")} · <span class="tabular">00:14:32</span>
             </a>
@@ -160,7 +160,7 @@
           </div>
           <div class="side earlier">
             <h2 class="side-label">{t("lp.earlier")}</h2>
-            <p class="quote typed" lang="id">“…tiba di gudang <span class="hl two">{bapQuote[1]}</span>…”</p>
+            <p class="quote typed" lang={lang}>“…{t("lp.arrived")} <span class="hl two">{bapQuote[1]}</span>…”</p>
             <a class="source" href={sources[1].href}>
               <Icon name="file" size={15} />{t("lp.witnessStatement")} · {t("common.page", { n: 4 })}
             </a>
@@ -194,19 +194,19 @@
             <span class="file" aria-hidden="true"></span>
             <article class="slip statement" data-rise>
               <a class="slip-meta linked-source" href={sources[0].href}>{@render initials("rina",18)}{t("lp.g.statementMeta")}</a>
-              <p class="statement-text" lang="id">“{statementSlip}”</p>
+              <p class="statement-text" lang={lang}>“{statementSlip}”</p>
             </article>
             {#each slips as s (s.id)}
               {@const parts = around(s.text, s.mark)}
               <article class="slip source-slip {s.id}" data-rise>
                 <a class="slip-meta linked-source" href={s.href}>{#if s.id === "shift"}{@render initials("rina",18)}{:else}<Icon name={s.id === "law" ? "book" : "file"} size={13} />{/if}{t(s.meta)}</a>
-                <p class="slip-text" lang="id" class:typed={s.id !== "shift"}>{parts[0]}{#if parts[1]}<mark>{parts[1]}</mark>{/if}{parts[2]}</p>
+                <p class="slip-text" lang={lang} class:typed={s.id !== "shift"}>{parts[0]}{#if parts[1]}<mark>{parts[1]}</mark>{/if}{parts[2]}</p>
                 <p class="slip-rel" data-rel={s.rel}>{t(`rel.${s.rel}`)}</p>
               </article>
               <span class="wire-label" data-rel={s.rel} data-slip={s.id} style:left="{wires[s.id].x}%" style:top="{wires[s.id].y}%">{t(`rel.${s.rel}`)}</span>
             {/each}
           </div>
-          <p class="legend">{t("lp.g.legend")} · {t("lp.sample")}</p>
+          <p class="legend">{t("lp.translatedSample")} · {t("lp.g.legend")}</p>
         </div>
       </div>
     </section>
@@ -227,10 +227,10 @@
               <span class="st-linked">{t("lp.show.linked", { n: pins.length })}</span>
             </p>
             <SourceDesk {lang} {record}/>
-            <p class="show-sample">{t("lp.sample")}</p>
+            <p class="show-sample">{t("lp.translatedSample")}</p>
           </div>
           <p class="sr-only">{t("lp.show.alt")}</p>
-          <div class="tb-wrap" lang="id" aria-hidden="true">
+          <div class="tb-wrap" lang={lang} aria-hidden="true">
             <div class="tb">
               <div class="tb-paper p-bap key" style={place("bap")}>
                 <p class="pp-folio">{samplePage.folio}</p>
@@ -244,19 +244,19 @@
                 <span class="pp-lines"><i></i><i></i><i></i><i></i></span>
               </div>
               <div class="tb-paper p-talk key" style={place("talk")}>
-                <p class="pp-head">TRANSKRIP SIDANG 2</p>
+                <p class="pp-head">{t("lp.paper.transcript")}</p>
                 <span class="pp-wave">{#each [3, 6, 4, 9, 5, 8, 3, 7, 10, 6, 4, 8, 5, 9, 3, 6, 8, 4, 7, 5] as h, i (i)}<i style:--h={h}></i>{/each}</span>
                 {#each quietLines as line (line.text)}<p class="pp-line"><b>{t(line.who)}</b> {line.text}</p>{/each}
                 <p class="pp-line pp-key"><b>{t("role.witness")}</b> {raised[0]}<mark class="tb-c key" style:--mx={across("talk", 0.45, 0.7)}>{raised[1]}</mark>{raised[2]}</p>
               </div>
               <div class="tb-paper p-roster" style={place("roster")}>
-                <DeskPaper kind="roster" {record}/>
+                <DeskPaper kind="roster" {record} {lang}/>
               </div>
               <div class="tb-paper p-log key" style={place("log")}>
-                <DeskPaper kind="log" {record}/>
+                <DeskPaper kind="log" {record} {lang}/>
               </div>
               <div class="tb-paper p-cctv" style={place("cctv")}>
-                <span class="cc-frame"><span class="cc-cam">GERBANG TIMUR · GUDANG B</span><mark class="tb-c cc-stamp" style:--mx={across("cctv", 0.68, 0.22)}>14-03-2026 · 23:48:12</mark></span>
+                <span class="cc-frame"><span class="cc-cam">{t("lp.paper.camera")}</span><mark class="tb-c cc-stamp" style:--mx={across("cctv", 0.68, 0.22)}>14-03-2026 · 23:48:12</mark></span>
               </div>
               <div class="tb-light"></div>
               <svg class="tb-threads" viewBox="0 0 1000 640" preserveAspectRatio="none">
@@ -295,16 +295,16 @@
             <div class="vignette listen paper">
               <div class="v-line quiet">
                 {@render initials("pu",36)}
-                <div><span class="v-name">{t("lp.whoPu")}</span><p lang="id">{record.timeQuestion}</p></div>
+                <div><span class="v-name">{t("lp.whoPu")}</span><p lang={lang}>{record.timeQuestion}</p></div>
               </div>
               <div class="v-line now">
                 {@render initials("rina",46)}
                 <div>
                   <span class="v-name">{t("role.witness")} Rina Hartati</span>
-                  <p class="v-said" lang="id">{record.testimony}</p>
+                  <p class="v-said" lang={lang}>{record.testimony}</p>
                 </div>
               </div>
-              <span class="v-sample">{t("lp.sample")}</span>
+              <span class="v-sample">{t("lp.translatedSample")}</span>
             </div>
           </div>
         </li>
@@ -366,23 +366,23 @@
         {#each quietLines as line (line.text)}
           <li class="t-row" data-rise>
             <span class="t-who">{@render initials(line.speaker,20)}{t(line.who)}</span>
-            <p class="t-text" lang="id">{line.text}</p>
+            <p class="t-text" lang={lang}>{line.text}</p>
             <span></span>
           </li>
         {/each}
         <li class="t-row raised" data-rise>
           <span class="t-who">{@render initials("rina",20)}{t("role.witness")}</span>
-          <p class="t-text" lang="id">{raised[0]}<mark>{raised[1]}</mark>{raised[2]}</p>
+          <p class="t-text" lang={lang}>{raised[0]}<mark>{raised[1]}</mark>{raised[2]}</p>
           <span class="pill small">{t("status.potential_inconsistency")}</span>
           <a class="t-note linked-source" href={sources[0].href}>{t("lp.transcript")} · 00:14:32 <ArrowUpRight size={14}/></a>
         </li>
         <li class="t-row" data-rise>
           <span class="t-who">{@render initials("rina",20)}{t("role.witness")}</span>
-          <p class="t-text" lang="id">{record.laterAnswer}</p>
+          <p class="t-text" lang={lang}>{record.laterAnswer}</p>
           <span></span>
         </li>
       </ol>
-      <figcaption class="panel-sample">{t("lp.sample")}</figcaption>
+      <figcaption class="panel-sample">{t("lp.translatedSample")}</figcaption>
       </figure>
         </div>
       </div>
@@ -399,9 +399,10 @@
       <div class="scene page-scene" data-scene="page">
         <div class="stage">
       <div class="page-row">
-        <div class="page-sheet paper" lang="id">
+        <div class="page-sheet paper" lang={lang}>
           <img class="clay clay-clip" src="/public/clip.webp" alt="" aria-hidden="true" loading="lazy" decoding="async" />
           <p class="page-folio tabular">{samplePage.folio}</p>
+          <p class="page-translation">{t("lp.translatedSample")}</p>
           {#each samplePage.heading as line (line)}<p class="page-heading">{line}</p>{/each}
           <p class="page-intro">{record.intro}</p>
           <ol class="page-items">
@@ -415,18 +416,18 @@
                   {#if item.mark}
                     <aside class="margin-note in-margin" lang={lang}>
                       <span class="pill small">{t("status.potential_inconsistency")}</span>
-                      <p>{t("lp.pageNote")} <q lang="id">{record.testimony}</q></p>
+                      <p>{t("lp.pageNote")} <q lang={lang}>{record.testimony}</q></p>
                     </aside>
                   {/if}
                 </div>
               </li>
             {/each}
           </ol>
-          <a class="page-sample linked-source" lang={lang} href={sources[1].href}>{t("lp.witnessStatement")} · {t("common.page", {n:4})} <ArrowUpRight size={15}/></a>
+          <a class="page-sample linked-source" lang={lang} href={sources[1].href}>{t("lp.witnessStatement")} · {t("common.page", {n:4})}{lang === "en" ? " · " + t("lp.original") : ""} <ArrowUpRight size={15}/></a>
         </div>
         <aside class="margin-note below-page" data-rise>
           <span class="pill small">{t("status.potential_inconsistency")}</span>
-          <p>{t("lp.pageNote")} <q lang="id">{record.testimony}</q></p>
+          <p>{t("lp.pageNote")} <q lang={lang}>{record.testimony}</q></p>
         </aside>
         <img class="clay clay-magnifier" src="/public/clay/magnifier.webp" alt="" aria-hidden="true" loading="lazy" decoding="async" />
       </div>

@@ -10,6 +10,8 @@ Web, in Bahasa Indonesia and English. Source records stay in their original lang
 
 All product-owned navigation, labels, explanations, status and error messages, and generated question drafts follow the selected Indonesian or English interface language. Synthetic examples carry translations for their display labels and suggested questions, including examples already saved.
 
+The public landing story also translates its synthetic illustration text, transcript excerpts and paper facsimiles into the selected language. Mark English illustrations as translations and link to the unchanged Indonesian case records. Preserve names, official identifiers and the original document’s Latin heading. These public display translations never replace evidence in the case workspace.
+
 Keep verbatim testimony, original document text and scans, official legal identifiers (BAP, KUHP, KUHAP, article/case numbers), proper names, and user-authored titles, notes and messages unchanged. These are source or authored records, not interface copy. Explain this boundary beside evidence and in language preferences. Never silently translate or overwrite evidence. Saved courtroom drafts without a verified translation remain explicitly identified as original wording. Copying a translated suggestion copies the language shown.
 
 ## Users
