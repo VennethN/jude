@@ -358,3 +358,41 @@ test('policy rejection preserves pending audio and stops automatic retries witho
   expect(connections).toBe(1);
   expect((await stored(page)).length).toBeGreaterThan(0);
 });
+
+test('rapid pause and resume waits for final drain before opening the next stream', async ({ page }) => {
+  let connections = 0;
+  let finishFirst: (() => void) | undefined;
+  const packets: Packet[] = [];
+  await setup(page, ws => {
+    const number = ++connections;
+    ws.onMessage(raw => {
+      const message = JSON.parse(String(raw)) as Packet & { type?: string };
+      if (message.type === 'stop') {
+        const finish = () => {
+          for (const packet of packets) acknowledge(ws, packet);
+          ws.send(JSON.stringify({ type: 'stopped' }));
+        };
+        if (number === 1) finishFirst = finish;
+        else finish();
+        return;
+      }
+      packets.push(message);
+      ws.send(JSON.stringify({ type: 'accepted', id: message.id }));
+    });
+    ws.send(JSON.stringify({ type: 'ready', protocol: 2, maxInFlight: 3 }));
+  });
+  await expect.poll(() => packets.length, { timeout: 6000 }).toBeGreaterThan(0);
+  await page.evaluate(() => {
+    void window.captureFixture.recorder.paused(true);
+    void window.captureFixture.recorder.paused(false);
+  });
+  await expect.poll(() => !!finishFirst).toBe(true);
+  await page.waitForTimeout(500);
+  expect(connections).toBe(1);
+  expect((await stored(page)).length).toBeGreaterThan(0);
+  finishFirst!();
+  await expect.poll(() => connections).toBe(2);
+  await expect(page.locator('#status')).toHaveText('recording');
+  await page.evaluate(() => window.captureFixture.recorder.stop());
+  expect(await stored(page)).toEqual([]);
+});

@@ -139,6 +139,8 @@ export async function capture(
   let rotating = false, stopSent = false, providerStopped = false;
   let captureSettled = false, terminalError = false, reconnects = 0;
   let lastProgress = Date.now();
+  let handoffRetries = 0;
+  let pauseTransition = Promise.resolve();
   function requestDrain() {
     if (!ready || !ws || stopSent || inFlight.size || (!rotating && !captureSettled)) return;
     stopSent = true;
@@ -242,6 +244,7 @@ export async function capture(
         const m = JSON.parse(e.data);
         if (m.type === 'ready') {
           if (m.protocol !== 2) { terminalError = true; connected.close(); state('error'); return; }
+          handoffRetries = 0;
           windowSize = Number.isSafeInteger(m.maxInFlight) ? Math.max(1, Math.min(3, m.maxInFlight)) : 1;
           ready = true;
           state(draining ? 'draining' : paused ? 'paused' : 'recording');
@@ -296,6 +299,14 @@ export async function capture(
       ready = false;
       inFlight.clear();
       if (!stopped) {
+        // A clean pause drain can close just before Python releases its lease.
+        // Retry only this bounded handoff, never an explicit policy-error frame.
+        if (!terminalError && handoffRetries > 0 && [1006, 1008].includes(event.code)) {
+          handoffRetries--;
+          state('connecting');
+          retry = setTimeout(connect, 500);
+          return;
+        }
         if ([1008, 1003].includes(event.code) || terminalError || (!providerStopped && ++reconnects > 2)) {
           terminalError = true;
           paused = true;
@@ -409,20 +420,41 @@ export async function capture(
   let finishing: Promise<void> | undefined;
   return {
     stop: () => (finishing ??= finish()),
-    async paused(value) {
-      if (stopped || draining || storageError || terminalError || value === paused) return;
-      paused = value;
-      captureSettled = false;
-      state(value ? 'paused' : ready ? 'recording' : 'offline');
-      if (value) {
-        await closeWindow();
-        await saveChain;
-        captureSettled = true;
-        await pump();
-      } else {
-        if (!ready || stopSent) { ws?.close(); clearTimeout(retry); connect(); }
+    paused(value) {
+      // Serialize rapid toggles so resume cannot race the worklet's pause boundary.
+      pauseTransition = pauseTransition.then(async () => {
+        if (stopped || draining || storageError || terminalError || value === paused) return;
+        if (value) {
+          paused = true;
+          captureSettled = false;
+          state('paused');
+          await closeWindow();
+          await saveChain;
+          captureSettled = true;
+          await pump();
+          return;
+        }
+        // Remain paused while all accepted captures finalize. Closing this socket
+        // early interrupts the provider and competes with the existing lease.
+        lastProgress = Date.now();
+        while (!stopped && !draining && !terminalError &&
+               !(providerStopped && ws?.readyState === WebSocket.CLOSED)) {
+          if (Date.now() - lastProgress >= 45000) {
+            state('error');
+            throw new Error('audio_pending');
+          }
+          await new Promise(resolve => setTimeout(resolve, 40));
+        }
+        if (stopped || draining || terminalError) return;
+        paused = false;
+        captureSettled = false;
+        handoffRetries = 3;
+        clearTimeout(retry);
+        connect();
         node.port.postMessage({ type: 'resume' });
-      }
+      });
+      return pauseTransition;
+
     },
   };
 }
