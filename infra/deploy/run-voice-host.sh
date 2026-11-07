@@ -13,6 +13,20 @@ aws ssm get-parameters-by-path --path /jude-dev/runtime/ --with-decryption --out
 curl -fsS --retry 4 https://truststore.pki.rds.amazonaws.com/ap-southeast-3/ap-southeast-3-bundle.pem \
   -o /etc/jude/certs/rds-ca.pem
 chmod 0644 /etc/jude/certs/rds-ca.pem
+# Validate the persistent, offline model before replacing running containers.
+model_mount=()
+model=$(sed -n 's/^JUDE_DIARIZATION_MODEL=//p' /run/jude/app.env)
+if [[ -n "$model" ]]; then
+  if [[ "$model" != /models/community-1 || ! -r /var/lib/jude/models/community-1/config.yaml ]]; then
+    echo 'Provision Community-1 and set JUDE_DIARIZATION_MODEL=/models/community-1.' >&2
+    exit 1
+  fi
+  model_mount=(--mount type=bind,src=/var/lib/jude/models/community-1,dst=/models/community-1,readonly -e HF_HUB_OFFLINE=1)
+  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=512m -e HOME=/tmp -e PYANNOTE_METRICS_ENABLED=0 \
+    "${model_mount[@]}" "$image" python -c \
+    'from pyannote.audio import Pipeline; Pipeline.from_pretrained("/models/community-1"); print("Offline diarization model ready")'
+fi
 docker network inspect jude >/dev/null 2>&1 || docker network create jude >/dev/null
 cat > /etc/jude/Caddyfile <<'CADDY'
 {
@@ -32,7 +46,7 @@ for container in jude-proxy jude-app; do
 done
 docker run -d --name jude-app --network jude --restart unless-stopped \
   --init --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=1g --env-file /run/jude/app.env \
+  --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=1g --env-file /run/jude/app.env "${model_mount[@]}" \
   -e NODE_EXTRA_CA_CERTS=/run/rds-ca.pem -e BODY_SIZE_LIMIT=64M -e HOME=/tmp \
   -e HF_HOME=/tmp/huggingface -e PYANNOTE_METRICS_ENABLED=0 \
   --mount type=bind,src=/etc/jude/certs/rds-ca.pem,dst=/run/rds-ca.pem,readonly \
