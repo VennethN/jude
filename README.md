@@ -52,7 +52,7 @@ pnpm dev
 
 Open **http://localhost:5173** and choose the example case. The launcher starts web and voice together. Without `DATABASE_URL`, local development uses SQLite and stores private files under `.jude-data/`.
 
-Put shared local settings in the repository root’s Git-ignored `.env`. Both services read `DATABASE_URL` from it when started with `pnpm dev` or `pnpm start`. Environment templates are available for [web](apps/web/.env.example) and [voice](apps/voice/.env.example). See the [voice guide](apps/voice/README.md#enable-private-audio) for OpenAI credentials, speaker models, and audio storage.
+Put web development settings in the Git-ignored `apps/web/.env`. Run `pnpm dev` from the repository root or `apps/web`; both use this file. Root development also reads `.env` as a fallback, while `pnpm start` uses the root `.env` for the combined production service. Environment templates are available for [web](apps/web/.env.example) and [voice](apps/voice/.env.example). See the [voice guide](apps/voice/README.md#enable-private-audio) for OpenAI credentials, speaker models, and audio storage.
 
 Document extraction and conversion also use Poppler, LibreOffice, and Tesseract. These system dependencies are included in the production image.
 

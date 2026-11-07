@@ -33,7 +33,7 @@ Set `VOICE_HOST`, `VOICE_PORT` and the public web `ORIGIN` for the deployment. C
 
 Confirm permission for an open hearing before recording or uploading audio. Uploads accept up to 25 MiB and 30 minutes. The voice service separates speech by anonymous speaker and transcribes each passage in its original language. A live microphone acknowledges each turn after it is saved. A disconnected browser queues its pending turns until the connection resumes.
 
-When the lawyer retains a live recording, a leased worker processes the saved turns after the hearing ends. Transcript-only mode groups speakers using short-lived acoustic context in memory during the connection. Interrupted sessions and uncertain matches can leave separate anonymous labels for counsel to review. Hand-confirmed labels are preserved.
+When the lawyer retains a live recording, a bounded background queue groups speakers while the transcript continues to arrive. A leased worker processes unresolved saved turns after the hearing ends. Transcript-only mode groups speakers using short-lived acoustic context in memory during the connection. Interrupted sessions and uncertain matches remain unidentified until enough evidence is available; counsel can review and name each predicted voice. Hand-confirmed labels are preserved. Acoustic context is scoped to the current recording connection, not an identity database across hearings.
 
 | Endpoint | Purpose |
 | --- | --- |

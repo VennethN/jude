@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 
 from anyio import CancelScope
 from starlette.websockets import WebSocketDisconnect
@@ -90,10 +90,15 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode, re
                     await contexts[lane].aclose()
                     raise ProviderError("Transcription was interrupted.") from exc
             receipt = await write_transaction(repo.finish_turn, *scope, lease=lease, turn_id=tid, text=words)
-            assign = bool(receipt["statementId"] and not keep)
+            assign = bool(receipt["statementId"])
         await acknowledge(receipt)
         if assign:
-            await speaker_queue.put((start, receipt["statementId"], pcm))
+            if keep:
+                # Persisted audio has a final hearing pass if live inference falls behind.
+                with suppress(asyncio.QueueFull):
+                    speaker_queue.put_nowait((start, receipt["statementId"], pcm))
+            else:
+                await speaker_queue.put((start, receipt["statementId"], pcm))
 
     available = list(reversed(range(MAX_IN_FLIGHT)))
     active = {}

@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 from anyio import CancelScope, sleep_forever
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
-
 from jude_voice import app as transport
 from jude_voice.diarization import SpeakerTurn
 from jude_voice.providers import Realtime, wav_header, windows
@@ -206,6 +205,43 @@ class VoiceTransportTest(unittest.TestCase):
             finally:
                 release.set()
             self.assertEqual(client.receive_json(), {"type": "ack", "id": "one", "statementId": "one"})
+
+    def test_retained_audio_is_identified_while_live_without_delaying_the_transcript(self):
+        entered, release, identified = threading.Event(), threading.Event(), threading.Event()
+        self.repo.committed_turn.return_value = None
+        self.repo.begin_turn.return_value = None
+        self.repo.finish_turn.return_value = {"id": "turn-1", "statementId": "mic-h-turn-1"}
+        self.repo.finalize_speakers.side_effect = lambda *_: identified.set()
+        recognizer = MagicMock()
+        recognizer.transcribe = AsyncMock(return_value="Synthetic testimony")
+        context = MagicMock()
+        context.__aenter__.return_value = recognizer
+
+        def identify(_chunks):
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError("The transcript waited for speaker inference")
+            return {"mic-h-turn-1": "anonymous-a"}
+
+        with (
+            patch.object(transport, "Realtime", return_value=context),
+            patch.object(transport, "SpeakerWindow") as window,
+        ):
+            window.return_value.label.side_effect = identify
+            with self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client:
+                try:
+                    self.assertEqual(client.receive_json()["type"], "ready")
+                    client.send_json({"id": "turn-1", "t": 0, "keep": True, "pcm": base64.b64encode(b"\x00\x01" * 24000).decode()})
+                    self.assertEqual(client.receive_json()["type"], "ack")
+                    self.assertTrue(entered.wait(5))
+                    self.repo.finalize_speakers.assert_not_called()
+                    release.set()
+                    self.assertTrue(identified.wait(5))
+                    self.repo.finalize_speakers.assert_called_once_with(
+                        self.repo.session.return_value, "c", "h", {"mic-h-turn-1": "anonymous-a"}
+                    )
+                finally:
+                    release.set()
 
     def test_ack_for_a_turn_without_a_statement_does_not_create_a_caption(self):
         receipt = {"id": "quiet", "statementId": None}

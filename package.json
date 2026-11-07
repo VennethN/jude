@@ -8,7 +8,7 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "node --env-file-if-exists=.env scripts/start.mjs --dev",
+    "dev": "node --env-file-if-exists=.env --env-file-if-exists=apps/web/.env scripts/start.mjs --dev",
     "build": "pnpm --filter @jude/web build",
     "start": "node --env-file-if-exists=.env scripts/start.mjs",
     "check": "pnpm --filter @jude/web check",
