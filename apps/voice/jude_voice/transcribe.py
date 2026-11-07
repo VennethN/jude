@@ -162,17 +162,19 @@ def normalize_result(result: dict, duration: float) -> dict:
             continue
         tokens = []
         for word in segment["words"]:
-            if tokens and (
-                word["start"] < tokens[-1]["end"]
-                or word["start"] == word["end"]
+            tokens.append(dict(word))
+            # A backtracking AWS item can overlap several earlier tokens, not
+            # just its immediate predecessor. Collapse the whole connected span.
+            while len(tokens) > 1 and (
+                tokens[-1]["start"] < tokens[-2]["end"]
                 or tokens[-1]["start"] == tokens[-1]["end"]
+                or tokens[-2]["start"] == tokens[-2]["end"]
             ):
+                current = tokens.pop()
                 previous = tokens[-1]
-                previous["start"] = min(previous["start"], word["start"])
-                previous["end"] = max(previous["end"], word["end"])
-                previous["text"] += " " + word["text"]
-            else:
-                tokens.append(dict(word))
+                previous["start"] = min(previous["start"], current["start"])
+                previous["end"] = max(previous["end"], current["end"])
+                previous["text"] += " " + current["text"]
         segment["words"] = tokens
         segment["start"] = min(word["start"] for word in tokens)
         segment["end"] = max(word["end"] for word in tokens)

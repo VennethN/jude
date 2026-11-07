@@ -31,6 +31,7 @@ export async function connectCapture(
   startedAt: string | undefined,
   language: Lang = 'id',
   practice = false,
+  recoverOnly = false
 ) {
   const key = [userId, caseId, hearingId].join('/');
   startFailure = undefined;
@@ -75,6 +76,7 @@ export async function connectCapture(
       },
       language,
       practice,
+      recoverOnly
     );
   } catch (error) {
     release?.();
@@ -85,7 +87,12 @@ export async function connectCapture(
 }
 
 export function pauseCapture(key: string, paused: boolean) {
-  if (active?.key === key) device?.paused(paused);
+  if (active?.key === key) return device?.paused(paused);
+}
+
+export async function drainCapture(caseId: string, hearingId: string, userId: string, language: Lang, practice = false) {
+  await connectCapture(caseId, hearingId, userId, false, undefined, language, practice, true);
+  await stopCapture([userId, caseId, hearingId].join('/'));
 }
 
 export async function stopCapture(key: string) {

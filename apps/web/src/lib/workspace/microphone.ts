@@ -96,13 +96,19 @@ export async function capture(
   partial: (turn?: LiveTranscriptTurn) => void,
   language: 'id' | 'en' = 'id',
   guestPractice = false,
+  recoverOnly = false,
 ): Promise<Recorder> {
-  if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode)
+  if (!recoverOnly && (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode))
     throw new Error('Microphone requires HTTPS and a supported browser.');
   const scope = [userId, caseId, hearingId].join('/'),
     db = await database();
-  state('permission');
-  const stream = await navigator.mediaDevices
+  if (recoverOnly && !(await queuedCount(db, scope))) {
+    db.close();
+    state('stopped');
+    return { stop: async () => {}, paused: async () => {} };
+  }
+  state(recoverOnly ? 'draining' : 'permission');
+  const stream = recoverOnly ? undefined : await navigator.mediaDevices
     .getUserMedia({
       audio: { channelCount: 1, noiseSuppression: true, echoCancellation: false },
     })
@@ -111,26 +117,25 @@ export async function capture(
       throw cause;
     });
   state('connecting');
-  const context = new AudioContext({ sampleRate });
+  const context = recoverOnly ? undefined : new AudioContext({ sampleRate });
   try {
-    await context.audioWorklet.addModule('/voice-capture.js');
-    await context.resume();
+    await context?.audioWorklet.addModule('/voice-capture.js');
+    await context?.resume();
   } catch (e) {
-    stream.getTracks().forEach((t) => t.stop());
-    await context.close();
+    stream?.getTracks().forEach((t) => t.stop());
+    await context?.close();
     db.close();
     throw e;
   }
-  const source = context.createMediaStreamSource(stream),
-    node = new AudioWorkletNode(context, 'jude-capture');
-  source.connect(node);
-  node.connect(context.destination);
+  const source = context && stream ? context.createMediaStreamSource(stream) : undefined,
+    node = context ? new AudioWorkletNode(context, 'jude-capture') : undefined;
+  if (source && node && context) { source.connect(node); node.connect(context.destination); }
   let ws: WebSocket | undefined,
     ready = false,
     windowSize = 1,
     stopped = false,
-    paused = false,
-    draining = false,
+    paused = recoverOnly,
+    draining = recoverOnly,
     retry: ReturnType<typeof setTimeout> | undefined,
     pumpBusy = false,
     pumpRequested = false,
@@ -139,7 +144,8 @@ export async function capture(
   // Sent captures stay in IndexedDB until transcript completion, including keep=false.
   const submitted = new Map<string, number>();
   let rotating = false, stopSent = false, providerStopped = false;
-  let captureSettled = false, terminalError = false, reconnects = 0;
+  let captureSettled = recoverOnly, terminalError = false, reconnects = 0;
+  let inputClosed = recoverOnly;
   let lastProgress = Date.now();
   let handoffRetries = 0;
   let guestLimitReached = false;
@@ -319,8 +325,7 @@ export async function capture(
         if ([1008, 1003].includes(event.code) || terminalError || (!providerStopped && ++reconnects > 2)) {
           terminalError = true;
           paused = true;
-          node.port.postMessage({ type: 'pause' });
-          flush();
+          void stopInput();
           state('error');
           return;
         }
@@ -350,12 +355,13 @@ export async function capture(
         storageError = true;
         state('error');
         paused = true;
-        node.port.postMessage({ type: 'pause' });
+        void stopInput();
       });
   }
   // Worklet messages are ordered. Its boundary follows all captured blocks, including its final
   // partial block, so a pause or stop cannot truncate the last word at a 100 ms block boundary.
   function closeWindow() {
+    if (!node || inputClosed) return Promise.resolve();
     const boundary = ++boundaryNumber;
     return new Promise<void>((resolve) => {
       const done = () => {
@@ -370,12 +376,12 @@ export async function capture(
       node.port.postMessage({ type: 'pause', boundary });
     });
   }
-  node.port.onmessage = (e: MessageEvent<ArrayBuffer | { boundary: number }>) => {
+  if (node) node.port.onmessage = (e: MessageEvent<ArrayBuffer | { boundary: number }>) => {
     if (!(e.data instanceof ArrayBuffer)) {
       boundaries.get(e.data.boundary)?.();
       return;
     }
-    if (stopped || storageError) return;
+    if (stopped || storageError || inputClosed) return;
     const a = new Int16Array(e.data);
     if (!samples) turnStart = elapsed;
     let peak = 0;
@@ -397,23 +403,36 @@ export async function capture(
     )
       flush();
   };
+  let inputShutdown: Promise<void> | undefined;
+  function stopInput() {
+    if (inputShutdown) return inputShutdown;
+    const boundary = closeWindow();
+    // Release the physical microphone immediately, independently of network or
+    // provider drain. The worklet still delivers its already-captured tail.
+    stream?.getTracks().forEach((track) => track.stop());
+    inputShutdown = boundary.then(() => {
+      inputClosed = true;
+      source?.disconnect();
+      node?.disconnect();
+      if (context && context.state !== 'closed') void context.close().catch(() => {});
+      void lock?.release().catch(() => {});
+    });
+    return inputShutdown;
+  }
   connect();
   async function finish() {
     paused = true;
     draining = true;
     captureSettled = false;
-    await closeWindow();
-    stream.getTracks().forEach((t) => t.stop());
-    source.disconnect();
-    node.disconnect();
-    if (context.state !== 'closed') await context.close();
+    state('draining');
+    await stopInput();
     await saveChain;
-    await lock?.release();
     captureSettled = true;
     if (!guestLimitReached) state(terminalError ? 'error' : 'draining');
     await pump();
     lastProgress = Date.now();
-    while (!terminalError && Date.now() - lastProgress < 45000 && (!providerStopped || (await queuedCount(db, scope)))) {
+    const deadline = Date.now() + 120000;
+    while (!terminalError && Date.now() < deadline && Date.now() - lastProgress < 45000 && (!providerStopped || (await queuedCount(db, scope)))) {
       await new Promise((r) => setTimeout(r, 160));
     }
     if (guestLimitReached) {
@@ -443,7 +462,7 @@ export async function capture(
     stop: () => (finishing ??= finish()),
     paused(value) {
       // Serialize rapid toggles so resume cannot race the worklet's pause boundary.
-      pauseTransition = pauseTransition.then(async () => {
+      const transition = pauseTransition.then(async () => {
         if (stopped || draining || storageError || terminalError || value === paused) return;
         if (value) {
           paused = true;
@@ -472,10 +491,10 @@ export async function capture(
         handoffRetries = 3;
         clearTimeout(retry);
         connect();
-        node.port.postMessage({ type: 'resume' });
+        node?.port.postMessage({ type: 'resume' });
       });
-      return pauseTransition;
-
+      pauseTransition = transition.catch(() => {});
+      return transition;
     },
   };
 }

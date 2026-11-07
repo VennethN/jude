@@ -7,6 +7,7 @@ import logging
 import math
 import os
 import re
+import traceback
 from contextlib import asynccontextmanager, suppress
 from datetime import date as date_type
 from pathlib import Path
@@ -342,7 +343,10 @@ async def receive_turns(ws, session, case_id, hearing_id, lease):
     except WebSocketDisconnect:
         pass
     except VoiceError as exc:
-        logging.getLogger(__name__).warning("voice_stream_rejected code=%s", exc.code)
+        # Function/line locations diagnose validation failures without logging
+        # private transcripts, audio, session cookies, or provider credentials.
+        locations = " > ".join(f"{frame.name}:{frame.lineno}" for frame in traceback.extract_tb(exc.__traceback__))
+        logging.getLogger(__name__).warning("voice_stream_rejected code=%s at=%s", exc.code, locations)
         with suppress(RuntimeError, WebSocketDisconnect):
             await ws.send_json({"type": "error", "code": exc.code})
             await ws.close(code=1008, reason="guest_live_limit" if exc.code == "guest_live_limit" else "")

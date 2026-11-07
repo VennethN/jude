@@ -11,6 +11,9 @@ interface CaptureFixture {
   current?: ClientTurn;
   received: number;
   status: string;
+  stream: MediaStream;
+  mediaRequests: number;
+  recover: () => Promise<void>;
 }
 declare global {
   interface Window {
@@ -23,14 +26,20 @@ const harness = `<!doctype html><meta charset="utf-8">
 <script type="importmap">{"imports":{"$app/navigation":"/__capture-test__/navigation.js"}}</script>
 <script type="module">
 import {capture} from '/__capture-test__/microphone.js';
-const f = window.captureFixture = { received:0, status:'idle' };
+const f = window.captureFixture = { received:0, status:'idle', mediaRequests:0 };
 Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {value:async () => {
+  f.mediaRequests++;
   const audio = new AudioContext({sampleRate:24000});
   const input=audio.createOscillator(), gain=audio.createGain(), stream=audio.createMediaStreamDestination();
   f.tone=gain; gain.gain.value=location.search.includes('silent') ? 0 : .15;
   input.frequency.value=330; input.connect(gain).connect(stream);
-  await audio.resume(); input.start(); return stream.stream;
+  await audio.resume(); input.start(); f.stream=stream.stream; return stream.stream;
 }});
+f.recover=async()=>{
+  const retry=await capture('case-1','hearing-1','member-1',false,undefined,
+    (state)=>{f.status=state;document.querySelector('#status').textContent=state},()=>{},'id',true);
+  await retry.stop();
+};
 start.onclick=async()=>{
   f.began=performance.now();
   f.recorder=await capture('case-1','hearing-1','member-1',true,undefined,
@@ -395,4 +404,68 @@ test('rapid pause and resume waits for final drain before opening the next strea
   await expect(page.locator('#status')).toHaveText('recording');
   await page.evaluate(() => window.captureFixture.recorder.stop());
   expect(await stored(page)).toEqual([]);
+});
+
+test('ending releases the microphone before delayed transcript completion and records no further audio', async ({ page }) => {
+  const packets: Packet[] = [];
+  let finish: (() => void) | undefined;
+  await setup(page, ws => {
+    ws.onMessage(raw => {
+      const packet = JSON.parse(String(raw)) as Packet & { type?: string };
+      if (packet.type === 'stop') {
+        finish = () => {
+          for (const item of packets) acknowledge(ws, item);
+          ws.send(JSON.stringify({ type: 'stopped' }));
+        };
+      } else {
+        packets.push(packet);
+        ws.send(JSON.stringify({ type: 'accepted', id: packet.id }));
+      }
+    });
+    ws.send(JSON.stringify({ type: 'ready', protocol: 2, maxInFlight: 3 }));
+  });
+  await expect.poll(() => packets.length).toBeGreaterThan(0);
+  const tracks = await page.evaluate(() => {
+    void window.captureFixture.recorder.stop();
+    return window.captureFixture.stream.getTracks().map(t => t.readyState);
+  });
+  expect(tracks).toEqual(['ended']);
+  await expect.poll(() => !!finish).toBe(true);
+  await expect(page.locator('#status')).toHaveText('draining');
+  const frozen = packets.length;
+  await page.waitForTimeout(2800);
+  expect(packets).toHaveLength(frozen);
+  expect((await stored(page)).length).toBeGreaterThan(0);
+  finish!();
+  await expect(page.locator('#status')).toHaveText('stopped');
+  expect(await stored(page)).toEqual([]);
+});
+
+test('failed ending can retry stored audio without obtaining another microphone stream', async ({ page }) => {
+  let connection = 0;
+  const retried: Packet[] = [];
+  await setup(page, ws => {
+    const attempt = ++connection;
+    ws.onMessage(raw => {
+      const packet = JSON.parse(String(raw)) as Packet & { type?: string };
+      if (packet.type === 'stop') { ws.send(JSON.stringify({ type: 'stopped' })); return; }
+      if (attempt === 1) {
+        ws.send(JSON.stringify({ type: 'error', code: 'validation' }));
+        return;
+      }
+      retried.push(packet);
+      acknowledge(ws, packet);
+    });
+    ws.send(JSON.stringify({ type: 'ready', protocol: 2, maxInFlight: 3 }));
+  });
+  await expect(page.locator('#status')).toHaveText('error', { timeout: 6000 });
+  expect(await page.evaluate(() => window.captureFixture.stream.getTracks().map(t => t.readyState))).toEqual(['ended']);
+  expect(await page.evaluate(() => window.captureFixture.recorder.stop().then(() => 'done', e => e.message))).toBe('audio_pending');
+  const pending = await stored(page);
+  expect(pending.length).toBeGreaterThan(0);
+  await page.evaluate(() => window.captureFixture.recover());
+  expect(retried.map(p => p.id)).toEqual(expect.arrayContaining(pending));
+  expect(await stored(page)).toEqual([]);
+  expect(await page.evaluate(() => window.captureFixture.mediaRequests)).toBe(1);
+  await expect(page.locator('#status')).toHaveText('stopped');
 });
