@@ -112,6 +112,27 @@ const summaryInstructions = [
 ].join(' ');
 
 export interface AnswerOptions { history?: ChatMessage[]; signal?: AbortSignal; progress?: (stage: AssistantStage) => void }
+function selectedHistory(w: Workspace, contexts: ContextRef[], history: ChatMessage[]) {
+  const recent = history.slice(-8);
+  if (!contexts.length || contexts.some(ref => ref.kind === 'case')) return recent;
+  const selected = contextKeys(w, contexts);
+  if (contexts.some(ref => ref.kind === 'documents')) {
+    selected.add('documents');
+    for (const doc of w.documents) selected.add(key({ kind: 'document', id: doc.id }));
+  }
+  let includeTurn = false;
+  return recent.filter(message => {
+    if (message.role === 'user') {
+      includeTurn = !!message.contexts?.length && message.contexts.every(ref => {
+        if (ref.kind === 'case') return false;
+        if (ref.kind === 'documents') return selected.has('documents');
+        return !ref.unavailable && selected.has(key(ref));
+      });
+      return includeTurn;
+    }
+    return includeTurn && (message.citations ?? []).every(c => !c.unavailable && selected.has(key(c)));
+  });
+}
 export function conversationQuery(question: string, history: ChatMessage[], lang: Lang) {
   // Resolve elliptical follow-ups without carrying an old topic into a new, standalone question.
   const followup = /\b(it|its|they|them|that|those|these|he|she|their|itu|tersebut|tadi|dia|mereka|nya)\b|\p{L}{3,}nya\b|^(and |also |what about |bagaimana dengan |lalu |kemudian )/iu.test(question);
@@ -125,8 +146,9 @@ export async function answerQuestion(
   const { signal, progress } = options;
   signal?.throwIfAborted();
   progress?.('retrieving');
-  const history = (options.history ?? []).slice(-8).map(m => ({ role: m.role, text: (typeof m.text === 'string' ? m.text : m.text[lang]).slice(0, 1500) }));
-  const query = conversationQuery(question, options.history ?? [], lang);
+  const previous = selectedHistory(w, contexts, options.history ?? []);
+  const history = previous.map(m => ({ role: m.role, text: (typeof m.text === 'string' ? m.text : m.text[lang]).slice(0, 1500) }));
+  const query = conversationQuery(question, previous, lang);
   let retrieval: ChatMessage['retrieval'] = 'lexical';
   const overview = isCaseSummary(question, contexts) ? summaryEvidence(w, caseSources(w, lang), lang) : undefined;
   const sources = overview?.sources ?? await retrieve(w, query, contexts, lang, allowModel ? orgId : undefined, { signal, minimumScore: 0, status: value => { retrieval = value; } });

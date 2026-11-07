@@ -108,6 +108,32 @@ test('selected context excludes other documents from embedding and answering', a
   expect(JSON.stringify(p.structured.mock.calls)).not.toContain('EXCLUDED');
 });
 
+test('switching documents excludes previous questions and answers from the new model input', async () => {
+  const c = await fixture(), p = providers(), other = randomUUID();
+  await mutateWorkspace(c.session.organization.id, c.caseId, w => {
+    w.documents.push({ ...w.documents[0], id: other, title: 'Separate exhibit' });
+    w.passages.push({ ...w.passages[0], id: randomUUID(), docId: other, text: 'The unrelated archive marker is EARLIER-EXHIBIT.' });
+  });
+  await c.workspace();
+  const send = (text: string, docId: string) => c.client.ok<Thread>(c.path, 'POST', {
+    text, lang: 'en', withLegal: false, contexts: [{ kind: 'document', id: docId }],
+  });
+  await send('What is the earlier PRIVATE-QUESTION marker?', other);
+  p.structured.mockClear();
+  p.embedding.mockClear();
+
+  const followUp = 'What about its delivery time?';
+  await send(followUp, c.doc);
+  const input = p.structured.mock.calls[0][2] as { history: { role: string; text: string }[] };
+  expect(input.history).toEqual([]);
+  expect(JSON.stringify([input, p.embedding.mock.calls])).not.toMatch(/EARLIER-EXHIBIT|PRIVATE-QUESTION/);
+
+  await send('Who received it?', c.doc);
+  const nextInput = p.structured.mock.calls[1][2] as typeof input;
+  expect(nextInput.history.map(message => message.role)).toEqual(['user', 'assistant']);
+  expect(nextInput.history[0].text).toBe(followUp);
+});
+
 test.each(['incomplete','unverified','unavailable'] as const)('provider %s returns a diagnosed, grounded fallback',async issue=>{
   const c = await fixture(), p = providers();
   if(issue==='incomplete')p.structured.mockResolvedValue(null);
