@@ -25,7 +25,8 @@
 </section>
 <div class="pub-frame compare">
 	<h2>{isId ? 'Bandingkan kapasitas.' : 'Compare capacity.'}</h2>
-	<div class="table-wrap"><table>
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex (Keyboard users scroll the wide comparison inside this region.) -->
+	<div class="table-wrap" role="region" aria-label={isId ? 'Perbandingan paket' : 'Plan comparison'} tabindex="0"><table>
 		<caption class="visually-hidden">{isId ? 'Fitur dan batas menurut paket' : 'Feature and quota comparison by plan'}</caption>
 		<thead><tr><th scope="col">{isId ? 'Per paket' : 'Per plan'}</th>{#each data.plans as plan}<th scope="col" class:chosen={chosen === plan.id}>{plan.name[data.lang]}</th>{/each}</tr></thead>
 		<tbody>{#each quotaOrder as key}<tr><th scope="row">{quotaNames[key][data.lang]}</th>{#each data.plans as plan}<td class:chosen={chosen === plan.id}>{plan.quotas[key] === null ? (isId ? 'Tanpa batas' : 'Unlimited') : new Intl.NumberFormat(isId ? 'id-ID' : 'en-US').format(plan.quotas[key]!)}</td>{/each}</tr>{/each}
