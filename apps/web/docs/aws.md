@@ -110,3 +110,5 @@ Caddy stores its ACME account and certificates under `/var/lib/jude/caddy` on th
 Run the offline module checks locally with `terraform -chdir=infra/terraform fmt -check -recursive`, `terraform -chdir=infra/terraform validate` and `terraform -chdir=infra/terraform test` after initialization. The application tests use a mocked AWS provider.
 
 AWS documents the [Amazon Linux 2023 image parameters](https://docs.aws.amazon.com/linux/al2023/ug/ec2.html) and [RDS certificate rotation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ConnectToInstance.SSL.CertificateRotation.html).
+
+The shared hosting and network diagrams are in the [infrastructure documentation](../../../infra/docs/architecture/).
