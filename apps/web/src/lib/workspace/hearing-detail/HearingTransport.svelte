@@ -2,8 +2,10 @@
   import { Pause, Play, RotateCcw, RotateCw } from '@lucide/svelte';
   import type { Finding, Hearing, Lang, Speaker, Statement } from '@jude/core/domain';
   import Timeline from './Timeline.svelte';
+  import Match from '$lib/evidence/Match.svelte';
+  import './recorded-review.css';
   import { timecode } from '../format';
-  import { voice } from './people';
+  import { roles, voice } from './people';
 
   let { hearing, lines, speakers, findings, lang, current, duration, playing, rate, error, ready,
     seek, toggle, setRate, openFinding }: {
@@ -14,6 +16,7 @@
   } = $props();
   const en = $derived(lang === 'en');
   const currentLine = $derived(lines.findLast((line) => line.t <= current));
+  const finding = $derived(findings.find(item => item.statementId === currentLine?.id));
   const label = $derived(hearing.audio ? (en ? 'Hearing audio' : 'Rekaman sidang') :
     (en ? 'Transcript replay · no original audio' : 'Transkrip contoh · tanpa rekaman audio'));
 </script>
@@ -29,40 +32,60 @@
     </select>
     <span class="kind">{label}</span>
   </div>
-  <Timeline {hearing} {duration} {lines} {findings} {speakers} {lang} {current} {seek} {openFinding} />
+  <Timeline {duration} {lines} {findings} {speakers} {lang} {current} {seek} {openFinding} />
   {#if playing || current > 0}
-    <div class="current" aria-label={en ? 'At the playhead' : 'Pada posisi putar'}>
-      {#if currentLine}
-        {@const person = voice(speakers, currentLine.speakerId, lang)}
-        <span class="speaker" data-tone={person.role}>{person.letters}</span>
-        <div><b>{person.name}</b> <time>{timecode(currentLine.t)}</time><p>{currentLine.text}</p></div>
-      {:else if lines[0]}<p>{en ? 'First statement at ' : 'Pernyataan pertama pada '}{timecode(lines[0].t)}.</p>{/if}
-    </div>
+    {#if currentLine}
+      {@const person = voice(speakers, currentLine.speakerId, lang)}
+      {@const role = roles[person.role][en ? 1 : 0]}
+      <div class="current" data-tone={person.role} data-status={finding?.status} aria-label={en ? 'At the playhead' : 'Pada posisi putar'}>
+        <span class="portrait" aria-hidden="true">{person.role === 'witness' || person.role === 'party' ? person.letters.slice(0, 1) : person.letters}</span>
+        <div class="current-text">
+          <div class="plate"><b>{person.name}</b>
+            {#if person.role !== 'unknown' && role.toLocaleLowerCase() !== person.name.toLocaleLowerCase()}<span>{role}</span>{/if}
+            <time>{timecode(currentLine.t)}</time>
+          </div>
+          <p><Match text={currentLine.text} term={finding?.said}/></p>
+        </div>
+      </div>
+    {:else if lines[0]}
+      <p class="before-first">{en ? 'First statement at ' : 'Pernyataan pertama pada '}{timecode(lines[0].t)}.</p>
+    {/if}
   {/if}
   {#if error}<p class="failed" role="alert">{en ? 'The audio could not be played. The transcript is available below.' : 'Audio belum dapat diputar. Transkrip tersedia di bawah.'}</p>{/if}
 </section>
 
 <style>
-  .player { min-width:0; border:1px solid var(--line); border-radius:12px; background:var(--surface); padding:10px 14px 12px; margin:0 0 16px; }
-  .controls,.current { display:flex; align-items:center; gap:6px; }
-  .controls { flex-wrap:wrap; margin-bottom:8px; }
-  .transport { height:36px; width:36px; display:grid; place-items:center; color:var(--ink); border:1px solid transparent; background:transparent; border-radius:6px; }
-  .transport:hover { background:var(--wash); }
-  .transport.play { background:var(--forest); color:var(--on-forest); border-radius:50%; }
-  .clock { margin:0 6px; font:500 13px/1.5 var(--sans); font-variant-numeric:tabular-nums; }
-  select { min-height:32px; padding:2px 6px; border:1px solid var(--line); color:var(--ink); background:var(--surface); border-radius:6px; font-size:13px; }
-  .kind { margin-left:auto; color:var(--muted); font-size:12px; }
-  .current { margin-top:10px; align-items:flex-start; gap:10px; padding:12px; border-radius:8px; background:var(--surface-2,var(--paper)); font:400 14px/1.5 var(--sans); }
-  .current b,.current time { font-size:12px; }
-  .current time { margin-left:5px; color:var(--muted); font-variant-numeric:tabular-nums; }
-  .current p { margin:2px 0 0; }
-  .speaker { flex:none; display:grid; place-items:center; width:28px; height:28px; border-radius:50%; background:var(--tone); color:white; font:600 10px var(--sans); }
-  .failed { color:var(--accent); padding:8px 0 0; font-size:13px; }
+  .player {
+    display:grid; gap:10px; min-width:0; margin:0 0 16px; padding:10px 14px 12px;
+    border:1px solid var(--hairline); border-radius:12px; background:var(--material-raised);
+    box-shadow:var(--shadow-raise),inset 0 1px 0 var(--edge-light);
+  }
+  .controls,.plate { display:flex; flex-wrap:wrap; align-items:center; }
+  .controls { gap:6px 8px; }
+  .transport {
+    width:36px; height:36px; display:grid; place-items:center;
+    border:1px solid transparent; border-radius:6px; color:var(--ink-strong); background:transparent;
+  }
+  .transport:hover { background:var(--sunken); }
+  .transport.play { border-radius:50%; color:var(--primary-ink); background:var(--primary); box-shadow:var(--shadow-raise); }
+  .clock { margin-right:4px; color:var(--ink); font:400 13px/1.5 var(--sans); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  select { min-height:30px; width:auto; padding:2px 9px 2px 10px; border:1px solid var(--line-strong); border-radius:6px; color:var(--ink); background:var(--surface); font:500 12px var(--sans); }
+  .kind { margin-left:auto; padding:2px 8px; border-radius:4px; background:var(--sunken); color:var(--muted); font:600 12px/1.5 var(--sans); }
+  .current { display:flex; align-items:flex-start; gap:12px; min-width:0; padding:12px 14px; border:1px solid color-mix(in srgb,var(--tone) 24%,var(--line)); border-radius:12px; background:var(--surface); }
+  .portrait { display:grid; flex:none; place-items:center; width:40px; height:40px; border-radius:50%; color:var(--on-accent); background:var(--review-role-ink); font:600 16px/1 var(--sans); }
+  .current-text { display:grid; gap:6px; min-width:0; }
+  .plate { gap:4px 10px; align-items:baseline; color:var(--muted); font:400 12px/1.55 var(--sans); }
+  .plate b { font:600 14px/1.55 var(--sans); color:var(--review-role-ink); }
+  .plate time { font-variant-numeric:tabular-nums; }
+  .current p { margin:0; color:var(--ink-strong); font:500 15px/1.42 var(--sans); letter-spacing:-.012em; overflow-wrap:anywhere; }
+  .before-first,.failed { margin:0; padding:12px 16px; color:var(--muted); font:400 13px/1.5 var(--sans); }
+  .before-first { display:flex; min-height:64px; align-items:center; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+  .failed { color:var(--alert); }
+  :global([data-theme='night']) .portrait { color:var(--review-role-ink); background:var(--review-role-paper); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--tone) 38%,transparent); }
   @media(max-width:719px) {
-    .controls { display:grid; grid-template-columns:44px 44px 44px minmax(0,1fr); gap:6px; }
+    .controls { display:grid; grid-template-columns:44px 44px 44px minmax(0,1fr); gap:6px 8px; }
     .transport { width:44px; height:44px; }
-    .controls select { grid-column:1/span 2; justify-self:start; min-width:58px; height:38px; }
-    .controls .kind { grid-column:3/span 2; text-align:right; font-size:11px; }
-    .clock { margin:0; font-size:12.5px; white-space:nowrap; }
+    .controls select { grid-column:1/span 2; justify-self:start; min-width:58px; min-height:38px; }
+    .kind { grid-column:3/span 2; text-align:right; font-size:11px; }
   }
 </style>
