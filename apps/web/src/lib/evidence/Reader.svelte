@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import {
@@ -191,10 +192,10 @@
     ><ArrowLeft size={15} />{id ? 'Dokumen' : 'Documents'}</a
   >
   <header class="ev-head">
-    <div>
+    <PageHeading art="page" compact>
       <h1>{doc.title}</h1>
       <p>{local(doc.kind, lang)} · {doc.file} · {doc.pages} {id ? 'halaman' : 'pages'}</p>
-    </div>
+    </PageHeading>
     <div class="ev-actions">
       <a class="ev-button" href={original} download
         ><Download size={16} />{id ? 'Unduh asli' : 'Download original'}</a

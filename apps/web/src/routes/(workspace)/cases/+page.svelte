@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { invalidate, invalidateAll } from '$app/navigation';
   import { onMount, tick } from 'svelte';
   import { Archive, ArchiveRestore, ChevronDown, FolderOpen, Plus, Search } from '@lucide/svelte';
@@ -61,10 +62,10 @@
 <svelte:head><title>{en ? 'Your cases' : 'Perkara Anda'} · Jude</title></svelte:head>
 <div class="library">
   <header class="library-head">
-    <div class="introduction">
+    <div class="introduction"><PageHeading art="folder">
       <h1>{en ? 'Your cases' : 'Perkara Anda'}</h1>
       <p>{en ? 'Each case keeps its own documents, hearings, findings and conversations.' : 'Setiap perkara menyimpan berkas, sidang, temuan, dan percakapannya sendiri.'}</p>
-    </div>
+    </PageHeading></div>
     <div class="tools">
       <label class="search" data-tour="case-search"><Search size={17}/><span class="sr-only">{en ? 'Find a case' : 'Cari perkara'}</span><input type="search" bind:value={query} placeholder={en ? 'Find a case…' : 'Cari perkara…'} aria-controls="case-register"/></label>
       <button class="button primary" data-tour="case-new" disabled={!ready} onclick={() => creating = true}><Plus size={17}/>{en ? 'New case' : 'Perkara baru'}</button>

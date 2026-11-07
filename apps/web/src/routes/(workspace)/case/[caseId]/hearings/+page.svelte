@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { page } from '$app/state';
   import { goto, invalidateAll } from '$app/navigation';
   import { Mic, Plus, Search, ShieldCheck, Speech, Trash2, Undo2, X } from '@lucide/svelte';
@@ -81,14 +82,14 @@
 <svelte:head><title>{en ? 'Hearings' : 'Sidang'} · Jude</title></svelte:head>
 <div class="library">
   <header class="library-head">
-    <div>
+    <PageHeading art="speech">
       <h1>{en ? 'Hearings' : 'Sidang'}</h1>
       <p>
         {en
           ? 'A complete record of every examination. Record live, upload audio or import a transcript.'
           : 'Catatan lengkap setiap pemeriksaan. Rekam langsung, unggah audio, atau impor transkrip.'}
       </p>
-    </div>
+    </PageHeading>
     {#if !w.caseRecord.archived}<div class="toolbar" data-tour="hearings-new">
         {#if live}<a class="button" href={base + '/' + live.id}
             ><Mic size={16} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a

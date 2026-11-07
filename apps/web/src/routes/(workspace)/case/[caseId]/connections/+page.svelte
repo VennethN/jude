@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { tick } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
@@ -132,8 +133,10 @@
 <svelte:window onkeydown={panelKeys} />
 <section class="cx-page" bind:this={root} bind:clientWidth={width}>
   <header class="cx-title">
-    <h1>{mapText(lang, 'cx.title')}</h1>
-    <p>{mapText(lang, 'cx.lead')}</p>
+    <PageHeading art="connect">
+      <h1>{mapText(lang, 'cx.title')}</h1>
+      <p>{mapText(lang, 'cx.lead')}</p>
+    </PageHeading>
   </header>
   <span role="status" class="sr-only">{announcement}</span>
   {#if problem && !modal}<p role="alert" class="cx-error">{problem}</p>{/if}

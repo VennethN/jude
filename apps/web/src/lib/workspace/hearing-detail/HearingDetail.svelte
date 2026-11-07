@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { goto, invalidate, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { onMount, tick, untrack } from 'svelte';
@@ -510,7 +511,9 @@
 <article class="hearing-detail" class:live-view={live || scheduled} class:running={live}>
   <a class="back" href={base + '/hearings'}><ArrowLeft size={15} />{en ? 'All hearings' : 'Semua sidang'}</a>
   <header class="hearing-heading">
-    <h1><span>{en ? 'Hearing' : 'Sidang'} {h.number}</span> {h.title[lang]}</h1>
+    <PageHeading art="speech" compact>
+      <h1><span>{en ? 'Hearing' : 'Sidang'} {h.number}</span> {h.title[lang]}</h1>
+    </PageHeading>
     {#if !scheduled}<div class="head-actions">
       {#if !live}<a class="button ask-hearing" href={assistantPath(w, {kind:'hearing', id:h.id})} onclick={askHearing}>
         <MessageSquare size={15}/>{en ? 'Ask assistant' : 'Tanya asisten'}

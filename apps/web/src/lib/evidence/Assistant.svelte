@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PageHeading from '$lib/workspace/PageHeading.svelte';
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import { casePrompts } from '$lib/workspace/case-prompts';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
@@ -375,7 +376,7 @@
 <svelte:window onkeydown={keydown} />
 <div class="ev-panel assistant" class:compact>
   {#if compact}<header class="panel-head">
-      <h2 class="ev-title">{id ? 'Asisten perkara' : 'Case assistant'}</h2>
+      <PageHeading art="quote" compact><h2 class="ev-title">{id ? 'Asisten perkara' : 'Case assistant'}</h2></PageHeading>
       <div class="ev-inline">
         <a
           class="ev-icon"
