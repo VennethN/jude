@@ -1,0 +1,13 @@
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+!*.tfvars.example
+# This environment configuration contains no credentials.
+!infra/terraform/terraform.tfvars
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+.DS_Store
