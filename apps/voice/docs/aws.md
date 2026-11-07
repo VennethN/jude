@@ -16,6 +16,12 @@ Supply the shared PostgreSQL database, S3 originals bucket and KMS key to both s
 
 The GitHub Actions release runs both processes in the `release-pyannote` container. Voice listens on loopback. CloudFront serves HTTPS and Caddy forwards requests to the web process. The launcher checks both database health endpoints before starting the proxy.
 
+### Direct EC2 voice testing
+
+`https://jude-voice.15.232.90.76.sslip.io` reaches the EC2 Elastic IP directly. Terraform's `voice_direct_hostname` enables TCP 443 from all IPv4 clients and stores the hostname in SSM. `infra/deploy/run-direct-voice.sh` runs a separate HTTPS gateway; Caddy obtains and renews its certificate through TLS-ALPN on port 443 and retains certificate state on the encrypted host disk. This testing hostname uses the public sslip.io DNS service.
+
+The gateway exposes `/healthz` and `/api/live/**` only. `/api/live/capabilities` reports readiness. Uploads use `/api/live/{caseId}/upload`; WebSockets use `wss://jude-voice.15.232.90.76.sslip.io/api/live/{caseId}/{hearingId}/socket`. Recording and audio requests require the existing `jude_session` cookie and case permissions. Use the gateway origin for the WebSocket `Origin` header. The gateway translates only its own origin to the web application's canonical origin; arbitrary origins still fail authorization checks. Browser development uses the web app's same-origin proxy, not credentialed wildcard CORS.
+
 ## Local speaker diarization
 
 The `voice-pyannote` and `release-pyannote` targets install the CPU builds of PyTorch and torchaudio along with pyannote.audio and TorchCodec. They share the same service code as the corresponding baseline targets. Keep the model snapshot outside the source and container build context.

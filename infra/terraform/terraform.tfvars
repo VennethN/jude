@@ -11,8 +11,9 @@ db_deletion_protection = true
 db_publicly_accessible  = true
 db_allowed_public_cidrs = ["0.0.0.0/0"]
 
-enable_application = true
-enable_voice_host  = true
+enable_application    = true
+enable_voice_host     = true
+voice_direct_hostname = "jude-voice.15.232.90.76.sslip.io"
 
 github_repository          = "VennethN/jude"
 github_oidc_subject_prefix = "repo:VennethN@77603243/jude@1448955559"
