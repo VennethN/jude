@@ -48,7 +48,7 @@ import { authorizeCase, listMembers, setCaseMember } from './access';
 import { answerQuestion } from './providers/assistant';
 import { answerStream, sharedAnswer } from './answer-stream';
 import { mergeEvidenceRanks, semanticMatches, type SourceRef } from './providers/semantic-retrieval';
-import { discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
+import { answerLawQuestion, discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
 
 const groups = [
   'hearings',
@@ -299,19 +299,14 @@ async function postMessage(
   async function generate(publish: (message: ChatMessage) => void): Promise<Thread> {
     if ('cached' in before) return before.cached;
     const { workspace, contexts } = before;
-    const answer = await answerQuestion(
-      workspace,
-      text,
-      contexts,
-      lang,
-      !session.user.guest && workspace.caseRecord.label === 'private',
-      org,
-      publish,
+    const legalQuestion = await answerLawQuestion(workspace, text, contexts, lang, withLegal);
+    const answer = legalQuestion?.answer ?? await answerQuestion(
+      workspace, text, contexts, lang, !session.user.guest && workspace.caseRecord.label === 'private', org, publish,
     );
     if (answer.mode === 'sources-only') publish(answer);
-    const discovered = withLegal
+    const discovered = legalQuestion?.discoveries ?? (withLegal
       ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])])
-      : [];
+      : []);
     return transaction((db) =>
       idempotent(db, org, scope, key, async () => {
         await checkQuota(db, org, 'questions', 1);

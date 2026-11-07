@@ -9,7 +9,7 @@ export interface Source extends Citation { text:string; group:string }
 const stop = new Set('a an di dan ke dari yang atas apa apakah saya saya ini itu the of to what when who how is are did was which this in with dan untuk siapa what'.split(' '));
 function terms(s:string){return new Set((s.toLowerCase().match(/[\p{L}\p{N}]+/gu)??[]).filter(v=>v.length>1&&!stop.has(v)))}
 function key(v:{kind:string;id:string}) {return v.kind+':'+v.id}
-function contextKeys(w:Workspace, refs:ContextRef[]) {
+export function contextKeys(w:Workspace, refs:ContextRef[]) {
   const included=new Set<string>();
   function add(ref:{kind:string;id:string}){included.add(key(ref))}
   for(const ref of refs) {
@@ -27,7 +27,7 @@ function contextKeys(w:Workspace, refs:ContextRef[]) {
   }
   return included;
 }
-function caseSources(w: Workspace, lang: Lang): Source[] {
+export function caseSources(w: Workspace, lang: Lang): Source[] {
   const documents = new Map(w.documents.map(doc => [doc.id, doc.title]));
   const hearings = new Map(w.hearings.map(hearing => [hearing.id, hearing]));
   const speakers = new Map(w.speakers.map(speaker => [speaker.id, speaker.alias ?? speaker.label]));

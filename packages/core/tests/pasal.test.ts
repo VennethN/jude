@@ -409,3 +409,87 @@ test.each(['verified', 'uncited', 'outage'] as const)(
     }
   },
 );
+
+const constitutionWork = {
+  frbr_uri: '/akn/id/act/uud/1945/original', type: 'UUD', title: 'Undang-Undang Dasar Negara Republik Indonesia Tahun 1945',
+  number: '1945', year: 1945, status: 'diubah',
+};
+const constitutionUrl = 'https://pasal.id/peraturan/uud/uud-1945';
+const constitutionHit = { work: constitutionWork, url: constitutionUrl, best_passage: null, matching_pasals: [] };
+
+test('the exact constitutional question returns the primary UUD record without a case keyword match', async () => {
+  const c = await caseThread(), urls: URL[] = [];
+  const fetch = network(url => {
+    urls.push(url);
+    expect(url.pathname).toBe('/api/v1/laws' + constitutionWork.frbr_uri);
+    expect([...url.searchParams]).toEqual([]);
+    return Response.json({ work: { ...constitutionWork, url: constitutionUrl } });
+  });
+  const request = 'what is the most relevant uud to this';
+  const answer = (await c.send(request)).messages.at(-1)!;
+  expect(answer.text).toContain(constitutionWork.title);
+  expect(answer.text).toContain('Which right');
+  expect(answer.citations).toEqual([]);
+  expect(answer.legal).toHaveLength(1);
+  expect(await c.client.ok(c.base + '/legal/' + answer.legal![0])).toMatchObject({
+    provider: 'pasal', type: 'UUD', regulation: constitutionWork.title, article: '', sourceUrl: constitutionUrl,
+  });
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(urls[0].href).not.toMatch(/private|Riana|relevant/);
+  const disabled = (await c.send(request, { withLegal: false })).messages.at(-1)!;
+  expect(disabled.text).toMatch(/switched off/);
+  expect(disabled.legal).toBeUndefined();
+  const demo = await caseThread(true);
+  expect((await demo.send(request)).messages.at(-1)?.text).toMatch(/sample legal index/);
+  expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+test('English and Indonesian legal intent use only the controlled topic in the attached document', async () => {
+  const c = await caseThread(), privateA = 'Saksi Anonim A, tel. 08127890000', privateB = 'Rahasia dokumen B';
+  await mutateWorkspace(c.session.organization.id, c.caseId, w => {
+    for (const [id, text] of [['jobs', privateA + ' menjelaskan pemutusan hubungan kerja.'], ['school', privateB + ' membahas hak atas pendidikan.']]) {
+      w.documents.push({ id, caseId: c.caseId, title: 'Catatan ' + id, kind: { id: 'Catatan', en: 'Notes' }, pages: 1, size: '', file: 'TXT', added: '2026-01-01' });
+      w.passages.push({ id: id + 'p', docId: id, page: 1, text });
+    }
+  });
+  const employment = { ...work, frbr_uri: '/akn/id/act/uu/2003/13', number: '13', year: 2003, title: 'Ketenagakerjaan' };
+  const requests: URL[] = [];
+  network(url => {
+    requests.push(url);
+    if (url.pathname.startsWith('/api/v1/laws/')) return Response.json({ work: url.pathname.includes('/uud/') ? constitutionWork : employment });
+    const q = url.searchParams.get('q');
+    if (q === 'ketenagakerjaan') {
+      expect(url.searchParams.get('type')).toBe('UU');
+      return Response.json({ results: [{ work: employment, url: 'https://pasal.id/peraturan/uu/uu-no-13-tahun-2003' }] });
+    }
+    expect(q).toBe('hak atas pendidikan');
+    expect(url.searchParams.get('type')).toBe('UUD');
+    return Response.json({ results: [{ ...constitutionHit, best_passage: { pasal: '31', url: constitutionUrl + '/pasal-31' },
+      matching_pasals: [{ pasal: '31', url: constitutionUrl + '#pasal-31' }] }] });
+  });
+  const ordinary = (await c.send('Undang-undang apa yang mengatur hal ini?', { contexts: [{ kind: 'document', id: 'jobs' }] })).messages.at(-1)!;
+  expect(await c.client.ok(c.base + '/legal/' + ordinary.legal![0])).toMatchObject({ type: 'UU' });
+  expect(ordinary.citations).toEqual([{ kind: 'passage', id: 'jobsp' }]);
+  expect(ordinary.text).not.toContain(privateB);
+  const charter = (await c.send('What is the most relevant UUD to this?', { contexts: [{ kind: 'document', id: 'school' }] })).messages.at(-1)!;
+  expect(await c.client.ok(c.base + '/legal/' + charter.legal![0])).toMatchObject({ type: 'UUD', article: 'Pasal 31', sourceUrl: constitutionUrl + '/pasal-31' });
+  expect(charter.citations).toEqual([{ kind: 'passage', id: 'schoolp' }]);
+  expect(charter.text).not.toContain(privateA);
+  const outbound = requests.map(url => decodeURIComponent(url.href)).join(' ');
+  expect(outbound).not.toMatch(/Saksi|Anonim|081278|Rahasia|dokumen|jobs|school|relevan|Riana|mengatur|menjelaskan/);
+});
+
+test('zero matches, missing context, and provider outages have different answers with no invented authority', async () => {
+  const c = await caseThread();
+  const fetch = network(url => url.searchParams.get('q') === 'UU Nomor 997 Tahun 2025'
+    ? Response.json({ total: 0, results: [] }) : new Response(null, { status: 503 }));
+  const vague = (await c.send('Which law applies to this?')).messages.at(-1)!;
+  expect(vague.text).toContain('Which legal issue');
+  expect(fetch).not.toHaveBeenCalled();
+  const empty = (await c.send('Which provisions of Law No. 997 of 2025 apply?')).messages.at(-1)!;
+  expect(empty.text).toContain('no verified match');
+  expect(empty.legal).toBeUndefined();
+  const failed = (await c.send('Find UU No. 996 Tahun 2025')).messages.at(-1)!;
+  expect(failed.text).toContain('unavailable');
+  expect(failed.legal).toBeUndefined();
+});
