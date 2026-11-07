@@ -10,7 +10,9 @@
  let {workspace:w,lang,close,initial='',scheduled,transcription,guest=false,livePlan}:{workspace:Workspace;lang:Lang;close:()=>void;initial?:string;scheduled?:Hearing;transcription:boolean;guest?:boolean;livePlan:boolean}=$props();
  const en=$derived(lang==='en'), demo=$derived(w.caseRecord.label==='synthetic'), prefix=$derived('/api/cases/'+w.caseRecord.id+'/hearings');
  let uploadKey = '';
- let flow=$state<Flow|''>(''),title=$state(''),date=$state(''),time=$state('09:00'),permission=$state(false),closed=$state(false),busy=$state(false),message=$state(''),file=$state<File>(),draft=$state<{speaker:string;time:number;text:string}[]>([]),language=$state('id');
+ let flow=$state<Flow|''>(''),title=$state(''),date=$state(''),time=$state('09:00'),busy=$state(false),message=$state(''),file=$state<File>(),draft=$state<{speaker:string;time:number;text:string}[]>([]),language=$state('id');
+ let recordingConsent=$state<'closed'|'permitted'|''>('');
+ const closed=$derived(recordingConsent==='closed'),permission=$derived(recordingConsent==='permitted');
  $effect(()=>{flow=scheduled?'live':['live','schedule','import','audio'].includes(initial)?initial as Flow:'';title=scheduled?.title[lang]??'';date=scheduled?.date??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta'}).format(new Date())});
  const otherLive=$derived(w.hearings.find(item=>item.mode==='live' && item.id!==scheduled?.id));
  const privateAudio = $derived(!demo && !guest && transcription);
@@ -50,8 +52,9 @@
  {#if flow==='import'&&draft.length}<p>{en?'Check the speakers and wording before importing.':'Periksa pembicara dan teks sebelum mengimpor.'}</p><div class="turns">{#each draft as turn,i}<div><small>{timecode(turn.time)}</small><input class="text-input" aria-label={(en?'Speaker ':'Pembicara ')+(i+1)} bind:value={turn.speaker}/><textarea class="text-input" aria-label={(en?'Testimony ':'Keterangan ')+(i+1)} bind:value={turn.text}></textarea></div>{/each}</div>{/if}
  {#if flow==='audio'||flow==='live'}<label class="field">{en?'Recognition language':'Bahasa pengenalan'}<select bind:value={language}><option value="id">Bahasa Indonesia</option><option value="en">English</option></select></label>{/if}
  {#if flow==='live'||flow==='audio'}{#if demo&&flow==='live'}<p class="small muted">{en?'This synthetic hearing replays example testimony.':'Sidang sintetis ini memutar ulang contoh kesaksian.'}</p>{/if}
- <label><input type="checkbox" bind:checked={closed}/> {en?'Closed hearing':'Sidang tertutup'}</label>
- <label><input type="checkbox" required bind:checked={permission}/> {en?'The presiding judge permitted recording in this open hearing.':'Hakim ketua mengizinkan perekaman dalam sidang terbuka ini.'}</label>{/if}
+ <label><input type="checkbox" checked={closed} onchange={e=>recordingConsent=e.currentTarget.checked?'closed':''}/> {en?'Closed hearing':'Sidang tertutup'}</label>
+ <label><input type="checkbox" required checked={permission} onchange={e=>recordingConsent=e.currentTarget.checked?'permitted':''}/> {en?'The presiding judge permitted recording in this open hearing.':'Hakim ketua mengizinkan perekaman dalam sidang terbuka ini.'}</label>
+ {#if closed}<p class="small muted" role="status">{en?'Recording is unavailable for closed hearings.':'Perekaman tidak tersedia untuk sidang tertutup.'}</p>{/if}{/if}
  {#if message}<p class="error-text" role="alert">{message}</p>{/if}
  <div class="actions"><button type="submit" class="button primary" disabled={busy||flow==='import'&&!draft.length||flow==='audio'&&(!privateAudio||!file||!permission||closed)||flow==='live'&&(!canRecord||!!otherLive||!permission||closed)}>{busy?(en?'Processing…':'Memproses…'):flow==='schedule'?(en?'Schedule hearing':'Jadwalkan sidang'):flow==='import'?(en?'Confirm and import':'Konfirmasi dan impor'):flow==='audio'?(en?'Transcribe audio':'Transkripsikan audio'):(en?'Start hearing':'Mulai sidang')}</button>
  {#if !scheduled}<button class="button subtle" type="button" onclick={()=>{flow='';draft=[];file=undefined;message=''}}>{en?'Back':'Kembali'}</button>{/if}</div>
