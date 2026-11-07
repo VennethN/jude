@@ -6,7 +6,7 @@ from uuid import uuid4
 from anyio import CancelScope
 
 from .providers import ProviderError
-from .repository import VoiceError, anonymous_id
+from .repository import VoiceError
 from .transcribe import TranscribeStream
 from .voiceprints import VoiceprintSession
 
@@ -97,6 +97,13 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
                 previous_offset = offset
         return result
 
+    def provider_time(time, *, end=False):
+        for capture in (captures if end else reversed(captures)):
+            duration = capture["end"] - capture["begin"]
+            if capture["start"] - 1e-6 <= time <= capture["start"] + duration + 1e-6:
+                return capture["begin"] + min(max(time - capture["start"], 0), duration)
+        raise ProviderError("Speaker timestamp is outside captured audio.")
+
     async def heartbeat():
         while True:
             await asyncio.sleep(10)
@@ -171,14 +178,17 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
                         await send({"type": "partial", "id": event["id"], "turnId": match["id"],
                                     "t": absolute(event["start"]), "text": event["text"]})
                     continue
+                observations = [] if fingerprints else None
                 receipt = await write_transaction(repo.save_stream_result, *scope,
-                    lease=lease, epoch=epoch, result_id=event["id"], segments=mapped_segments(event["segments"]))
+                    lease=lease, epoch=epoch, result_id=event["id"], segments=mapped_segments(event["segments"]),
+                    voice_samples=observations)
                 await send({"type": "transcript", **receipt})
                 watermark = max(watermark, event["end"])
                 await complete(watermark)
                 if fingerprints:
-                    fingerprints.final(event["segments"], lambda label:
-                        anonymous_id(hearing_id, "", f"transcribe:{epoch}:{label}"))
+                    fingerprints.final([{**sample, "start": provider_time(sample["start"]),
+                                         "end": provider_time(sample["end"], end=True)}
+                                        for sample in observations], lambda source: source)
             if not ending:
                 raise ProviderError("Transcription ended before recording stopped.")
             await complete(float("inf"))

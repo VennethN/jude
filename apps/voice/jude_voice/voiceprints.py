@@ -5,10 +5,9 @@ import hashlib
 import logging
 import math
 import os
-from collections import OrderedDict
 from pathlib import Path
 
-MIN_SECONDS = 1.5
+MIN_SECONDS = 3
 MAX_SECONDS = 6
 RATE = 24000
 LOG = logging.getLogger("uvicorn.error.voiceprints")
@@ -42,7 +41,7 @@ class EmbeddingEngine:
         from pyannote.audio import Inference, Model
 
         path = Path(os.environ["JUDE_VOICEPRINT_MODEL"])
-        self.model = "wespeaker-sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        self.model = "wespeaker-turns-v1-sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
         torch.set_num_threads(2)
         self.torch = torch
         self.inference = Inference(Model.from_pretrained(str(path)), window="whole", device=torch.device("cpu"))
@@ -108,14 +107,13 @@ class VoiceprintWorker:
 
 
 class VoiceprintSession:
-    """Keep at most 90 seconds of stream PCM and short per-label speech excerpts."""
+    """Keep at most 90 seconds of PCM; evaluate each statement independently."""
 
     def __init__(self, submit, sample_rate=RATE):
         self.submit = submit
         self.sample_rate = sample_rate
         self.audio = bytearray()
         self.offset = 0
-        self.pending = OrderedDict()
         self.completed = set()
 
     def append(self, pcm):
@@ -128,7 +126,7 @@ class VoiceprintSession:
     def final(self, segments, source_id):
         for segment in segments:
             label = segment.get("speaker")
-            if label is None or label in self.completed or len(self.completed) >= 200:
+            if label is None or label in self.completed or len(self.completed) >= 4096:
                 continue
             # Overlapping speech is unsuitable for enrollment. Wait for a clean turn.
             if any(other is not segment and other.get("speaker") != label and
@@ -137,15 +135,9 @@ class VoiceprintSession:
             start, end = (round(segment[key] * self.sample_rate) * 2 - self.offset for key in ("start", "end"))
             if start < 0 or end > len(self.audio) or end <= start:
                 continue
-            sample = self.pending.setdefault(label, bytearray())
-            room = MAX_SECONDS * self.sample_rate * 2 - len(sample)
-            sample.extend(self.audio[start:min(end, start + room)])
-            self.pending.move_to_end(label)
-            while len(self.pending) > 40:
-                self.pending.popitem(last=False)
+            sample = self.audio[start:min(end, start + MAX_SECONDS * self.sample_rate * 2)]
             if len(sample) >= MIN_SECONDS * self.sample_rate * 2 and self.submit(source_id(label), bytes(sample)):
                 self.completed.add(label)
-                del self.pending[label]
 
 
 def upload_samples(pcm, segments, sample_rate):
@@ -160,5 +152,5 @@ def upload_samples(pcm, segments, sample_rate):
 
     collector = VoiceprintSession(collect, sample_rate)
     collector.audio = pcm
-    collector.final(segments, lambda label: label)
+    collector.final([{**segment, "speaker": index} for index, segment in enumerate(segments)], lambda index: index)
     return samples

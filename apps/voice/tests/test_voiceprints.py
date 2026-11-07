@@ -25,6 +25,24 @@ from jude_voice.voiceprints import (
 
 
 class VoiceprintRepositoryTest(VoiceRepositoryFixture):
+    def test_uploads_recheck_each_statement_and_reuse_profiles_in_the_next_hearing(self):
+        recordings = []
+        for _ in range(2):
+            self.repo = Repository()
+            observations = []
+            hearing = self.repo.add_recording(self.owner, "case", title="Synthetic voices", date="2026-11-07",
+                filename="synthetic.wav", mime="audio/wav", audio=b"synthetic fixture", duration=9, permission=True,
+                segments=[{"start": i * 3, "end": i * 3 + 3, "speaker": "0", "text": "Synthetic statement"}
+                          for i in range(3)], voice_samples=observations)
+            self.assertEqual(len({sample["speaker"] for sample in observations}), 3)
+            for sample, vector in zip(observations, ([1, 0], [0, 1], [1, 0]), strict=True):
+                self.repo.match_voiceprint(self.owner, "case", hearing["id"],
+                    source=sample["speaker"], model="synthetic-model", embedding=vector)
+            recordings.append([line["speakerId"] for line in self.repo.statements(self.owner, "case", hearing["id"])])
+        self.assertEqual(recordings[0][0], recordings[0][2])
+        self.assertNotEqual(recordings[0][0], recordings[0][1])
+        self.assertEqual(recordings[0], recordings[1])
+
     def line(self, label, hearing="hearing", case="case", session=None):
         session = session or self.owner
         lease = self.repo.acquire(session, case, hearing)
@@ -131,17 +149,17 @@ class VoiceprintRepositoryTest(VoiceRepositoryFixture):
 
 
 class VoiceprintSamplesTest(unittest.TestCase):
-    def test_short_turns_accumulate_and_returning_native_labels_each_get_a_sample(self):
+    def test_short_turns_stay_unknown_and_each_statement_gets_its_own_sample(self):
         submit = Mock(return_value=True)
         collector = VoiceprintSession(submit)
         collector.append(b"\x10\x00" * RATE * 10)
         collector.final([{"speaker": "a", "start": 0, "end": 0.5}], str)
         submit.assert_not_called()
-        collector.final([{"speaker": "a", "start": 1, "end": 2},
-                         {"speaker": "b", "start": 3, "end": 5},
-                         {"speaker": "new-a", "start": 6, "end": 8}], str)
+        collector.final([{"speaker": "a", "start": 1, "end": 4},
+                         {"speaker": "b", "start": 4, "end": 7},
+                         {"speaker": "new-a", "start": 7, "end": 10}], str)
         self.assertEqual([c.args[0] for c in submit.call_args_list], ["a", "b", "new-a"])
-        self.assertEqual(len(submit.call_args_list[0].args[1]), int(1.5 * RATE * 2))
+        self.assertEqual(len(submit.call_args_list[0].args[1]), 3 * RATE * 2)
 
     def test_overlapping_speech_is_skipped_and_pcm_memory_and_clip_sizes_are_bounded(self):
         submit = Mock(return_value=True)
@@ -156,22 +174,22 @@ class VoiceprintSamplesTest(unittest.TestCase):
         self.assertEqual(len(submit.call_args.args[1]), 6 * RATE * 2)
 
     def test_upload_uses_the_original_sample_rate_and_zero_or_invalid_vectors_are_rejected(self):
-        clips = upload_samples(b"\x10\x00" * 16000 * 5, [{"speaker": "0", "start": 1, "end": 3}], 16000)
-        self.assertEqual([(label, len(pcm), rate) for label, pcm, rate in clips], [("0", 64000, 16000)])
+        clips = upload_samples(b"\x10\x00" * 16000 * 5, [{"speaker": "0", "start": 1, "end": 4}], 16000)
+        self.assertEqual([(label, len(pcm), rate) for label, pcm, rate in clips], [(0, 96000, 16000)])
         for vector in ([], [0, 0], [float("nan")], [float("inf")], [1e308], [True], ["1"]):
             with self.subTest(vector=vector), self.assertRaises(ValueError):
                 normalized(vector)
 
 
 class VoiceprintWorkerTest(unittest.IsolatedAsyncioTestCase):
-    async def test_transcripts_finish_before_matching_and_later_resolve_a_b_a(self):
+    async def test_a_b_a_is_rechecked_when_aws_reuses_one_label_and_stop_does_not_wait(self):
         fixture = VoiceRepositoryFixture()
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         frames = asyncio.Queue()
         for index, value in enumerate((1, 2, 1)):
-            pcm = bytes([value, 0]) * RATE * 2
-            frames.put_nowait({"id": str(index), "t": index * 2, "keep": False,
+            pcm = bytes([value, 0]) * RATE * 3
+            frames.put_nowait({"id": str(index), "t": index * 3, "keep": False,
                                "pcm": base64.b64encode(pcm).decode()})
         frames.put_nowait({"type": "stop"})
         ws = SimpleNamespace(query_params={}, receive_json=frames.get, send_json=AsyncMock())
@@ -195,8 +213,8 @@ class VoiceprintWorkerTest(unittest.IsolatedAsyncioTestCase):
             async def events(self):
                 await self.ended.wait()
                 for i in range(3):
-                    yield {"id": str(i), "partial": False, "start": i * 2, "end": i * 2 + 2,
-                           "segments": [{"start": i * 2, "end": i * 2 + 2, "speaker": str(i),
+                    yield {"id": str(i), "partial": False, "start": i * 3, "end": i * 3 + 3,
+                           "segments": [{"start": i * 3, "end": i * 3 + 3, "speaker": "0",
                                          "text": "Synthetic turn"}]}
 
         lease = fixture.repo.acquire(fixture.owner, "case", "hearing")
