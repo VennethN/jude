@@ -7,7 +7,7 @@ Official SVG artwork and PNG caches live in infra/docs/architecture/icons.
 Vendor sources and SHA-256 digests are recorded in icons/sources.json.
 Generating either format is offline; ImageMagick is not a runtime dependency.
 Edit the layout below, or pass --config settings.json to override CONFIG values.
-The GitHub Actions voice pipeline is planned, not implemented by this script.
+The diagram documents Terraform and the GitHub Actions deployment workflow.
 """
 from __future__ import annotations
 
@@ -22,14 +22,13 @@ CONFIG = {
     "backend_region": "Asia Pacific (Jakarta)",
     "backend_region_code": "ap-southeast-3",
     "vpc": "10.40.0.0/16",
-    "voice_subnet": "10.40.1.0/24",
+    "voice_subnet": "10.40.20.0/24",
     "db_subnet_a": "10.40.10.0/24",
     "db_subnet_b": "10.40.11.0/24",
     "instance": "t3.medium",
     "db_instance": "db.t4g.micro",
     "disk_gb": 40,
     "repository": "VennethN/jude",
-    "voice_pipeline_status": "planned",
 }
 INK = "#172033"
 MUTED = "#586579"
@@ -56,7 +55,7 @@ class Drawing:
         self.width, self.height, self.scale = width, height, 2
         self.svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
                     '<title id="title">AWS architecture: EC2 frontend, web API and Python voice</title>',
-                    '<desc id="desc">CloudFront serves HTTPS from a Jakarta EC2 host running SvelteKit frontend and API plus Python voice. RDS and private S3 storage are in Jakarta. GitHub Actions deployment is planned.</desc>',
+                    '<desc id="desc">CloudFront serves HTTPS from a Jakarta EC2 host running SvelteKit frontend and API plus Python voice. RDS and private S3 storage are in Jakarta. GitHub Actions checks both services, builds an ECR image and deploys it by digest through Systems Manager using OIDC.</desc>',
                     '<rect width="100%" height="100%" fill="white"/>']
         self.image = self.pen = None
         self.font_cache = {}
@@ -171,11 +170,11 @@ class Drawing:
 
     def write(self, directory):
         directory.mkdir(parents=True, exist_ok=True)
-        target = directory / "aws-architecture-script.svg"
+        target = directory / "aws-architecture.svg"
         target.write_text("\n".join(self.svg+["</svg>"]), encoding="utf-8")
         print(target)
         if self.image:
-            target = directory / "aws-architecture-script.png"
+            target = directory / "aws-architecture.png"
             self.image.save(target)
             print(target)
 
@@ -188,7 +187,8 @@ def generate(config, output, png):
     d.icon(264, 64, INK, "aws-cloud", size=40)
     d.text(320, 85, "AWS Cloud", 27, bold=True)
     d.card(320, 132, 330, 88, "CloudFront", PURPLE, size=22)
-    d.card(1870, 132, 180, 88, "OpenAI API", TEAL, size=17)
+    d.card(1860, 132, 200, 88, "OpenAI API", TEAL, size=17)
+    d.text(485, 241, "Global edge · HTTPS / WebSocket", 17, color=MUTED, align="center")
     d.group(280, 268, 1520, 800, c["backend_region"], c["backend_region_code"])
     d.group(312, 374, 1456, 466, f'Amazon VPC · {c["vpc"]}', color=GREEN, fill="#fbfefb")
     d.group(344, 454, 850, 362, f'Application subnet · {c["voice_subnet"]}', color=GREEN, fill="#f5fbf4")
@@ -225,7 +225,7 @@ def generate(config, output, png):
     tiles = [
         ("Amazon ECR", "ecr", ORANGE), ("Parameter Store", "parameter-store", PINK),
         ("Secrets Manager", "secrets-manager", PINK), ("KMS", "kms", PINK),
-        ("S3 private files", "s3", GREEN), ("Session Manager", "session-manager", PINK),
+        ("S3 private files", "s3", GREEN), ("Systems Manager", "session-manager", PINK),
         ("CloudWatch Logs", "cloudwatch", PINK),
     ]
     for index, (title, key, color) in enumerate(tiles):
@@ -237,7 +237,8 @@ def generate(config, output, png):
     d.card(32, 130, 168, 96, "Users", INK, size=20)
     d.card(32, 640, 168, 112, "GitHub", INK, size=19)
     d.text(116, 727, c["repository"], 14, color=MUTED, align="center")
-    d.card(32, 842, 168, 112, "Actions", INK, detail=[c["voice_pipeline_status"]], size=18)
+    d.card(24, 842, 184, 112, "Actions", INK, size=18)
+    d.text(116, 972, "Web + voice checks", 16, color=MUTED, align="center")
     d.card(32, 1038, 168, 88, "Admin", INK, size=19)
 
     def label(x, y, value, color=INK):
@@ -249,16 +250,21 @@ def generate(config, output, png):
     label(260, 157, "HTTPS")
     d.line([(320, 200), (264, 200), (264, 710), (392, 710)], BLUE, 2, arrow=True)
     d.line([(692, 674), (692, 682), (1216, 682), (1216, 604), (1266, 604)], INK, 2, arrow=True)
-    d.line([(392, 638), (300, 638), (300, 348), (1960, 348), (1960, 220)], TEAL, 2, arrow=True)
-    label(1070, 348, "OpenAI HTTPS", TEAL)
+    d.line([(722, 614), (750, 614), (750, 514), (1212, 514), (1212, 348), (1960, 348), (1960, 220)], TEAL, 2, arrow=True)
+    d.line([(980, 602), (980, 514)], TEAL, 2)
+    d.line([(1146, 654), (1216, 654)], INK, 2)
+    label(1350, 348, "OpenAI HTTPS", TEAL)
+    label(1010, 682, "PostgreSQL / TLS")
     d.line([(116, 752), (116, 842)], ORANGE, 1.7, dashed=True, arrow=True)
     d.line([(200, 884), (224, 884), (224, 1054), (408, 1054), (408, 1024)], ORANGE, 1.7, dashed=True, arrow=True)
     d.line([(408, 904), (408, 866), (1228, 866), (1228, 582), (1170, 582)], ORANGE, 1.7, dashed=True, arrow=True)
-    label(782, 866, "Image pull", ORANGE)
+    label(782, 866, "Pull image by digest", ORANGE)
+    label(300, 1054, "Push image", ORANGE)
     d.line([(200, 926), (216, 926), (216, 1100), (1444, 1100), (1444, 1024)], ORANGE, 1.7, dashed=True, arrow=True)
-    label(850, 1100, "Deploy via SSM", ORANGE)
+    label(850, 1100, "OIDC role → SSM Run Command", ORANGE)
     d.line([(200, 1082), (232, 1082), (232, 1140), (1476, 1140), (1476, 1024)], BLUE, 1.7, dashed=True, arrow=True)
     d.line([(1448, 904), (1448, 882), (1204, 882), (1204, 720), (1170, 720)], BLUE, 1.7, dashed=True, arrow=True)
+    d.text(1040, 1162, "Solid: application traffic    ·    Dashed: deployment & administration", 16, color=MUTED, align="center")
     d.write(output)
 
 
