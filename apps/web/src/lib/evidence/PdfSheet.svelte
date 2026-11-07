@@ -31,6 +31,7 @@
   let error = $state(false);
   let rendering = $state(false);
   let height = $state(0);
+  const painted: { document?: PDFDocumentProxy; page?: number } = {};
   let spans = $state<{ text: string; left: number; top: number; w: number; h: number; start: number }[]>([]);
   let searchText = $derived(
     spans
@@ -76,6 +77,8 @@
     const source = url;
     let active = true;
     let task: import('pdfjs-dist').PDFDocumentLoadingTask | undefined;
+    painted.document = undefined;
+    spans = [];
     documentPdf = undefined;
     error = false;
     (async () => {
@@ -107,7 +110,8 @@
     let sheet: PDFPageProxy | undefined;
     rendering = true;
     error = false;
-    spans = [];
+    // Keep the existing citation controls attached until the same page has refitted.
+    if (painted.document !== pdf || painted.page !== n) spans = [];
     (async () => {
       sheet = await pdf.getPage(Math.min(n, pdf.numPages));
       if (!active) return;
@@ -133,6 +137,8 @@
       canvas.style.height = view.height + 'px';
       canvas.getContext('2d')?.drawImage(offscreen, 0, 0);
       height = view.height;
+      painted.document = pdf;
+      painted.page = n;
       let index = 0;
       spans = content.items.flatMap((item) => {
         if (!('str' in item) || !item.str) return [];
