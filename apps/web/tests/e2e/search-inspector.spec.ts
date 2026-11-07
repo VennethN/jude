@@ -12,7 +12,7 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     await page.emulateMedia({ reducedMotion: phone ? 'reduce' : 'no-preference' });
     await page.goto('/demo/documents/d1?p=d1p4');
     await page.waitForLoadState('networkidle');
-    const trigger = page.getByRole('button', { name: 'Cari dalam perkara' });
+    const trigger = page.getByRole('button', { name: 'Cari sidang, temuan, dokumen…' });
     await trigger.click();
     const search = page.getByRole('dialog', { name: 'Cari dalam berkas perkara' });
     const field = search.getByRole('combobox');
@@ -67,7 +67,7 @@ for (const kind of ['search', 'citation'] as const) {
     await page.goto('/demo/documents/d1?p=d1p4');
     await page.waitForLoadState('networkidle');
     const citation = page.locator('button.margin-mark[data-pid="d1p4"]');
-    const trigger = kind === 'search' ? page.getByRole('button', { name: 'Cari dalam perkara' }) : citation;
+    const trigger = kind === 'search' ? page.getByRole('button', { name: 'Cari sidang, temuan, dokumen…' }) : citation;
     const title = kind === 'search' ? 'Cari dalam berkas perkara' : 'Kutipan berkas';
       if (trigger === citation) {
         const frame = page.locator('.frame').filter({has: trigger});

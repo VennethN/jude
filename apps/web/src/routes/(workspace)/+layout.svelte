@@ -370,14 +370,13 @@
       <a
         class="switch-case"
         href="/cases"
-        title={en ? 'Back to cases' : 'Kembali ke perkara'}
-        aria-label={(en ? 'Back to cases' : 'Kembali ke perkara') + ' · ' + w.caseRecord.title}
+        title={(en ? 'Back to cases' : 'Kembali ke perkara') + ' · ' + w.caseRecord.title}
       >
         <span class="case-icon"><FolderOpen size={18} /></span><span class="tablet-label"
           >{en ? 'Cases' : 'Perkara'}</span
         >
         <span class="case-identity"
-          ><strong>{w.caseRecord.title}</strong><small
+          ><strong>{w.caseRecord.title}</strong>{' '}<small
             >{w.caseRecord.reference ||
               (w.caseRecord.label === 'synthetic'
                 ? en
@@ -395,7 +394,7 @@
           <a
             class="rail-link section-link"
             href={base + (n.path ? '/' + n.path : '')}
-            aria-label={n.name}
+            aria-label={n.name + (n.path === 'documents' && w.documents.length ? ' ' + w.documents.length : n.path === 'findings' && reviewCount ? ' ' + reviewCount : '')}
             aria-describedby={status ? 'rail-status-' + n.key : undefined}
             title={n.name + (status ? ' · ' + status : '')}
             aria-current={section === n.path ? 'page' : undefined}
@@ -462,13 +461,12 @@
       <div class="account-block">
         <button
           class="member"
-          aria-label={(en ? 'Preferences' : 'Preferensi') + ' · ' + account.user.name}
-          title={account.user.name}
+          title={(en ? 'Preferences' : 'Preferensi') + ' · ' + account.user.name}
           onclick={() => (overlay = 'prefs')}
-          ><span class="avatar">{initials(account.user.name)}</span><span class="tablet-label"
+          ><span class="avatar" aria-hidden="true">{initials(account.user.name)}</span>{' '}<span class="tablet-label"
             >{en ? 'Account' : 'Akun'}</span
-          ><span class="account-label"
-            ><strong>{account.user.name}</strong><small
+          >{' '}<span class="account-label"
+            ><strong>{account.user.name}</strong>{' '}<small
               >{account.user.guest
                 ? en
                   ? 'Guest workspace'
@@ -481,10 +479,9 @@
           class="billing-link"
           href="/billing"
           title={planName + ' · ' + (en ? 'Plans and billing' : 'Paket dan tagihan')}
-          aria-label={planName + ' · ' + (en ? 'Plans and billing' : 'Paket dan tagihan')}
-          ><span class="plate" data-plan={account.plan.id}>{planName}</span><span class="tablet-label"
+          ><span class="plate" data-plan={account.plan.id}>{planName}</span>{' '}<span class="tablet-label"
             >{en ? 'Plans' : 'Paket'}</span
-          ><span class="billing-label">{en ? 'Plans & billing' : 'Paket & tagihan'}</span></a
+          >{' '}<span class="billing-label">{en ? 'Plans and billing' : 'Paket dan tagihan'}</span></a
         >
       </div>
     </div>
@@ -503,7 +500,7 @@
       <div class="tools">
         {#if w}<button
             class="search-tool"
-            aria-label={en ? 'Search the case' : 'Cari dalam perkara'}
+            aria-label={en ? 'Search hearings, findings, documents…' : 'Cari sidang, temuan, dokumen…'}
             aria-keyshortcuts="/ Control+K Meta+K"
             title={en ? 'Search the case' : 'Cari dalam perkara'}
             onclick={openSearch}
@@ -569,7 +566,7 @@
         <a
           class="session-link"
           href={base + '/hearings/' + live.id}
-          aria-label={(en ? 'Open hearing' : 'Buka sidang') +
+          title={(en ? 'Open hearing' : 'Buka sidang') +
             ' ' +
             live.number +
             ' · ' +
@@ -595,7 +592,7 @@
               >{initials(speaker).slice(0, 1)}</span
             >{/if}
           <span class="session-copy"
-            ><b>{en ? 'Hearing' : 'Sidang'} {live.number} · {live.title[data.lang]}</b>{#if lastLine}<span
+            ><b>{en ? 'Hearing' : 'Sidang'} {live.number} · {live.title[data.lang]}</b>{#if lastLine}{' '}<span
                 >{lastLine.text}</span
               >{/if}</span
           >
@@ -638,7 +635,6 @@
         {@const status = sectionStatus(n.path)}
         <a
           href={base + (n.path ? '/' + n.path : '')}
-          aria-label={n.name}
           aria-describedby={status ? 'phone-status-' + n.key : undefined}
           aria-current={section === n.path ? 'page' : undefined}
         >
@@ -1219,7 +1215,7 @@
     font-weight: 600;
   }
   .session-copy > span {
-    color: var(--muted);
+    color: var(--ink);
     font-size: 12px;
   }
   .session-open {

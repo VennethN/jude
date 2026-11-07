@@ -145,7 +145,8 @@ describe('case API', () => {
     const live = await a.request(messagePath, 'POST', msg, key, 'application/x-ndjson');
     expect(live.headers.get('content-type')).toContain('application/x-ndjson');
     const frames = (await live.text()).trim().split('\n').map(line => JSON.parse(line) as AnswerStreamEvent);
-    expect(frames.map(event => event.type)).toEqual(['status', 'partial', 'complete']);
+    expect(frames[0]).toEqual({ type: 'status', phase: 'reading' });
+    expect(frames.filter(event => event.type !== 'status').map(event => event.type)).toEqual(['partial', 'complete']);
     const preview = frames.find(event => event.type === 'partial')!.message;
     expect(preview.mode).toBe('sources-only');
     const answer = await a.ok<Thread>(messagePath, 'POST', msg, key);

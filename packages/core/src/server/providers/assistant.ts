@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
-import type { ChatMessage, Citation, ContextRef, Lang, Workspace } from '../../domain';
-import { structured } from './openai';
+import type { AssistantStage, ChatMessage, Citation, ContextRef, Lang, Workspace } from '../../domain';
+import { providerIssue, structured } from './openai';
+import { localSemanticSources } from './assistant-embeddings';
+import { embeddingsConfigured } from './embeddings';
 import { isCaseSummary, summaryEvidence } from './case-summary';
 import { answerSchema, checkedParagraph, composeAnswer, readParagraphs, type AnswerParagraph } from './answer-paragraphs';
 import { mergeEvidenceRanks, semanticMatches } from './semantic-retrieval';
@@ -45,21 +47,51 @@ export function caseSources(w: Workspace, lang: Lang): Source[] {
   ];
 }
 
-export async function retrieve(w:Workspace,query:string,refs:ContextRef[],lang:Lang,orgId?:string):Promise<Source[]>{
-  const words=terms(query), scope=contextKeys(w,refs),isScoped=refs.length>0&&!refs.some(r=>r.kind==='case');
-  const all = caseSources(w,lang);
-  const candidates = all.filter(s=>!isScoped||scope.has(key(s)));
-  const ranked=candidates.map(source=>{
+export function sourcePool(w:Workspace,refs:ContextRef[],lang:Lang):Source[]{
+  const scope=contextKeys(w,refs),isScoped=refs.length>0&&!refs.some(r=>r.kind==='case');
+  const all = caseSources(w, lang);
+  return all.filter(s=>(!isScoped||scope.has(key(s)))&&s.text.trim());
+}
+export function retrieveLexical(w:Workspace,query:string,refs:ContextRef[],lang:Lang):Source[]{
+  const words=terms(query), scope=contextKeys(w,refs);
+  const ranked=sourcePool(w,refs,lang).map(source=>{
     const corpus=terms(source.group+' '+source.text), score=[...words].filter(v=>corpus.has(v)).length;
-    return {source, lexical:score, score:score+(scope.has(key(source))?4:0)};
+    return {source,score:score+(scope.has(key(source))?4:0)};
   });
-  ranked.sort((a,b)=>b.score-a.score);
-  const fallback=ranked.filter(v=>v.score>0).map(r=>r.source);
-  const semantic = await semanticMatches(w, orgId, query, isScoped ? candidates.map(({kind,id})=>({kind,id})) : undefined);
-  if (!semantic.length) return fallback.slice(0,16);
-  const merged = mergeEvidenceRanks(ranked.filter(v=>v.lexical>0).map(r=>r.source), semantic, candidates, 16);
-  const used = new Set(merged.map(key));
-  return [...merged, ...fallback.filter(s=>!used.has(key(s)))].slice(0,16);
+  return ranked.filter(v=>v.score>0).sort((a,b)=>b.score-a.score).slice(0,16).map(r=>{
+    // Bound prompt size while keeping an exact substring of the original record.
+    const lower=r.source.text.toLowerCase();
+    const match=[...words].map(word=>lower.indexOf(word)).filter(n=>n>=0).sort((a,b)=>a-b)[0]??0;
+    const start=Math.max(0,match-500);
+    return {...r.source,text:r.source.text.slice(start,start+6000)};
+  });
+}
+interface RetrievalOptions {
+  signal?: AbortSignal;
+  minimumScore?: number;
+  status?: (status: NonNullable<ChatMessage['retrieval']>) => void;
+}
+export async function retrieve(w: Workspace, query: string, refs: ContextRef[], lang: Lang, orgId?: string, options: RetrievalOptions = {}): Promise<Source[]> {
+  const lexical = retrieveLexical(w, query, refs, lang);
+  options.status?.('lexical');
+  if (!orgId || w.caseRecord.label !== 'private' || w.caseRecord.archived || !embeddingsConfigured()) return lexical;
+  const candidates = sourcePool(w, refs, lang);
+  if (!candidates.length) return lexical;
+  if (process.env.DATABASE_URL) {
+    const scoped = refs.length > 0 && !refs.some(ref => ref.kind === 'case');
+    const semantic = await semanticMatches(w, orgId, query, scoped ? candidates : undefined, options);
+    if (!semantic.length) return lexical;
+    return mergeEvidenceRanks(lexical, semantic, candidates, 16);
+  }
+  try {
+    const found = await localSemanticSources(w, orgId, candidates, lexical, query, options.signal);
+    options.status?.(found.partial ? 'partial' : 'hybrid');
+    return found.sources;
+  } catch (error) {
+    options.signal?.throwIfAborted();
+    console.warn('Assistant retrieval fallback', providerIssue(error));
+    return lexical;
+  }
 }
 const citationInstructions = [
   'Write clear paragraphs in the requested interface language. Keep the original language of the evidence quotes.',
@@ -79,19 +111,57 @@ const summaryInstructions = [
   'Use two to four concise paragraphs as the record warrants. Prefer synthesis across sources to a list of quotes.',
 ].join(' ');
 
+export interface AnswerOptions { history?: ChatMessage[]; signal?: AbortSignal; progress?: (stage: AssistantStage) => void }
+function selectedHistory(w: Workspace, contexts: ContextRef[], history: ChatMessage[]) {
+  const recent = history.slice(-8);
+  if (!contexts.length || contexts.some(ref => ref.kind === 'case')) return recent;
+  const selected = contextKeys(w, contexts);
+  if (contexts.some(ref => ref.kind === 'documents')) {
+    selected.add('documents');
+    for (const doc of w.documents) selected.add(key({ kind: 'document', id: doc.id }));
+  }
+  let includeTurn = false;
+  return recent.filter(message => {
+    if (message.role === 'user') {
+      includeTurn = !!message.contexts?.length && message.contexts.every(ref => {
+        if (ref.kind === 'case') return false;
+        if (ref.kind === 'documents') return selected.has('documents');
+        return !ref.unavailable && selected.has(key(ref));
+      });
+      return includeTurn;
+    }
+    return includeTurn && (message.citations ?? []).every(c => !c.unavailable && selected.has(key(c)));
+  });
+}
+export function conversationQuery(question: string, history: ChatMessage[], lang: Lang) {
+  // Resolve elliptical follow-ups without carrying an old topic into a new, standalone question.
+  const followup = /\b(it|its|they|them|that|those|these|he|she|their|itu|tersebut|tadi|dia|mereka|nya)\b|\p{L}{3,}nya\b|^(and |also |what about |bagaimana dengan |lalu |kemudian )/iu.test(question);
+  const recent = history.filter(m=>m.role==='user').slice(-2).map(m=>typeof m.text==='string'?m.text:m.text[lang]);
+  return followup && recent.length ? question+'\n'+recent.join('\n').slice(-4000) : question;
+}
 export async function answerQuestion(
   w: Workspace, question: string, contexts: ContextRef[], lang: Lang, allowModel = true,
-  orgId?: string, onPartial?: (message: ChatMessage) => void,
+  orgId?: string, onPartial?: (message: ChatMessage) => void, options: AnswerOptions = {},
 ): Promise<ChatMessage> {
+  const { signal, progress } = options;
+  signal?.throwIfAborted();
+  progress?.('retrieving');
+  const previous = selectedHistory(w, contexts, options.history ?? []);
+  const history = previous.map(m => ({ role: m.role, text: (typeof m.text === 'string' ? m.text : m.text[lang]).slice(0, 1500) }));
+  const query = conversationQuery(question, previous, lang);
+  let retrieval: ChatMessage['retrieval'] = 'lexical';
   const overview = isCaseSummary(question, contexts) ? summaryEvidence(w, caseSources(w, lang), lang) : undefined;
-  const sources = overview?.sources ?? await retrieve(w, question, contexts, lang, allowModel ? orgId : undefined);
+  const sources = overview?.sources ?? await retrieve(w, query, contexts, lang, allowModel ? orgId : undefined, { signal, minimumScore: 0, status: value => { retrieval = value; } });
   const first = sources.slice(0, 5);
   const fallback: ChatMessage = {
     id: randomUUID(), role: 'assistant', mode: 'sources-only',
     text: first.map((s, i) => '“' + s.text + '” [' + (i + 1) + ']').join('\n\n'),
     citations: first.map(({kind, id}) => ({kind, id})),
   };
-  if (!allowModel || !sources.length || w.caseRecord.label === 'synthetic' || !process.env.OPENAI_API_KEY) return fallback;
+  if (!overview && w.caseRecord.label === 'private') fallback.retrieval = retrieval;
+  if (!allowModel || w.caseRecord.label === 'synthetic') return fallback;
+  if (!process.env.OPENAI_API_KEY) return { ...fallback, issue: 'not_configured' };
+  if (!sources.length) return { ...fallback, issue: 'insufficient' };
   const partials: AnswerParagraph[] = [];
   let validPrefix = true;
   const acceptDelta = onPartial && readParagraphs(value => {
@@ -104,23 +174,28 @@ export async function answerQuestion(
     }
   });
   try {
+    progress?.('answering');
     const instructions = [
       'Answer in ' + (lang === 'id' ? 'Indonesian.' : 'English.'),
       overview ? summaryInstructions : 'Answer the specific question directly, within the selected context.',
       citationInstructions,
+      'Use conversation history only to interpret the question, never as evidence.',
     ].join(' ');
     const boards = contexts.flatMap(r => r.kind === 'board' ? w.boards.filter(b => b.id === r.id) : []);
     const answer = await structured('assistant', instructions, {
-      question,
+      question, history,
       ...(overview && { case: { title: w.caseRecord.title, reference: w.caseRecord.reference, summary: w.caseRecord.summary[lang] }, issues: overview.issues }),
       boards: boards.map(b => ({ name: b.name, cards: b.cards, links: b.links })),
       sources: sources.map((s, i) => ({ number: i + 1, kind: s.kind, label: s.group, text: s.text.slice(0, 3600) })),
-    }, answerSchema, acceptDelta);
-    if (!answer || typeof answer !== 'object' || !('paragraphs' in answer) || !Array.isArray(answer.paragraphs)) return fallback;
+    }, answerSchema, acceptDelta, signal);
+    signal?.throwIfAborted();
+    if (!answer || typeof answer !== 'object' || !('paragraphs' in answer) || !Array.isArray(answer.paragraphs)) return { ...fallback, issue: answer === null ? 'incomplete' : 'unverified' };
     const { paragraphs } = answer;
-    if (paragraphs.length === 0 || paragraphs.length > 8 || !paragraphs.every(p => checkedParagraph(p, sources))) return fallback;
-    return composeAnswer(fallback.id, paragraphs, sources);
-  } catch {
-    return fallback;
+    if (!paragraphs.length) return { ...fallback, text: '', citations: [], issue: 'insufficient' };
+    if (paragraphs.length > 8 || !paragraphs.every(p => checkedParagraph(p, sources))) return { ...fallback, issue: 'unverified' };
+    return { ...fallback, ...composeAnswer(fallback.id, paragraphs, sources) };
+  } catch (error) {
+    signal?.throwIfAborted();
+    return { ...fallback, issue: providerIssue(error) };
   }
 }
