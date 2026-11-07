@@ -1,9 +1,9 @@
 import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
-import type { RequestEvent } from '@sveltejs/kit';
+import type { CoreRequest } from './request';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import type { Preferences, SessionInfo } from '../domain';
 import { transaction, type Database } from './db';
-import { seedOrganization } from './cases';
+import { orgLock, seedOrganization } from './cases';
 import {
   ApiError,
   bool,
@@ -49,8 +49,16 @@ const profile =
   'SELECT u.id,u.name,u.email,u.guest,u.prefs,m.org_id,m.role,o.name AS organization,' +
   "CASE WHEN o.plan_status='trialing' AND o.trial_ends<=$2 THEN 'basic' ELSE o.plan_id END AS plan_id," +
   'cm.case_id AS demo_id,o.demo_refs FROM users u JOIN memberships m ON m.user_id=u.id JOIN organizations o ON m.org_id=o.id LEFT JOIN cases c ON c.id=o.demo_id AND c.deleted_at IS NULL LEFT JOIN case_members cm ON cm.case_id=c.id AND cm.user_id=u.id';
-async function byUser(db: Database, userId: string) {
-  const [row] = await db.query<UserRow>(profile + ' WHERE u.id=$1', [userId, Date.now()]);
+async function byUser(db: Database, userId: string, orgId?: string) {
+  const args: (string | number)[] = [userId, Date.now()];
+  if (orgId) args.push(orgId);
+  const [row] = await db.query<UserRow>(
+    profile +
+      ' WHERE u.id=$1' +
+      (orgId ? ' AND m.org_id=$3' : '') +
+      ' ORDER BY CASE WHEN m.org_id=u.active_org THEN 0 ELSE 1 END,m.org_id LIMIT 1',
+    args,
+  );
   if (!row) missing();
   return projectSession(row);
 }
@@ -58,13 +66,14 @@ export async function sessionFromToken(token: string | undefined) {
   if (!token || !/^[0-9a-f]{64}$/.test(token)) return null;
   return transaction(async (db) => {
     const [row] = await db.query<UserRow>(
-      profile + ' JOIN sessions s ON s.user_id=u.id WHERE s.token_hash=$1 AND s.expires_at>$2',
+      profile +
+        ' JOIN sessions s ON s.user_id=u.id AND m.org_id=s.org_id WHERE s.token_hash=$1 AND s.expires_at>$2',
       [hash(token), Date.now()],
     );
     return row ? projectSession(row) : null;
   });
 }
-export function requireSession(event: RequestEvent) {
+export function requireSession(event: CoreRequest) {
   if (!event.locals.session) throw new ApiError(401, 'unauthenticated', 'Sign in to access this workspace.');
   return event.locals.session;
 }
@@ -103,7 +112,7 @@ export async function rateLimit(db: Database, scope: string, subject: string, li
   );
   if (row.count > limit) throw new ApiError(429, 'rate_limited', 'Try again later.');
 }
-export function clientId(event: RequestEvent) {
+export function clientId(event: CoreRequest) {
   try {
     return event.getClientAddress();
   } catch {
@@ -111,17 +120,20 @@ export function clientId(event: RequestEvent) {
   }
 }
 
-async function makeSession(db: Database, userId: string) {
-  const token = randomBytes(32).toString('hex');
+async function makeSession(db: Database, userId: string, orgId?: string) {
+  const token = randomBytes(32).toString('hex'),
+    session = await byUser(db, userId, orgId);
   await db.query('DELETE FROM sessions WHERE user_id=$1 AND expires_at<=$2', [userId, Date.now()]);
-  await db.query('INSERT INTO sessions(token_hash,user_id,expires_at) VALUES($1,$2,$3)', [
+  await db.query('INSERT INTO sessions(token_hash,user_id,expires_at,org_id) VALUES($1,$2,$3,$4)', [
     hash(token),
     userId,
     Date.now() + day * sessionDays,
+    session.organization.id,
   ]);
-  return { token, session: await byUser(db, userId) };
+  await db.query('UPDATE users SET active_org=$1 WHERE id=$2', [session.organization.id, userId]);
+  return { token, session };
 }
-function attach(event: RequestEvent, result: { token: string; session: SessionInfo }) {
+function attach(event: CoreRequest, result: { token: string; session: SessionInfo }) {
   event.cookies.set(cookieName, result.token, {
     path: '/',
     httpOnly: true,
@@ -176,9 +188,9 @@ async function createOrganization(
   if (!result.length) throw new ApiError(409, 'email_in_use', 'This email is already registered.');
   await db.query("INSERT INTO memberships(org_id,user_id,role) VALUES($1,$2,'owner')", [orgId, userId]);
   await seedOrganization(db, orgId);
-  return makeSession(db, userId);
+  return makeSession(db, userId, orgId);
 }
-export async function beginDemo(event: RequestEvent) {
+export async function beginDemo(event: CoreRequest) {
   if (event.locals.session) return event.locals.session;
   return attach(
     event,
@@ -196,7 +208,7 @@ export async function beginDemo(event: RequestEvent) {
     }),
   );
 }
-export async function signup(event: RequestEvent, fields: Fields) {
+export async function signup(event: CoreRequest, fields: Fields) {
   const name = string(fields.name, 'name', 100),
     address = email(fields.email),
     secret = password(fields.password, true);
@@ -212,7 +224,7 @@ export async function signup(event: RequestEvent, fields: Fields) {
     ),
   );
 }
-export async function login(event: RequestEvent, fields: Fields) {
+export async function login(event: CoreRequest, fields: Fields) {
   const address = email(fields.email),
     secret = password(fields.password, false);
   const user = await transaction(async (db) => {
@@ -240,7 +252,7 @@ export async function login(event: RequestEvent, fields: Fields) {
     }),
   );
 }
-export async function logout(event: RequestEvent) {
+export async function logout(event: CoreRequest) {
   const token = event.cookies.get(cookieName);
   if (token) await transaction((db) => db.query('DELETE FROM sessions WHERE token_hash=$1', [hash(token)]));
   event.cookies.delete(cookieName, { path: '/' });
@@ -265,7 +277,7 @@ export function preferences(input: Fields): Preferences {
   }
   return prefs;
 }
-export async function setPrefs(event: RequestEvent, input: Fields) {
+export async function setPrefs(event: CoreRequest, input: Fields) {
   const session = requireSession(event),
     patch = preferences(input);
   const prefs = await transaction(async (db) => {
@@ -317,7 +329,7 @@ async function sendLink(to: string, token: string, purpose: 'reset' | 'invite') 
     unavailable('email');
   }
 }
-export async function resetRequest(event: RequestEvent, fields: Fields) {
+export async function resetRequest(event: CoreRequest, fields: Fields) {
   const address = email(fields.email);
   mailConfig();
   const token = randomBytes(32).toString('hex');
@@ -352,7 +364,7 @@ export async function resetConfirm(fields: Fields) {
     return { ok: true };
   });
 }
-export async function invite(event: RequestEvent, fields: Fields) {
+export async function invite(event: CoreRequest, fields: Fields) {
   const session = requireSession(event);
   if (session.role === 'member' || session.user.guest)
     throw new ApiError(403, 'forbidden', 'An account administrator can invite members.');
@@ -371,34 +383,113 @@ export async function invite(event: RequestEvent, fields: Fields) {
   await sendLink(address, token, 'invite');
   return { ok: true };
 }
-export async function acceptInvite(event: RequestEvent, fields: Fields) {
+export async function acceptInvite(event: CoreRequest, fields: Fields) {
   const token = string(fields.token, 'token', 100),
-    name = string(fields.name, 'name', 100);
-  const encoded = await passwordHash(password(fields.password, true));
+    tokenHash = hash(token);
   const { checkQuota } = await import('./billing');
+  // Verify the identity attached to this invitation before claiming an organisation seat.
+  const ticket = await transaction(async (db) => {
+    await rateLimit(db, 'invite-accept', clientId(event), 20, 15 * 60 * 1000);
+    const [row] = await db.query<{
+      subject: string;
+      email: string;
+      role: string;
+      user_id: string | null;
+      password_hash: string | null;
+    }>(
+      "SELECT t.subject,t.email,t.role,u.id AS user_id,u.password_hash FROM auth_tokens t LEFT JOIN users u ON u.email=t.email WHERE t.token_hash=$1 AND t.purpose='invite' AND t.expires_at>$2",
+      [tokenHash, Date.now()],
+    );
+    if (!row) throw new ApiError(400, 'invalid_token', 'The invitation has expired.');
+    return row;
+  });
+  const alreadySignedIn = ticket.user_id && ticket.user_id === event.locals.session?.user.id;
+  if (
+    ticket.user_id &&
+    !alreadySignedIn &&
+    !(await verifies(password(fields.password, false), ticket.password_hash ?? undefined))
+  )
+    throw new ApiError(401, 'invalid_credentials', 'Enter the password for the invited email address.');
+  const encoded = ticket.user_id ? null : await passwordHash(password(fields.password, true));
+  const name = ticket.user_id ? '' : string(fields.name, 'name', 100);
   const result = await transaction(async (db) => {
-    const [ticket] = await db.query<{ subject: string; email: string; role: string }>(
-      "DELETE FROM auth_tokens WHERE token_hash=$1 AND purpose='invite' AND expires_at>$2 RETURNING subject,email,role",
-      [hash(token), Date.now()],
+    const accepted = await db.query(
+      "DELETE FROM auth_tokens WHERE token_hash=$1 AND purpose='invite' AND expires_at>$2 RETURNING subject",
+      [tokenHash, Date.now()],
     );
-    if (!ticket) throw new ApiError(400, 'invalid_token', 'The invitation has expired.');
-    await checkQuota(db, ticket.subject, 'seats', 1);
-    const userId = randomUUID();
-    const newUser = await db.query(
-      'INSERT INTO users(id,email,name,password_hash,created_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(email) DO NOTHING RETURNING id',
-      [userId, ticket.email, name, encoded, Date.now()],
-    );
-    if (!newUser.length) throw new ApiError(409, 'email_in_use', 'This email is already registered.');
-    await db.query('INSERT INTO memberships(org_id,user_id,role) VALUES($1,$2,$3)', [
+    if (!accepted.length) throw new ApiError(400, 'invalid_token', 'The invitation has expired.');
+    await orgLock(db, ticket.subject);
+    const userId = ticket.user_id ?? randomUUID();
+    if (ticket.user_id) {
+      const [user] = await db.query<{ password_hash: string }>(
+        'SELECT password_hash FROM users WHERE id=$1' + db.forUpdate,
+        [userId],
+      );
+      if (!user || user.password_hash !== ticket.password_hash)
+        throw new ApiError(409, 'conflict', 'Sign in again and reopen the invitation.');
+    } else {
+      const inserted = await db.query(
+        'INSERT INTO users(id,email,name,password_hash,created_at) VALUES($1,$2,$3,$4,$5) ON CONFLICT(email) DO NOTHING RETURNING id',
+        [userId, ticket.email, name, encoded, Date.now()],
+      );
+      if (!inserted.length) throw new ApiError(409, 'conflict', 'Sign in and reopen the invitation.');
+    }
+    const existing = await db.query('SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2', [
       ticket.subject,
       userId,
-      ticket.role,
     ]);
-    await db.query(
-      "INSERT INTO case_members(case_id,user_id,role) SELECT id,$1,'editor' FROM cases WHERE org_id=$2 AND synthetic=1 AND deleted_at IS NULL",
-      [userId, ticket.subject],
-    );
-    return makeSession(db, userId);
+    if (!existing.length) {
+      await checkQuota(db, ticket.subject, 'seats', 1);
+      await db.query('INSERT INTO memberships(org_id,user_id,role) VALUES($1,$2,$3)', [
+        ticket.subject,
+        userId,
+        ticket.role,
+      ]);
+      await db.query(
+        "INSERT INTO case_members(case_id,user_id,role) SELECT id,$1,'editor' FROM cases WHERE org_id=$2 AND synthetic=1 AND deleted_at IS NULL ON CONFLICT(case_id,user_id) DO NOTHING",
+        [userId, ticket.subject],
+      );
+    }
+    return makeSession(db, userId, ticket.subject);
   });
   return attach(event, result);
+}
+
+export async function switchOrganization(event: CoreRequest, fields: Fields) {
+  const session = requireSession(event),
+    id = string(fields.orgId, 'orgId', 120);
+  return attach(
+    event,
+    await transaction(async (db) => {
+      const next = await makeSession(db, session.user.id, id);
+      const current = event.cookies.get(cookieName);
+      if (current)
+        await db.query('DELETE FROM sessions WHERE token_hash=$1 AND user_id=$2', [
+          hash(current),
+          session.user.id,
+        ]);
+      return next;
+    }),
+  );
+}
+
+export async function removeMember(db: Database, session: SessionInfo, userId: string) {
+  if (session.role === 'member' || session.user.id === userId)
+    throw new ApiError(403, 'forbidden', 'An administrator manages other organisation members.');
+  const org = session.organization.id;
+  await orgLock(db, org);
+  const [member] = await db.query<{ role: string }>(
+    'SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2',
+    [org, userId],
+  );
+  if (!member) missing();
+  if (member.role === 'owner' || (member.role === 'admin' && session.role !== 'owner'))
+    throw new ApiError(403, 'forbidden', 'Only an owner can manage administrators.');
+  await db.query(
+    'DELETE FROM case_members WHERE user_id=$1 AND case_id IN (SELECT id FROM cases WHERE org_id=$2)',
+    [userId, org],
+  );
+  await db.query('DELETE FROM sessions WHERE user_id=$1 AND org_id=$2', [userId, org]);
+  await db.query('DELETE FROM memberships WHERE user_id=$1 AND org_id=$2', [userId, org]);
+  return { ok: true };
 }

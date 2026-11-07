@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { RequestEvent } from '@sveltejs/kit';
+import type { CoreRequest } from './request';
 import type { ContextRef, SessionInfo, Thread, Workspace } from '../domain';
 import { needsReview } from '../domain';
 import { billing, checkQuota, meter } from './billing';
@@ -38,7 +38,7 @@ import {
   unavailable,
   type Fields,
 } from './validation';
-import { jsonFields } from './api';
+import { jsonFields } from './request';
 import { authorizeCase, listMembers, setCaseMember } from './access';
 import { answerQuestion } from './providers/assistant';
 
@@ -100,7 +100,7 @@ export function caseHits(w: Workspace, query: string) {
       return { ...h, snippet: h.text.slice(start, start + 180) };
     });
 }
-async function eventStream(event: RequestEvent, org: string, caseId: string) {
+async function eventStream(event: CoreRequest, org: string, caseId: string) {
   const initial = await readWorkspace(org, caseId);
   const tokenHash = createHash('sha256')
     .update(event.cookies.get('jude_session') ?? '')
@@ -305,7 +305,7 @@ async function liveQuota(db: Database, org: string, w: Workspace) {
       feature: 'live_transcription',
     });
 }
-export async function caseRequest(event: RequestEvent, session: SessionInfo, caseId: string, path: string[]) {
+export async function caseRequest(event: CoreRequest, session: SessionInfo, caseId: string, path: string[]) {
   const org = session.organization.id,
     [resource, id, act] = path,
     method = event.request.method,

@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 type RequestEvent = Parameters<typeof endpoint>[0];
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import type {
   Board,
   CaseDocument,
@@ -20,7 +20,7 @@ import { runAnalysisWorker } from '../packages/core/src/server/jobs';
 import { getOriginal, putOriginal } from '../packages/core/src/server/providers/storage';
 import { meter } from '../packages/core/src/server/billing';
 import { storeFile } from '../packages/core/src/server/documents';
-import { repositoryRoot } from '../packages/core/src/server/workspace-paths';
+import { demoAssetsDirectory, repositoryRoot } from '../packages/core/src/server/workspace-paths';
 
 let temporary: string;
 beforeAll(async () => {
@@ -173,15 +173,34 @@ describe('case API', () => {
       email: randomUUID() + '@example.test',
       password: 'Case-Member9',
     });
+    const personal = await member.ok<CaseRecord>('cases', 'POST', { title: 'Personal workspace' }),
+      token = randomUUID();
+    await owner.ok('billing/plan', 'POST', { planId: 'firm', cycle: 'monthly' });
+    const tokenHash = createHash('sha256').update(token).digest('hex');
     await transaction((db) =>
-      db.query("UPDATE memberships SET org_id=$1,role='member' WHERE user_id=$2", [
-        admin.organization.id,
-        user.user.id,
-      ]),
+      db.query(
+        "INSERT INTO auth_tokens(token_hash,purpose,subject,email,role,expires_at) VALUES($1,'invite',$2,$3,'member',$4)",
+        [tokenHash, admin.organization.id, user.user.email, Date.now() + 60000],
+      ),
     );
+    const outsider = browser();
+    expect(
+      (
+        await outsider.request('auth/invite', 'POST', {
+          token,
+          name: 'Unauthorised',
+          password: 'wrong passphrase',
+        })
+      ).status,
+    ).toBe(401);
+    const invited = await member.ok<SessionInfo>('auth/invite', 'POST', { token });
+    expect(invited.user.id).toBe(user.user.id);
+    expect(invited.organization.id).toBe(admin.organization.id);
     const c = await owner.ok<CaseRecord>('cases', 'POST', { title: 'Restricted' }),
       base = 'cases/' + c.id;
-    expect((await member.ok<{ cases: CaseRecord[] }>('cases')).cases).toHaveLength(0);
+    expect(
+      (await member.ok<{ cases: CaseRecord[] }>('cases')).cases.every((row) => row.label === 'synthetic'),
+    ).toBe(true);
     expect((await member.request(base + '/workspace')).status).toBe(404);
     await owner.ok(base + '/members/' + user.user.id, 'PUT', { role: 'viewer' });
     expect((await member.ok<Workspace>(base + '/workspace')).caseRecord.id).toBe(c.id);
@@ -190,6 +209,14 @@ describe('case API', () => {
     await member.ok(base, 'PATCH', { title: 'Allowed' });
     await owner.ok(base + '/members/' + user.user.id, 'DELETE');
     expect((await member.request(base + '/workspace')).status).toBe(404);
+    expect((await member.ok<{ organizations: { id: string }[] }>('orgs')).organizations).toHaveLength(2);
+    await member.ok('org/switch', 'POST', { orgId: user.organization.id });
+    expect((await member.ok<Workspace>('cases/' + personal.id + '/workspace')).caseRecord.title).toBe(
+      'Personal workspace',
+    );
+    await owner.ok('org/members/' + user.user.id, 'DELETE');
+    expect((await member.request('org/switch', 'POST', { orgId: admin.organization.id })).status).toBe(404);
+    expect((await member.ok<SessionInfo>('me')).organization.id).toBe(user.organization.id);
   });
   test('queued final statements recover after restart without a model provider', async () => {
     const a = browser(),
@@ -363,4 +390,27 @@ describe('case API', () => {
     expect(await getOriginal(turns[0].object_key!)).toEqual(Buffer.from(pcm));
     expect(turns[1].object_key).toBeNull();
   });
+  test('indexes the filed PDF and DOCX without remote services', async () => {
+    const a = browser();
+    await a.ok('auth/demo', 'POST');
+    const c = await a.ok<CaseRecord>('cases', 'POST', { title: 'Intake' }),
+      base = 'cases/' + c.id;
+    for (const [name, mime] of [
+      ['d1.pdf', 'application/pdf'],
+      ['d4.docx', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+    ]) {
+      const bytes = await readFile(join(demoAssetsDirectory(), name));
+      const form = new FormData();
+      form.set('file', new File([new Uint8Array(bytes)], name, { type: mime }));
+      const doc = await a.ok<CaseDocument>(base + '/documents', 'POST', form);
+      const w = await a.ok<Workspace>(base + '/workspace');
+      expect(doc.status).toBe('ready');
+      const text = w.passages.filter((p) => p.docId === doc.id);
+      expect(text.length).toBeGreaterThan(0);
+      expect(text.map((p) => p.text).join(' ')).toContain(name === 'd1.pdf' ? 'Hartati' : 'Dakwaan');
+      expect(
+        new Uint8Array(await (await a.request(base + '/documents/' + doc.id + '/original')).arrayBuffer()),
+      ).toEqual(new Uint8Array(bytes));
+    }
+  }, 60000);
 });

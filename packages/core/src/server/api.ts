@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { RequestEvent } from '@sveltejs/kit';
+import { jsonFields, type CoreRequest } from './request';
 import { planCatalog } from '../plans';
 import {
   acceptInvite,
@@ -10,6 +10,8 @@ import {
   logout,
   rateLimit,
   requireSession,
+  removeMember,
+  switchOrganization,
   resetConfirm,
   resetRequest,
   setPrefs,
@@ -33,32 +35,11 @@ import {
   invalid,
   missing,
   number,
-  object,
   string,
   unavailable,
-  type Fields,
 } from './validation';
 
-export async function jsonFields(request: Request): Promise<Fields> {
-  if (request.headers.get('content-length') === '0' || !request.body) return {};
-  if ((request.headers.get('content-type') ?? '').split(';')[0] !== 'application/json') {
-    const text = await request.text();
-    if (!text.trim()) return {};
-    invalid('content-type');
-  }
-  let value: unknown;
-  try {
-    const text = await request.text();
-    if (!text) return {};
-    if (text.length > 8 * 1024 * 1024) throw new ApiError(413, 'file_too_large', 'The request is too large.');
-    value = JSON.parse(text);
-  } catch (e) {
-    if (e instanceof ApiError) throw e;
-    invalid('body');
-  }
-  return object(value);
-}
-async function handle(event: RequestEvent) {
+async function handle(event: CoreRequest) {
   const path = (event.params.path ?? '').split('/').filter(Boolean);
   const route = path.join('/'),
     method = event.request.method;
@@ -115,6 +96,31 @@ async function handle(event: RequestEvent) {
   }
   if (route === 'billing/portal' && method === 'POST') unavailable('billing');
   if (route === 'billing/invoices' && method === 'GET') return { invoices: [] };
+  if (route === 'orgs' && method === 'GET')
+    return {
+      organizations: await transaction((db) =>
+        db.query(
+          'SELECT o.id,o.name,m.role FROM memberships m JOIN organizations o ON o.id=m.org_id WHERE m.user_id=$1 ORDER BY o.name,o.id',
+          [session.user.id],
+        ),
+      ),
+    };
+  if (route === 'org/switch' && method === 'POST')
+    return switchOrganization(event, await jsonFields(event.request));
+  if (route === 'org/members' && method === 'GET') {
+    if (session.role === 'member')
+      throw new ApiError(403, 'forbidden', 'An account administrator manages members.');
+    return {
+      members: await transaction((db) =>
+        db.query(
+          'SELECT u.id,u.name,u.email,m.role FROM users u JOIN memberships m ON m.user_id=u.id WHERE m.org_id=$1 ORDER BY u.name,u.id',
+          [org],
+        ),
+      ),
+    };
+  }
+  if (path.length === 3 && path[0] === 'org' && path[1] === 'members' && method === 'DELETE')
+    return transaction((db) => removeMember(db, session, path[2]));
   if (route === 'org/invitations' && method === 'POST') return invite(event, await jsonFields(event.request));
   if (route === 'org' && method === 'GET') return session.organization;
   if (route === 'org' && method === 'PATCH') {
@@ -178,7 +184,7 @@ async function handle(event: RequestEvent) {
   missing();
 }
 
-export async function endpoint(event: RequestEvent) {
+export async function endpoint(event: CoreRequest) {
   try {
     const result = await handle(event);
     return result instanceof Response ? result : Response.json(result);

@@ -18,7 +18,6 @@
     "pg": "^8.23.1"
   },
   "devDependencies": {
-    "@types/pg": "^8.23.1",
-    "@sveltejs/kit": "^2.70.4"
+    "@types/pg": "^8.23.1"
   }
 }
