@@ -134,6 +134,16 @@ export async function capture(
     pumpRequested = false,
     saveChain = Promise.resolve();
   const inFlight = new Map<string, number>();
+  // Sent captures stay in IndexedDB until transcript completion, including keep=false.
+  const submitted = new Map<string, number>();
+  let rotating = false, stopSent = false, providerStopped = false;
+  let captureSettled = false, terminalError = false, reconnects = 0;
+  let lastProgress = Date.now();
+  function requestDrain() {
+    if (!ready || !ws || stopSent || inFlight.size || (!rotating && !captureSettled)) return;
+    stopSent = true;
+    ws.send(JSON.stringify({ type: 'stop' }));
+  }
   let caption: { turn: string; time: number; committed: boolean } | undefined;
   let refreshing = false, refreshNeeded = false, latestCaptionTime = -1;
   let chunks: Int16Array<ArrayBuffer>[] = [],
@@ -176,18 +186,24 @@ export async function capture(
   }
   async function pump() {
     if (pumpBusy) { pumpRequested = true; return; }
-    if (!ready || stopped || !ws || inFlight.size >= windowSize) return;
+    if (!ready || stopped || !ws || stopSent || inFlight.size >= windowSize) return;
+    if (rotating) { requestDrain(); return; }
     const socket = ws;
     pumpBusy = true;
     try {
-      while (socket === ws && ready && !stopped && inFlight.size < windowSize) {
-        const next = await nextTurn(db, scope, inFlight);
-        if (!next || socket !== ws || socket.readyState !== WebSocket.OPEN) break;
+      while (socket === ws && ready && !stopped && !rotating && !stopSent && inFlight.size < windowSize) {
+        const next = await nextTurn(db, scope, submitted);
+        if (!next || rotating || stopSent || socket !== ws || socket.readyState !== WebSocket.OPEN) {
+          if (!next && (draining || paused)) requestDrain();
+          break;
+        }
         inFlight.set(next.id, next.t);
+        submitted.set(next.id, next.t);
         try {
           socket.send(JSON.stringify({ id: next.id, t: next.t, keep: next.keep, pcm: base64(next.pcm) }));
         } catch {
           inFlight.delete(next.id);
+          submitted.delete(next.id);
           socket.close();
           break;
         }
@@ -201,10 +217,14 @@ export async function capture(
     }
   }
   function connect() {
-    if (stopped) return;
+    if (stopped || terminalError) return;
     state(draining ? 'draining' : 'connecting');
     ready = false;
     inFlight.clear();
+    submitted.clear();
+    stopSent = false;
+    providerStopped = false;
+    rotating = false;
     const connected = new WebSocket(
       (location.protocol === 'https:' ? 'wss://' : 'ws://') +
         location.host +
@@ -221,13 +241,14 @@ export async function capture(
       try {
         const m = JSON.parse(e.data);
         if (m.type === 'ready') {
+          if (m.protocol !== 2) { terminalError = true; connected.close(); state('error'); return; }
           windowSize = Number.isSafeInteger(m.maxInFlight) ? Math.max(1, Math.min(3, m.maxInFlight)) : 1;
           ready = true;
           state(draining ? 'draining' : paused ? 'paused' : 'recording');
           await pump();
         } else if (m.type === 'partial' && typeof m.text === 'string') {
-          const turn = m.turnId ?? [...inFlight.keys()].find(id => m.id === 'mic-' + hearingId + '-' + id || m.id === id);
-          const time = inFlight.get(turn);
+          const turn = m.turnId ?? [...submitted.keys()].find(id => m.id === 'mic-' + hearingId + '-' + id || m.id === id);
+          const time = submitted.get(turn);
           if (time === undefined || time < latestCaptionTime) return;
           latestCaptionTime = time;
           caption = { turn, time, committed: false };
@@ -237,10 +258,31 @@ export async function capture(
             speakerId: typeof m.speakerId === 'string' ? m.speakerId : undefined,
             t: time,
           });
-        } else if (m.type === 'ack' && inFlight.has(m.id)) {
+        } else if (m.type === 'accepted' && submitted.has(m.id)) {
+          lastProgress = Date.now();
+          inFlight.delete(m.id);
+          await pump();
+          if (rotating) requestDrain();
+        } else if (m.type === 'rotate') {
+          rotating = true;
+          requestDrain();
+        } else if (m.type === 'transcript') {
+          void refreshTranscript();
+        } else if (m.type === 'stopped') {
+          providerStopped = true;
+          ready = false;
+          connected.close();
+        } else if (m.type === 'error') {
+          terminalError = m.code !== 'transcription_interrupted';
+          connected.close();
+          state('error');
+        } else if (m.type === 'ack' && submitted.has(m.id)) {
+          lastProgress = Date.now();
+          reconnects = 0;
           await storeTurn(db, m.id);
           if (stopped || connected !== ws) return;
           inFlight.delete(m.id);
+          submitted.delete(m.id);
           if (caption && caption.turn === m.id) caption.committed = true;
           void refreshTranscript();
           await pump();
@@ -249,13 +291,22 @@ export async function capture(
         state('error');
       }
     };
-    connected.onclose = () => {
+    connected.onclose = (event) => {
       if (connected !== ws) return;
       ready = false;
       inFlight.clear();
       if (!stopped) {
-        state('offline');
-        retry = setTimeout(connect, 3000);
+        if ([1008, 1003].includes(event.code) || terminalError || (!providerStopped && ++reconnects > 2)) {
+          terminalError = true;
+          paused = true;
+          node.port.postMessage({ type: 'pause' });
+          flush();
+          state('error');
+          return;
+        }
+        if (providerStopped && (draining || paused) && !rotating) return;
+        state(providerStopped ? 'connecting' : 'offline');
+        retry = setTimeout(connect, providerStopped ? 0 : 3000);
       }
     };
   }
@@ -330,6 +381,7 @@ export async function capture(
   async function finish() {
     paused = true;
     draining = true;
+    captureSettled = false;
     await closeWindow();
     stream.getTracks().forEach((t) => t.stop());
     source.disconnect();
@@ -337,9 +389,11 @@ export async function capture(
     if (context.state !== 'closed') await context.close();
     await saveChain;
     await lock?.release();
-    state('draining');
-    const deadline = Date.now() + 10000;
-    while (Date.now() < deadline && (await queuedCount(db, scope))) {
+    captureSettled = true;
+    state(terminalError ? 'error' : 'draining');
+    await pump();
+    lastProgress = Date.now();
+    while (!terminalError && Date.now() - lastProgress < 45000 && (!providerStopped || (await queuedCount(db, scope)))) {
       await new Promise((r) => setTimeout(r, 160));
     }
     const remaining = await queuedCount(db, scope);
@@ -348,21 +402,27 @@ export async function capture(
     ws?.close();
     db.close();
     window.removeEventListener('beforeunload', checkUnload);
-    state(storageError ? 'error' : remaining ? 'offline' : 'stopped');
+    state(storageError || terminalError ? 'error' : remaining || !providerStopped ? 'offline' : 'stopped');
     if (storageError) throw new Error('audio_storage_failed');
-    if (remaining) throw new Error('audio_pending');
+    if (remaining || !providerStopped) throw new Error('audio_pending');
   }
   let finishing: Promise<void> | undefined;
   return {
     stop: () => (finishing ??= finish()),
     async paused(value) {
-      if (stopped || draining || storageError || value === paused) return;
+      if (stopped || draining || storageError || terminalError || value === paused) return;
       paused = value;
+      captureSettled = false;
       state(value ? 'paused' : ready ? 'recording' : 'offline');
       if (value) {
         await closeWindow();
         await saveChain;
-      } else node.port.postMessage({ type: 'resume' });
+        captureSettled = true;
+        await pump();
+      } else {
+        if (!ready || stopSent) { ws?.close(); clearTimeout(retry); connect(); }
+        node.port.postMessage({ type: 'resume' });
+      }
     },
   };
 }

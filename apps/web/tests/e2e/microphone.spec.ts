@@ -96,7 +96,8 @@ test('live speech reaches the provider in 2.4 seconds and an unacknowledged turn
   const attempted: Packet[] = [];
   await setup(page, (ws) => {
     ws.onMessage((raw) => {
-      const packet = JSON.parse(String(raw)) as Packet;
+      const packet = JSON.parse(String(raw)) as Packet & { type?: string };
+      if (packet.type === 'stop') { ws.send(JSON.stringify({ type: 'stopped' })); return; }
       attempted.push(packet);
       if (!first) {
         first = packet;
@@ -111,7 +112,7 @@ test('live speech reaches the provider in 2.4 seconds and an unacknowledged turn
         );
       } else acknowledge(ws, packet);
     });
-    ws.send(JSON.stringify({ type: 'ready' }));
+    ws.send(JSON.stringify({ type: 'ready', protocol: 2 }));
   });
   await expect
     .poll(() => page.evaluate(() => window.captureFixture.current?.text), { timeout: 6000 })
@@ -150,11 +151,12 @@ test('idle silence avoids short turns, a pause drains the worklet tail and resum
     page,
     (ws) => {
       ws.onMessage((raw) => {
-        const packet = JSON.parse(String(raw)) as Packet;
+        const packet = JSON.parse(String(raw)) as Packet & { type?: string };
+      if (packet.type === 'stop') { ws.send(JSON.stringify({ type: 'stopped' })); return; }
         packets.push(packet);
         acknowledge(ws, packet);
       });
-      ws.send(JSON.stringify({ type: 'ready' }));
+      ws.send(JSON.stringify({ type: 'ready', protocol: 2 }));
     },
     true,
   );
@@ -194,11 +196,12 @@ test('a server without maxInFlight receives one turn while later speech is saved
   await setup(page, (ws) => {
     connection = ws;
     ws.onMessage((message) => {
-      const packet = JSON.parse(String(message)) as Packet;
+      const packet = JSON.parse(String(message)) as Packet & { type?: string };
+      if (packet.type === 'stop') { ws.send(JSON.stringify({ type: 'stopped' })); return; }
       packets.push(packet);
       if (packets.length > 1) acknowledge(ws, packet);
     });
-    ws.send(JSON.stringify({ type: 'ready' }));
+    ws.send(JSON.stringify({ type: 'ready', protocol: 2 }));
   });
   await expect.poll(() => packets.length, { timeout: 6000 }).toBe(1);
   await expect.poll(() => stored(page), { timeout: 12_000, intervals: [250] }).toHaveLength(2);
@@ -218,11 +221,12 @@ test('three turns reach recognition before the first ACK and further speech stay
   await setup(page, ws => {
     socket = ws;
     ws.onMessage(raw => {
-      const packet = JSON.parse(String(raw)) as Packet;
+      const packet = JSON.parse(String(raw)) as Packet & { type?: string };
+      if (packet.type === 'stop') { ws.send(JSON.stringify({ type: 'stopped' })); return; }
       packets.push(packet);
       if (draining) acknowledge(ws, packet);
     });
-    ws.send(JSON.stringify({ type: 'ready', maxInFlight: 3 }));
+    ws.send(JSON.stringify({ type: 'ready', protocol: 2, maxInFlight: 3 }));
   });
 
   await expect.poll(() => packets.length, { timeout: 12_000 }).toBe(3);
@@ -263,11 +267,12 @@ test('a previous recorder version drains the current hearing in timestamp order'
     page,
     (ws) => {
       ws.onMessage((message) => {
-        const packet = JSON.parse(String(message)) as Packet;
+        const packet = JSON.parse(String(message)) as Packet & { type?: string };
+      if (packet.type === 'stop') { ws.send(JSON.stringify({ type: 'stopped' })); return; }
         attempts.push(packet);
         acknowledge(ws, packet);
       });
-      ws.send(JSON.stringify({ type: 'ready' }));
+      ws.send(JSON.stringify({ type: 'ready', protocol: 2 }));
     },
     true,
     () =>
@@ -302,4 +307,54 @@ test('a previous recorder version drains the current hearing in timestamp order'
   await page.evaluate(() => window.captureFixture.recorder.stop());
   const remaining = await stored(page);
   expect(remaining).toEqual(['separate']);
+});
+
+test('capture acceptance retains replay audio while freeing slots, then stop drains final completion', async ({ page }) => {
+  const packets: Packet[] = [];
+  let socket!: WebSocketRoute;
+  await setup(page, ws => {
+    socket = ws;
+    ws.onMessage(raw => {
+      const message = JSON.parse(String(raw)) as Packet & { type?: string };
+      if (message.type === 'stop') {
+        for (const packet of packets) acknowledge(ws, packet);
+        ws.send(JSON.stringify({ type: 'stopped' }));
+        return;
+      }
+      packets.push(message);
+      ws.send(JSON.stringify({ type: 'accepted', id: message.id }));
+    });
+    ws.send(JSON.stringify({ type: 'ready', protocol: 2, maxInFlight: 1 }));
+  });
+  await expect.poll(() => packets.length, { timeout: 8000 }).toBeGreaterThanOrEqual(2);
+  const captured = packets.slice();
+  expect(await stored(page)).toEqual(expect.arrayContaining(captured.map(p => p.id)));
+  // Acceptance must permit later capture without acknowledging its transcript.
+  expect(new Set(captured.map(p => p.id)).size).toBe(captured.length);
+  socket.send(JSON.stringify({ type: 'partial', id: 'provider-result', turnId: captured[0].id, text: 'Still pending.' }));
+  await expect.poll(() => page.evaluate(() => window.captureFixture.current?.text)).toBe('Still pending.');
+  await page.evaluate(() => window.captureFixture.recorder.stop());
+  expect(await stored(page)).toEqual([]);
+  await expect(page.locator('#status')).toHaveText('stopped');
+});
+
+test('policy rejection preserves pending audio and stops automatic retries without a drain timeout', async ({ page }) => {
+  let connections = 0;
+  await setup(page, ws => {
+    connections++;
+    ws.onMessage(raw => {
+      const message = JSON.parse(String(raw));
+      if (message.id) ws.close({ code: 1008 });
+    });
+    ws.send(JSON.stringify({ type: 'ready', protocol: 2, maxInFlight: 1 }));
+  });
+  await expect(page.locator('#status')).toHaveText('error', { timeout: 6000 });
+  expect((await stored(page)).length).toBeGreaterThan(0);
+  const started = Date.now();
+  const result = await page.evaluate(() => window.captureFixture.recorder.stop().then(() => 'done', () => 'pending'));
+  expect(result).toBe('pending');
+  expect(Date.now() - started).toBeLessThan(3000);
+  await page.waitForTimeout(3200);
+  expect(connections).toBe(1);
+  expect((await stored(page)).length).toBeGreaterThan(0);
 });

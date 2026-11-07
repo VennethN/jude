@@ -1,21 +1,20 @@
-"""Capture microphone turns independently of recognition, speaker grouping, and findings."""
+"""Ordered capture transport with independent durable transcript completion."""
 
 import asyncio
-import logging
-from contextlib import AsyncExitStack, suppress
+from uuid import uuid4
 
 from anyio import CancelScope
-from starlette.websockets import WebSocketDisconnect
 
 from .providers import ProviderError
-from .repository import statement_id
+from .transcribe import TranscribeStream
 
 MAX_IN_FLIGHT = 3
-LOG = logging.getLogger(__name__)
+MAX_CAPTURES = 4096
+ROTATE_SECONDS = 900
 
 
 async def write_transaction(fn, *args, **kwargs):
-    # Cancellation cannot stop a file/SQL write already underway. Join it before releasing the recorder.
+    # Join SQL/file writes before releasing the recorder even during disconnect.
     write = asyncio.create_task(asyncio.to_thread(fn, *args, **kwargs))
     try:
         return await asyncio.shield(write)
@@ -25,150 +24,162 @@ async def write_transaction(fn, *args, **kwargs):
         raise
 
 
-async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode, realtime, speakers):
-    language = "en" if ws.query_params.get("lang") == "en" else "id"
-    connections = [None] * MAX_IN_FLIGHT
-    contexts = [AsyncExitStack() for _ in connections]
-    speaker_queue = asyncio.Queue(maxsize=MAX_IN_FLIGHT)
-    socket_writer = asyncio.Lock()
+async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
+                       realtime=None, speakers=None):
+    """A socket owns exactly one provider epoch; capture ACKs never mean completion.
+
+    The optional factory exists for transport tests. Legacy speaker grouping is
+    deliberately unused: AWS labels already belong to this continuous epoch.
+    """
+    factory = realtime or TranscribeStream
+    epoch = uuid4().hex
     scope = (session, case_id, hearing_id)
+    language = "en" if ws.query_params.get("lang") == "en" else "id"
+    writer = asyncio.Lock()
+    captures = []  # metadata only; PCM is released after each ordered send
+    pending = {}
+    sent_seconds = 0.0
+    last_end = None
+    ending = False
+    rotate = False
+    watermark = 0.0
 
     async def send(frame):
-        async with socket_writer:
+        async with writer:
             await ws.send_json(frame)
 
-    async def acknowledge(receipt):
-        ack = {"type": "ack", "id": receipt["id"]}
-        if receipt["statementId"]:
-            ack["statementId"] = receipt["statementId"]
-        await send(ack)
+    async def complete(limit):
+        for tid, capture in list(pending.items()):
+            if capture["end"] > limit + 1e-6:
+                continue
+            receipt = await write_transaction(repo.complete_capture, *scope,
+                lease=lease, epoch=epoch, turn_id=tid)
+            del pending[tid]
+            await send({**receipt, "type": "ack"})
+
+    def absolute(time, *, end=False):
+        # Captures can have gaps (pause/reconnect). Never turn that gap into words.
+        for capture in (reversed(captures) if not end else captures):
+            if capture["begin"] - 1e-6 <= time <= capture["end"] + 1e-6:
+                return capture["start"] + min(max(time - capture["begin"], 0), capture["end"] - capture["begin"])
+        raise ProviderError("Transcript timestamp is outside captured audio.")
+
+    def mapped_segments(segments):
+        result = []
+        for segment in segments:
+            # Split at recording gaps using provider words; ordinary capture boundaries
+            # stay one speaker run. This also supplies replay's exact word timestamps.
+            words = segment.get("words")
+            if not words:
+                result.append({**segment, "start": absolute(segment["start"]),
+                               "end": absolute(segment["end"], end=True)})
+                continue
+            group = None
+            previous_offset = None
+            for word in words:
+                start = absolute(word["start"])
+                end = absolute(word["end"], end=True)
+                offset = start - word["start"]
+                if group is None or abs(offset - previous_offset) > 1e-5:
+                    group = {"start": start, "end": end, "text": word["text"],
+                             "speaker": segment.get("speaker"), "words": []}
+                    result.append(group)
+                else:
+                    group["text"] += " " + word["text"]
+                    group["end"] = end
+                group["words"].append({**word, "start": start, "end": end})
+                previous_offset = offset
+        return result
 
     async def heartbeat():
         while True:
             await asyncio.sleep(10)
             await asyncio.to_thread(repo.renew, *scope, lease)
 
-    def label_batch(batch):
-        # The acoustic anchors belong only to this recording connection. A single worker updates them.
-        labels = speakers.label([(sid, pcm) for _, sid, pcm in sorted(batch, key=lambda row: row[0])])
-        if labels:
-            repo.finalize_speakers(*scope, labels)
+    async with factory(language) as provider:
+        async def receive_audio():
+            nonlocal sent_seconds, last_end, ending, rotate
+            while True:
+                frame = await ws.receive_json()
+                if frame.get("type") == "stop":
+                    ending = True
+                    await provider.end_audio()
+                    return
+                tid, start, pcm, keep = decode(frame)
+                if tid in pending:
+                    raise ValueError("Duplicate in-flight capture")
+                receipt = await write_transaction(repo.begin_capture, *scope,
+                    lease=lease, epoch=epoch, turn_id=tid, start=start, pcm=pcm, keep=keep)
+                if receipt is not None:
+                    await send({**receipt, "type": "ack"})
+                    continue
+                # Keep begin_capture's original PCM/fingerprint intact. Only the
+                # provider input is trimmed to the durable transcript frontier so a
+                # reconnect cannot re-recognize the same word with new boundaries.
+                offset = await asyncio.to_thread(repo.capture_resume_offset, *scope,
+                    lease=lease, turn_id=tid)
+                if not isinstance(offset, (int, float)) or not 0 <= offset <= len(pcm) / 48000:
+                    raise ValueError("Invalid capture resume offset")
+                skipped = min(len(pcm), round(offset * 24000) * 2)
+                pcm = pcm[skipped:]
+                start += skipped / 48000
+                if not pcm:
+                    receipt = await write_transaction(repo.complete_capture, *scope,
+                        lease=lease, epoch=epoch, turn_id=tid)
+                    await send({**receipt, "type": "ack"})
+                    continue
+                if len(captures) >= MAX_CAPTURES or (last_end is not None and start < last_end - 1e-5):
+                    raise ValueError("Capture order or epoch limit exceeded")
+                duration = len(pcm) / 48000
+                capture = {"id": tid, "start": start, "begin": sent_seconds, "end": sent_seconds + duration}
+                captures.append(capture)
+                pending[tid] = capture
+                sent_seconds += duration
+                last_end = start + duration
+                await provider.send_audio(pcm)
+                await send({"type": "accepted", "id": tid})
+                # Bound provider bookkeeping and unresolved capture metadata. The browser
+                # drains then opens a fresh epoch, retaining audio until completion.
+                if not rotate and (sent_seconds >= ROTATE_SECONDS or
+                                   sent_seconds - watermark >= 60 or len(captures) >= MAX_CAPTURES - 4):
+                    rotate = True
+                    await send({"type": "rotate"})
 
-    async def label_speakers():
-        while True:
-            batch = [await speaker_queue.get()]
-            while not speaker_queue.empty():
-                batch.append(speaker_queue.get_nowait())
-            try:
-                await asyncio.to_thread(label_batch, batch)
-            except Exception:  # noqa: BLE001 - an uncertain speaker must not interrupt saved testimony
-                LOG.warning("An anonymous speaker assignment was unavailable")
-            finally:
-                for _ in batch:
-                    speaker_queue.task_done()
+        async def receive_results():
+            nonlocal watermark
+            async for event in provider.events():
+                if event["partial"]:
+                    match = next((c for c in captures if c["end"] > event["start"]), None)
+                    if match:
+                        await send({"type": "partial", "id": event["id"], "turnId": match["id"],
+                                    "t": absolute(event["start"]), "text": event["text"]})
+                    continue
+                receipt = await write_transaction(repo.save_stream_result, *scope,
+                    lease=lease, epoch=epoch, result_id=event["id"], segments=mapped_segments(event["segments"]))
+                await send({"type": "transcript", **receipt})
+                watermark = max(watermark, event["end"])
+                await complete(watermark)
+            if not ending:
+                raise ProviderError("Transcription ended before recording stopped.")
+            await complete(float("inf"))
+            await send({"type": "stopped"})
 
-    async def process(lane, turn):
-        tid, start, pcm, keep = turn
-        receipt = await write_transaction(
-            repo.begin_turn, *scope, lease=lease, turn_id=tid, start=start, pcm=pcm, keep=keep
-        )
-        assign = False
-        if receipt is None:
-            words = ""
-            if any(pcm):
-                async def partial(text):
-                    await send({"type": "partial", "id": statement_id(hearing_id, tid), "t": start, "text": text})
-
-                try:
-                    if connections[lane] is None:
-                        connections[lane] = await contexts[lane].enter_async_context(realtime(language))
-                    words = await connections[lane].transcribe(pcm, partial)
-                except WebSocketDisconnect:
-                    raise
-                except Exception as exc:
-                    connections[lane] = None
-                    await contexts[lane].aclose()
-                    raise ProviderError("Transcription was interrupted.") from exc
-            receipt = await write_transaction(repo.finish_turn, *scope, lease=lease, turn_id=tid, text=words)
-            assign = bool(receipt["statementId"])
-        await acknowledge(receipt)
-        if assign:
-            if keep:
-                # Persisted audio has a final hearing pass if live inference falls behind.
-                with suppress(asyncio.QueueFull):
-                    speaker_queue.put_nowait((start, receipt["statementId"], pcm))
-            else:
-                await speaker_queue.put((start, receipt["statementId"], pcm))
-
-    available = list(reversed(range(MAX_IN_FLIGHT)))
-    active = {}
-    pending_ids = {}
-    buffered = None
-    receiver = None
-    failed = None
-    health = asyncio.create_task(heartbeat())
-    labeler = asyncio.create_task(label_speakers())
-    try:
-        await send({"type": "ready", "maxInFlight": MAX_IN_FLIGHT})
-        while True:
-            if buffered is not None and available:
-                lane = available.pop()
-                task = asyncio.create_task(process(lane, buffered))
-                active[task] = (lane, buffered[0])
-                pending_ids[buffered[0]] = buffered
-                buffered = None
-            if failed and not active and buffered is None:
-                raise failed
-            if not failed and buffered is None and receiver is None:
-                receiver = asyncio.create_task(ws.receive_json())
-            # One extra frame allows disconnect detection even with all recognizers busy.
-            # Beyond that, the websocket and the browser's durable queue provide backpressure.
-            watched = {health, labeler, *active}
-            if receiver is not None:
-                watched.add(receiver)
-            done, _ = await asyncio.wait(watched, return_when=asyncio.FIRST_COMPLETED)
-            for task in done & active.keys():
-                lane, tid = active.pop(task)
-                available.append(lane)
-                del pending_ids[tid]
-                try:
-                    task.result()
-                except ProviderError as exc:
-                    # Let other admitted turns publish their own transcripts and acknowledgements
-                    # before reconnecting. The failed turn remains pending in the recorder.
-                    failed = exc
-            for task in done & {health, labeler}:
+        health = asyncio.create_task(heartbeat())
+        sender = asyncio.create_task(receive_audio())
+        receiver = asyncio.create_task(receive_results())
+        try:
+            await send({"type": "ready", "protocol": 2, "maxInFlight": MAX_IN_FLIGHT})
+            done, _ = await asyncio.wait({health, sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
                 task.result()
-            if receiver in done:
-                turn = decode(receiver.result())
-                receiver = None
-                if turn[0] in pending_ids:
-                    if pending_ids[turn[0]] != turn:
-                        raise ValueError("Conflicting turn payloads")
-                    receipt = await asyncio.to_thread(repo.committed_turn, *scope, turn[0])
-                    if receipt is not None:
-                        await acknowledge(receipt)
-                else:
-                    buffered = turn
-            elif failed and receiver is not None:
-                receiver.cancel()
-                await asyncio.gather(receiver, return_exceptions=True)
-                receiver = None
-    finally:
-        with CancelScope(shield=True):
-            tasks = [health, *active]
-            if receiver is not None:
-                tasks.append(receiver)
-            for task in tasks:
-                task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-            # A final ACK can be followed immediately by a clean browser disconnect. Give the
-            # last transcript-only batch a chance to label before discarding its acoustic context.
-            try:
-                async with asyncio.timeout(1):
-                    await speaker_queue.join()
-            except TimeoutError:
-                pass
-            labeler.cancel()
-            await asyncio.gather(labeler, return_exceptions=True)
-            await asyncio.gather(*(ctx.aclose() for ctx in contexts), return_exceptions=True)
+            if sender not in done:
+                raise ProviderError("Transcription ended before recording stopped.")
+            async with asyncio.timeout(35):
+                done, _ = await asyncio.wait({health, receiver}, return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    task.result()
+        finally:
+            with CancelScope(shield=True):
+                for task in (health, sender, receiver):
+                    task.cancel()
+                await asyncio.gather(health, sender, receiver, return_exceptions=True)

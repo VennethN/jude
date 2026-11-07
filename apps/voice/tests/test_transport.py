@@ -2,7 +2,6 @@
 
 import asyncio
 import base64
-import json
 import os
 import threading
 import unittest
@@ -10,28 +9,28 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from anyio import CancelScope, sleep_forever
-from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 from jude_voice import app as transport
 from jude_voice.diarization import SpeakerTurn
-from jude_voice.providers import Realtime, wav_header, windows
+from jude_voice.providers import wav_header, windows
 from jude_voice.speakers import BYTES_PER_SECOND, SpeakerWindow, process_recording
 
 
 class VoiceTransportTest(unittest.TestCase):
     def setUp(self):
         self.repo = MagicMock()
+        self.repo.capture_resume_offset.return_value = 0
         self.enterContext(patch.object(transport, "repo", self.repo))
-        self.enterContext(patch.object(transport, "diarization_available", return_value=True))
+        self.enterContext(patch.object(transport, "transcription_available", return_value=True))
         self.enterContext(
-            patch.dict(os.environ, {"ORIGIN": "http://testserver", "OPENAI_API_KEY": "test"})
+            patch.dict(os.environ, {"ORIGIN": "http://testserver"})
         )
         self.client = TestClient(transport.app)
         self.addCleanup(self.client.close)
 
     def test_public_voice_gateway_reports_the_same_readiness_as_the_private_service(self):
         for ready in (True, False):
-            with self.subTest(ready=ready), patch.object(transport, "diarization_available", return_value=ready):
+            with self.subTest(ready=ready), patch.object(transport, "transcription_available", return_value=ready):
                 private = self.client.get("/capabilities")
                 public = self.client.get("/api/live/capabilities")
                 self.assertEqual(public.status_code, 200)
@@ -112,158 +111,186 @@ class VoiceTransportTest(unittest.TestCase):
         self.repo.replay.assert_not_called()
         self.assertEqual(result.headers["cache-control"], "private, no-store")
 
-    def test_reconnected_recorder_acknowledges_the_committed_turn_once(self):
-        active = threading.Lock()
-        holders = iter(["first", "second"])
+    def test_continuous_stream_accepts_captures_before_final_result_and_drains(self):
+        self.repo.begin_capture.return_value = None
+        self.repo.save_stream_result.return_value = {"id": "r1", "statementId": "s1", "segments": []}
+        self.repo.complete_capture.side_effect = lambda *a, turn_id, **kw: {"id": turn_id, "statementId": None}
 
-        def acquire(*_):
-            if not active.acquire(blocking=False):
-                raise transport.VoiceError(409, "recorder_in_use", "Another recorder is connected.")
-            return next(holders)
+        class Stream:
+            def __init__(self, language):
+                self.queue = asyncio.Queue()
+                self.audio = []
+            async def __aenter__(self):
+                return self
+            async def __aexit__(self, *args):
+                pass
+            async def send_audio(self, pcm):
+                self.audio.append(pcm)
+                if len(self.audio) == 2:
+                    await self.queue.put({"id": "r1", "partial": False, "start": 0, "end": 2,
+                        "text": "Question. Answer.", "segments": [
+                            {"start": 0.1, "end": 0.9, "text": "Question.", "speaker": "0"},
+                            {"start": 1.1, "end": 1.9, "text": "Answer.", "speaker": "1"}]})
+            async def end_audio(self):
+                await self.queue.put(None)
+            async def events(self):
+                while True:
+                    event = await self.queue.get()
+                    if event is None:
+                        return
+                    yield event
 
-        self.repo.acquire.side_effect = acquire
-        self.repo.release.side_effect = lambda *_: active.release()
-        receipt = {"id": "turn-1", "statementId": "mic-h-turn-1"}
-        self.repo.begin_turn.side_effect = [None, receipt]
-        self.repo.finish_turn.return_value = receipt
-        recognizer = MagicMock()
-
-        async def transcribe(pcm, partial):
-            await partial("hear")
-            await partial("heard")
-            return "heard"
-
-        recognizer.transcribe = AsyncMock(side_effect=transcribe)
-        context = MagicMock()
-        context.__aenter__.return_value = recognizer
-        pcm = b"\x00\x01" * 24000
         with (
-            patch.object(transport, "Realtime", return_value=context),
-            patch.object(transport, "SpeakerWindow") as window,
-        ):
-            window.return_value.label.return_value = {"mic-h-turn-1": "anonymous-1"}
-            def connect():
-                return self.client.websocket_connect(
-                    "/api/live/c/h/socket?lang=en", headers={"Origin": "http://testserver"}
-                )
-
-            with connect() as client:
-                self.assertEqual(client.receive_json(), {"type": "ready", "maxInFlight": 3})
-                turn = {"id": "turn-1", "t": 1.25, "keep": False, "pcm": base64.b64encode(pcm).decode()}
-                client.send_json(turn)
-                for words in ("hear", "heard"):
-                    self.assertEqual(
-                        client.receive_json(), {"type": "partial", "id": "mic-h-turn-1", "t": 1.25, "text": words}
-                    )
-                self.assertEqual(client.receive_json(), {"type": "ack", **receipt})
-                with self.assertRaises(WebSocketDisconnect) as refused, connect():
-                    self.fail("A second microphone must not enter an active hearing")
-                self.assertEqual(refused.exception.code, 1008)
-                self.repo.release.assert_not_called()
-
-            # A browser resends its pending turn over a new connection after a dropped ack.
-            with connect() as replacement:
-                self.assertEqual(replacement.receive_json(), {"type": "ready", "maxInFlight": 3})
-                replacement.send_json(turn)
-                self.assertEqual(replacement.receive_json(), {"type": "ack", **receipt})
-            window.return_value.label.assert_called_once()
-        recognizer.transcribe.assert_awaited_once()
-        self.repo.finalize_speakers.assert_called_once_with(
-            self.repo.session.return_value, "c", "h", {"mic-h-turn-1": "anonymous-1"}
-        )
-        self.repo.finish_turn.assert_called_once()
-        self.assertFalse(self.repo.begin_turn.call_args.kwargs["keep"])
-        self.assertEqual(self.repo.release.call_args_list, [call("c", "h", "first"), call("c", "h", "second")])
-        self.assertFalse(active.locked())
-
-    def test_later_turn_finishes_while_an_earlier_turn_is_still_transcribing(self):
-        release = threading.Event()
-        first = b"\x01\x00" * 48
-        second = b"\x02\x00" * 48
-        self.repo.begin_turn.return_value = None
-        self.repo.finish_turn.side_effect = lambda *_, turn_id, **kwargs: {"id": turn_id, "statementId": turn_id}
-
-        async def transcribe(pcm, partial):
-            if pcm == first:
-                await partial("First turn")
-                if not await asyncio.to_thread(release.wait, 5):
-                    raise TimeoutError("The second turn did not finish independently")
-            return "Transcribed"
-
-        context = MagicMock()
-        context.__aenter__.return_value.transcribe = transcribe
-        with (
-            patch.object(transport, "Realtime", return_value=context),
+            patch.object(transport, "TranscribeStream", Stream),
             self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client,
         ):
-            self.assertGreater(client.receive_json()["maxInFlight"], 1)
-            try:
-                client.send_json({"id": "one", "t": 0, "keep": True, "pcm": base64.b64encode(first).decode()})
-                self.assertEqual(client.receive_json()["type"], "partial")
-                client.send_json({"id": "two", "t": 1, "keep": True, "pcm": base64.b64encode(second).decode()})
-                self.assertEqual(client.receive_json(), {"type": "ack", "id": "two", "statementId": "two"})
-            finally:
-                release.set()
-            self.assertEqual(client.receive_json(), {"type": "ack", "id": "one", "statementId": "one"})
+            self.assertEqual(client.receive_json()["protocol"], 2)
+            pcm = base64.b64encode(b"\x01\x00" * 24000).decode()
+            client.send_json({"id": "one", "t": 10, "keep": False, "pcm": pcm})
+            self.assertEqual(client.receive_json(), {"type": "accepted", "id": "one"})
+            self.repo.complete_capture.assert_not_called()
+            client.send_json({"id": "two", "t": 11, "keep": False, "pcm": pcm})
+            messages = [client.receive_json() for _ in range(4)]
+            self.assertEqual(sorted(m["type"] for m in messages), ["accepted", "ack", "ack", "transcript"])
+            client.send_json({"type": "stop"})
+            self.assertEqual(client.receive_json(), {"type": "stopped"})
+        kwargs = self.repo.save_stream_result.call_args.kwargs
+        self.assertEqual([s["start"] for s in kwargs["segments"]], [10.1, 11.1])
+        self.assertEqual([s["speaker"] for s in kwargs["segments"]], ["0", "1"])
+        self.assertEqual(len(kwargs["epoch"]), 32)
+        self.assertEqual(self.repo.begin_capture.call_count, 2)
+        self.assertEqual(self.repo.complete_capture.call_count, 2)
 
-    def test_retained_audio_is_identified_while_live_without_delaying_the_transcript(self):
-        entered, release, identified = threading.Event(), threading.Event(), threading.Event()
-        self.repo.committed_turn.return_value = None
-        self.repo.begin_turn.return_value = None
-        self.repo.finish_turn.return_value = {"id": "turn-1", "statementId": "mic-h-turn-1"}
-        self.repo.finalize_speakers.side_effect = lambda *_: identified.set()
-        recognizer = MagicMock()
-        recognizer.transcribe = AsyncMock(return_value="Synthetic testimony")
-        context = MagicMock()
-        context.__aenter__.return_value = recognizer
+    def test_committed_capture_replay_is_not_sent_to_provider(self):
+        self.repo.begin_capture.return_value = {"id": "one", "statementId": None}
+        stream = MagicMock()
+        stream.send_audio = AsyncMock()
 
-        def identify(_chunks):
-            entered.set()
-            if not release.wait(5):
-                raise AssertionError("The transcript waited for speaker inference")
-            return {"mic-h-turn-1": "anonymous-a"}
+        class Stream:
+            def __init__(self, language):
+                self.done = asyncio.Event()
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            send_audio = stream.send_audio
+            async def end_audio(self): self.done.set()
+            async def events(self):
+                await self.done.wait()
+                if False: yield {}
 
         with (
-            patch.object(transport, "Realtime", return_value=context),
-            patch.object(transport, "SpeakerWindow") as window,
-        ):
-            window.return_value.label.side_effect = identify
-            with self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client:
-                try:
-                    self.assertEqual(client.receive_json()["type"], "ready")
-                    client.send_json({"id": "turn-1", "t": 0, "keep": True, "pcm": base64.b64encode(b"\x00\x01" * 24000).decode()})
-                    self.assertEqual(client.receive_json()["type"], "ack")
-                    self.assertTrue(entered.wait(5))
-                    self.repo.finalize_speakers.assert_not_called()
-                    release.set()
-                    self.assertTrue(identified.wait(5))
-                    self.repo.finalize_speakers.assert_called_once_with(
-                        self.repo.session.return_value, "c", "h", {"mic-h-turn-1": "anonymous-a"}
-                    )
-                finally:
-                    release.set()
-
-    def test_ack_for_a_turn_without_a_statement_does_not_create_a_caption(self):
-        receipt = {"id": "quiet", "statementId": None}
-        self.repo.begin_turn.side_effect = [None, receipt]
-        self.repo.finish_turn.return_value = receipt
-        recognizer = MagicMock()
-        recognizer.transcribe = AsyncMock(return_value="")
-        context = MagicMock()
-        context.__aenter__.return_value = recognizer
-        with (
-            patch.object(transport, "Realtime", return_value=context),
-            patch.object(transport, "SpeakerWindow") as window,
+            patch.object(transport, "TranscribeStream", Stream),
             self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client,
         ):
-            self.assertEqual(client.receive_json(), {"type": "ready", "maxInFlight": 3})
-            turn = {"id": "quiet", "t": 2, "keep": True, "pcm": base64.b64encode(bytes(96)).decode()}
-            for _ in range(2):
-                client.send_json(turn)
-                self.assertEqual(client.receive_json(), {"type": "ack", "id": "quiet"})
-        recognizer.transcribe.assert_not_awaited()
-        self.repo.finish_turn.assert_called_once()
-        window.return_value.label.assert_not_called()
+            client.receive_json()
+            client.send_json({"id": "one", "t": 0, "keep": False, "pcm": "AAA="})
+            self.assertEqual(client.receive_json(), {"type": "ack", "id": "one", "statementId": None})
+            client.send_json({"type": "stop"})
+            self.assertEqual(client.receive_json(), {"type": "stopped"})
+        stream.send_audio.assert_not_awaited()
+        self.repo.save_stream_result.assert_not_called()
+
+
+class ContinuousFailureTest(unittest.IsolatedAsyncioTestCase):
+    async def test_reconnect_sends_only_unresolved_pcm_suffix_and_maps_absolute_time(self):
+        from jude_voice.ingest import stream_turns
+        pcm = b"\x01\x00" * 24000
+        for offset in (0.5, 1.0):
+            with self.subTest(offset=offset):
+                frames = asyncio.Queue()
+                await frames.put({"id": "capture", "t": 10, "keep": False,
+                                  "pcm": base64.b64encode(pcm).decode()})
+                await frames.put({"type": "stop"})
+                ws = MagicMock(query_params={})
+                ws.send_json = AsyncMock()
+                ws.receive_json = frames.get
+                repo = MagicMock()
+                repo.begin_capture.return_value = None
+                repo.capture_resume_offset.return_value = offset
+                repo.save_stream_result.return_value = {"id": "final", "statementId": "saved"}
+                repo.complete_capture.return_value = {"id": "capture", "statementId": None}
+                submitted = []
+
+                class Stream:
+                    def __init__(self, language): self.done = asyncio.Event()
+                    async def __aenter__(self): return self
+                    async def __aexit__(self, *args): pass
+                    async def send_audio(self, data, sent=submitted): sent.append(data)
+                    async def end_audio(self): self.done.set()
+                    async def events(self, sent=submitted):
+                        await self.done.wait()
+                        if sent:
+                            yield {"id": "final", "partial": False, "start": 0, "end": 0.5,
+                                   "text": "Synthetic tail", "segments": [{"start": 0, "end": 0.5,
+                                   "text": "Synthetic tail", "speaker": "0", "words": [
+                                   {"start": 0, "end": 0.5, "text": "Synthetic tail"}]}]}
+
+                await stream_turns(ws, repo, object(), "c", "h", "lease", transport.decode_turn, Stream)
+                self.assertEqual(repo.begin_capture.call_args.kwargs["pcm"], pcm)
+                if offset == 0.5:
+                    self.assertEqual(submitted, [pcm[24000:]])
+                    segment = repo.save_stream_result.call_args.kwargs["segments"][0]
+                    self.assertEqual((segment["start"], segment["end"]), (10.5, 11))
+                    self.assertEqual(segment["words"][0]["start"], 10.5)
+                else:
+                    self.assertEqual(submitted, [])
+                    repo.save_stream_result.assert_not_called()
+                repo.complete_capture.assert_called_once()
+
+    async def test_provider_failure_never_completes_accepted_capture(self):
+        from jude_voice.ingest import stream_turns
+        from jude_voice.providers import ProviderError
+        ws = MagicMock(query_params={})
+        ws.send_json = AsyncMock()
+        frames = asyncio.Queue()
+        await frames.put({"id": "one", "t": 0, "keep": False, "pcm": "AAA="})
+        ws.receive_json = frames.get
+        repo = MagicMock()
+        repo.capture_resume_offset.return_value = 0
+        repo.begin_capture.return_value = None
+
+        class Broken:
+            def __init__(self, language): self.sent = asyncio.Event()
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def send_audio(self, pcm): self.sent.set()
+            async def events(self):
+                await self.sent.wait()
+                raise ProviderError("Synthetic interruption")
+                yield
+
+        with self.assertRaises(ProviderError):
+            await stream_turns(ws, repo, object(), "c", "h", "lease", transport.decode_turn, Broken)
+        repo.complete_capture.assert_not_called()
+        repo.save_stream_result.assert_not_called()
+        self.assertIn(call({"type": "accepted", "id": "one"}), ws.send_json.call_args_list)
+
+    async def test_silent_capture_completes_only_after_clean_provider_drain(self):
+        from jude_voice.ingest import stream_turns
+        frames = asyncio.Queue()
+        await frames.put({"id": "silence", "t": 0, "keep": False, "pcm": "AAA="})
+        await frames.put({"type": "stop"})
+        ws = MagicMock(query_params={})
+        ws.send_json = AsyncMock()
+        ws.receive_json = frames.get
+        repo = MagicMock()
+        repo.capture_resume_offset.return_value = 0
+        repo.begin_capture.return_value = None
+        repo.complete_capture.return_value = {"id": "silence", "statementId": None}
+
+        class Silent:
+            def __init__(self, language): self.ended = asyncio.Event()
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+            async def send_audio(self, pcm): repo.complete_capture.assert_not_called()
+            async def end_audio(self): self.ended.set()
+            async def events(self):
+                await self.ended.wait()
+                if False: yield
+
+        await stream_turns(ws, repo, object(), "c", "h", "lease", transport.decode_turn, Silent)
+        self.assertEqual([c.args[0]["type"] for c in ws.send_json.call_args_list],
+                         ["ready", "accepted", "ack", "stopped"])
+        repo.save_stream_result.assert_not_called()
 
 
 class LeaseCancellationTest(unittest.IsolatedAsyncioTestCase):
@@ -272,6 +299,7 @@ class LeaseCancellationTest(unittest.IsolatedAsyncioTestCase):
         ws.headers = {"host": "testserver", "origin": "http://testserver"}
         ws.cookies = {}
         repo = MagicMock()
+        repo.capture_resume_offset.return_value = 0
         repo.acquire.return_value = "holder"
 
         async def disconnect():
@@ -281,8 +309,8 @@ class LeaseCancellationTest(unittest.IsolatedAsyncioTestCase):
         ws.accept = AsyncMock(side_effect=disconnect)
         with (
             patch.object(transport, "repo", repo),
-            patch.object(transport, "diarization_available", return_value=True),
-            patch.dict(os.environ, {"ORIGIN": "http://testserver", "OPENAI_API_KEY": "test"}),
+            patch.object(transport, "transcription_available", return_value=True),
+            patch.dict(os.environ, {"ORIGIN": "http://testserver"}),
             CancelScope() as scope,
         ):
             await transport.socket(ws, "case", "hearing")
@@ -294,6 +322,7 @@ class LeaseCancellationTest(unittest.IsolatedAsyncioTestCase):
         started = asyncio.Event()
         finish = threading.Event()
         repo = MagicMock()
+        repo.capture_resume_offset.return_value = 0
 
         def acquire(*_):
             loop.call_soon_threadsafe(started.set)
@@ -341,6 +370,7 @@ class SpeakersTest(unittest.TestCase):
 
     def test_retained_recording_maps_audio_offsets_to_the_original_turns(self):
         repo = MagicMock()
+        repo.capture_resume_offset.return_value = 0
         job = SimpleNamespace(hearing_id="h")
         repo.diarization_inputs.return_value = {
             "turns": [
@@ -363,48 +393,3 @@ class SpeakersTest(unittest.TestCase):
         self.assertEqual(list(windows(turns, 94)), [(0.1, 2.1, "A"), (3.1, 93.1, "B"), (93.1, 94, "B")])
         self.assertEqual(list(windows([], 3)), [])
         self.assertEqual(wav_header(10)[36:44], b"data\x0a\x00\x00\x00")
-
-
-class RealtimeTest(unittest.IsolatedAsyncioTestCase):
-    async def test_visible_deltas_accumulate_until_the_committed_transcript(self):
-        recognizer = Realtime("id")
-        recognizer.socket = AsyncMock()
-        prefix = "conversation.item.input_audio_transcription."
-        recognizer.socket.recv.side_effect = [
-            json.dumps({"type": prefix + "delta", "item_id": "old", "delta": "Stale"}),
-            json.dumps({"type": prefix + "delta", "item_id": "current", "delta": "Dua "}),
-            json.dumps({"type": "input_audio_buffer.committed", "item_id": "current"}),
-            json.dumps({"type": prefix + "failed", "item_id": "old"}),
-            json.dumps({"type": prefix + "completed", "item_id": "old", "transcript": "Another turn."}),
-            json.dumps({"type": prefix + "delta", "item_id": "current", "delta": "kata"}),
-            json.dumps({"type": prefix + "completed", "item_id": "current", "transcript": "Dua kata."}),
-        ]
-        partial = AsyncMock()
-        self.assertEqual(await recognizer.transcribe(b"\x01\0" * 3000, partial), "Dua kata.")
-        self.assertEqual([c.args[0] for c in partial.await_args_list], ["Dua ", "Dua kata"])
-
-    async def test_silence_skips_recognition_and_a_short_tail_keeps_its_original_samples(self):
-        recognizer = Realtime("id")
-        recognizer.socket = AsyncMock()
-        partial = AsyncMock()
-        self.assertEqual(await recognizer.transcribe(bytes(4800), partial), "")
-        recognizer.socket.send.assert_not_awaited()
-        recognizer.socket.recv.assert_not_awaited()
-        for pcm in (b"\x01\0", b"\x01\0" * 960, b"\x01\0" * 2400, b"\x01\0" * 2401):
-            with self.subTest(samples=len(pcm) // 2):
-                recognizer.socket.reset_mock()
-                turn = {"id": "tail", "t": 1.25, "keep": True, "pcm": base64.b64encode(pcm).decode()}
-                _, _, original, _ = transport.decode_turn(turn)
-                recognizer.socket.recv.side_effect = [
-                    json.dumps({"type": "input_audio_buffer.committed", "item_id": "one"}),
-                    json.dumps({
-                        "type": "conversation.item.input_audio_transcription.completed",
-                        "item_id": "one", "transcript": "heard",
-                    }),
-                ]
-                self.assertEqual(await recognizer.transcribe(original, partial), "heard")
-                self.assertEqual(original, pcm)
-                append, commit = [json.loads(c.args[0]) for c in recognizer.socket.send.await_args_list]
-                self.assertEqual(base64.b64decode(append["audio"]), pcm.ljust(4800, b"\0"))
-                self.assertEqual(commit["type"], "input_audio_buffer.commit")
-        partial.assert_not_awaited()
