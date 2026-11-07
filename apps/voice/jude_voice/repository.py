@@ -13,9 +13,11 @@ from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from uuid import uuid4
 
-from .config import plan_quotas
+from .config import guest_practice, plan_quotas
 from .database import Database, Transaction
 from .storage import Storage
+
+PCM_BYTES_PER_SECOND = 48_000
 
 
 def now_ms():
@@ -76,6 +78,7 @@ class CaseEntities:
 
     def __init__(self, tx: Transaction, row: dict):
         self.tx, self.id, self.synthetic = tx, row["id"], bool(row["synthetic"])
+        self.owned_demo = row.get("role") == "owner" and row.get("demo_id") == self.id
         self.record = json.loads(row["record"])
         self.record["archived"] = bool(row["archived"])
         self.changed = False
@@ -134,13 +137,14 @@ def _session(tx, token_hash):
     return Session(row["user_id"], row["org_id"], bool(row["guest"]), token_hash)
 
 
-def _private(session, graph):
-    if session.guest or graph.synthetic or graph.record.get("label") != "private":
+def _private(session, graph, *, guest_live=False):
+    allowed = not session.guest or (guest_live and graph.owned_demo)
+    if not allowed or graph.synthetic or graph.record.get("label") != "private":
         raise VoiceError(403, "forbidden", "A private case and a signed-in lawyer are required.")
 
 
 def _live(session, graph, hearing_id):
-    _private(session, graph)
+    _private(session, graph, guest_live=True)
     hearing = graph.need("hearings", hearing_id)
     if hearing["mode"] != "live":
         raise VoiceError(409, "not_live", "The hearing is no longer live.")
@@ -186,6 +190,24 @@ def _meter(tx, org, period, seconds):
         "ON CONFLICT(org_id,period,quota) DO UPDATE SET amount=usage_counts.amount+excluded.amount",
         (org, period, math.floor(seconds * 1000 + 0.5)),
     )
+
+
+def _guest_live_usage(tx, session, byte_count, *, consume=False):
+    if not session.guest:
+        return
+    # Every caller holds the organisation's write lock. Admission and the turn receipt
+    # commit together, including when different hearings record for the same guest.
+    settings = guest_practice()
+    counter = (session.org_id, "lifetime", settings["usageKey"])
+    row = tx.one("SELECT amount FROM usage_counts WHERE org_id=? AND period=? AND quota=?", counter)
+    if (row["amount"] if row else 0) + byte_count > settings["liveMinutes"] * 60 * PCM_BYTES_PER_SECOND:
+        raise VoiceError(402, "guest_live_limit", "The live demo recording allowance has been used.")
+    if consume:
+        tx.execute(
+            "INSERT INTO usage_counts(org_id,period,quota,amount) VALUES(?,?,?,?) "
+            "ON CONFLICT(org_id,period,quota) DO UPDATE SET amount=usage_counts.amount+excluded.amount",
+            (*counter, byte_count),
+        )
 
 
 def _anonymous(graph, hearing_id, statement_id, speaker):
@@ -424,7 +446,7 @@ class Repository:
             if write and tx.postgres:
                 tx.one("SELECT id FROM organizations WHERE id=? FOR UPDATE", (current.org_id,))
             row = tx.one(
-                "SELECT c.id,c.record,c.synthetic,c.archived,m.role FROM cases c "
+                "SELECT c.id,c.record,c.synthetic,c.archived,m.role,o.demo_id FROM cases c JOIN organizations o ON o.id=c.org_id "
                 "JOIN case_members m ON m.case_id=c.id JOIN memberships om ON om.org_id=c.org_id AND om.user_id=m.user_id "
                 "WHERE c.id=? AND c.org_id=? AND m.user_id=? AND c.deleted_at IS NULL "
                 "AND EXISTS (SELECT 1 FROM workspace_case_members visible WHERE visible.case_id=c.id AND visible.user_id=m.user_id)"
@@ -448,8 +470,12 @@ class Repository:
 
     def check_recording(self, session, case_id, hearing_id=None, *, duration=0.001, size=0):
         with self._case(session, case_id, "write") as graph:
-            _private(session, graph)
-            hearing = _live(session, graph, hearing_id) if hearing_id else graph.record
+            if hearing_id:
+                hearing = _live(session, graph, hearing_id)
+                _guest_live_usage(graph.tx, session, 2)  # Preflight requires room for one PCM16 sample.
+            else:
+                _private(session, graph)
+                hearing = graph.record
             _quota(graph.tx, session.org_id, duration, size, live=bool(hearing_id))
             return hearing
 
@@ -647,7 +673,7 @@ class Repository:
             invalid()
         check_number(start, 0, 604800)
         size = len(pcm) if keep else 0
-        duration = len(pcm) / 48_000
+        duration = len(pcm) / PCM_BYTES_PER_SECOND
         digest = hashlib.sha256()
         digest.update(f"{float(start).hex()}:{int(keep)}:".encode())
         digest.update(pcm)
@@ -655,9 +681,12 @@ class Repository:
         with self._case(session, case_id, "write") as graph:
             _live(session, graph, hearing_id)
             self._require_lease(graph, hearing_id, lease)
+            if session.guest and keep:
+                raise VoiceError(403, "guest_transcript_only", "The guest demo saves transcripts only.")
             prior = _turn_state(graph, hearing_id, turn_id)
             if prior is not None:
                 return _receipt(prior, turn_id, fingerprint)
+            _guest_live_usage(graph.tx, session, len(pcm))
             _quota(graph.tx, session.org_id, duration, size, live=True)
         key = f"{session.org_id}/{case_id}/{hearing_id}/{uuid4()}.pcm" if keep else None
         if key:
@@ -671,6 +700,7 @@ class Repository:
                 if existing is not None:
                     return _receipt(existing, turn_id, fingerprint)
                 period = _quota(graph.tx, session.org_id, duration, size, live=True)
+                _guest_live_usage(graph.tx, session, len(pcm), consume=True)
                 graph.tx.execute(
                     "INSERT INTO voice_turns(case_id,hearing_id,id,start_seconds,bytes,object_key) VALUES(?,?,?,?,?,?)",
                     (case_id, hearing_id, turn_id, start, len(pcm), key),

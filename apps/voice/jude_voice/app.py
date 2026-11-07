@@ -345,7 +345,7 @@ async def receive_turns(ws, session, case_id, hearing_id, lease):
         logging.getLogger(__name__).warning("voice_stream_rejected code=%s", exc.code)
         with suppress(RuntimeError, WebSocketDisconnect):
             await ws.send_json({"type": "error", "code": exc.code})
-            await ws.close(code=1008)
+            await ws.close(code=1008, reason="guest_live_limit" if exc.code == "guest_live_limit" else "")
     except (ValueError, binascii.Error, KeyError):
         logging.getLogger(__name__).warning("voice_stream_rejected code=invalid_capture")
         with suppress(RuntimeError):

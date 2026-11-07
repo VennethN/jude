@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from anyio import CancelScope, sleep_forever
 from fastapi.testclient import TestClient
+
 from jude_voice import app as transport
 from jude_voice.diarization import SpeakerTurn
 from jude_voice.providers import wav_header, windows
@@ -188,6 +189,55 @@ class VoiceTransportTest(unittest.TestCase):
             self.assertEqual(client.receive_json(), {"type": "stopped"})
         stream.send_audio.assert_not_awaited()
         self.repo.save_stream_result.assert_not_called()
+
+    def test_guest_limit_drains_admitted_aws_audio_and_ack_before_the_terminal_reason(self):
+        limit = transport.VoiceError(402, "guest_live_limit", "The recording allowance has been used.")
+        self.repo.begin_capture.side_effect = [None, limit]
+        self.repo.complete_capture.return_value = {"id": "admitted", "statementId": None}
+        self.repo.save_stream_result.return_value = {"id": "final", "statementId": "statement"}
+        audio = []
+
+        class DelayedFinal:
+            def __init__(self, language):
+                self.ended = asyncio.Event()
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def send_audio(self, pcm):
+                audio.append(pcm)
+
+            async def end_audio(self):
+                self.ended.set()
+
+            async def events(self):
+                await self.ended.wait()
+                yield {"partial": False, "id": "final", "start": 0, "end": 1, "segments": [
+                    {"start": 0, "end": 1, "text": "Admitted.", "speaker": "0"},
+                ]}
+
+        pcm = b"\x01\0" * 24000
+        frame = {"keep": False, "pcm": base64.b64encode(pcm).decode()}
+        with (
+            patch.object(transport, "TranscribeStream", DelayedFinal),
+            self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client,
+        ):
+            self.assertEqual(client.receive_json()["protocol"], 2)
+            client.send_json({**frame, "id": "admitted", "t": 5})
+            self.assertEqual(client.receive_json(), {"type": "accepted", "id": "admitted"})
+            client.send_json({**frame, "id": "refused", "t": 6})
+            self.assertEqual(client.receive_json(), {"type": "transcript", **self.repo.save_stream_result.return_value})
+            self.assertEqual(client.receive_json(), {"type": "ack", **self.repo.complete_capture.return_value})
+            self.assertEqual(client.receive_json(), {"type": "error", "code": "guest_live_limit"})
+            with self.assertRaises(transport.WebSocketDisconnect) as closed:
+                client.receive_json()
+            self.assertEqual((closed.exception.code, closed.exception.reason), (1008, "guest_live_limit"))
+        self.assertEqual(audio, [pcm])
+        self.repo.complete_capture.assert_called_once()
+        self.repo.save_stream_result.assert_called_once()
 
 
 class ContinuousFailureTest(unittest.IsolatedAsyncioTestCase):
