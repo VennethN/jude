@@ -21,7 +21,7 @@ describe('generated interface content', () => {
   it('keeps the same verbatim evidence and citation in both answer languages', async () => {
     vi.stubEnv('OPENAI_API_KEY', 'test-only');
     const contexts = [{ kind: 'document' as const, id: 'd1' }];
-    const sources = retrieve(workspace, 'gudang', contexts, 'en');
+    const sources = await retrieve(workspace, 'gudang', contexts, 'en');
     const quote = sources[0].text;
     generate.mockResolvedValue({ paragraphs: [
       { summary: { id: 'Periksa waktu yang tercatat.', en: 'Check the recorded time.' }, evidence: 1, quote },
