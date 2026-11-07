@@ -1,0 +1,93 @@
+# Hosting Jude on AWS
+
+Jude runs on one Amazon Linux 2023 EC2 instance in Jakarta. Caddy terminates HTTPS and proxies HTTP, event streams and WebSockets to the Node application over a private Docker network. The application uses the existing RDS PostgreSQL instance, writes originals to a private S3 bucket encrypted with a rotating KMS key, and calls OpenAI directly when a key is configured.
+
+Run the following commands from the repository root. Cloud commands in this guide use the operator’s AWS identity. Set `AWS_REGION=ap-southeast-3` in that shell.
+
+## Prepare the environment
+
+The database configuration can run by itself. The application resources are opt-in and Terraform keeps the registry, the application secret and the Elastic IP address available before the first image is built.
+
+Add these variables to your environment’s Terraform configuration.
+
+```hcl
+enable_application = true
+app_hostname       = "jude.example.org"
+# Set app_image_digest after publishing the image.
+```
+
+Review the existing `db_publicly_accessible` and `db_allowed_public_cidrs` values with the database owner. The web instance uses the existing database-client security group and can reach a private database on port 5432. The application subnet has its own internet route.
+
+```sh
+terraform -chdir=infra/terraform init
+terraform -chdir=infra/terraform plan -out=hosting.tfplan
+terraform -chdir=infra/terraform apply hosting.tfplan
+terraform -chdir=infra/terraform output -raw app_public_ip
+terraform -chdir=infra/terraform output -raw app_registry
+terraform -chdir=infra/terraform output -raw app_secret_arn
+```
+
+Create a DNS A record for `app_hostname` pointing to `app_public_ip`. The baseline uses IPv4. Ports 80 and 443 receive certificate validation and HTTPS traffic. Session Manager provides host administration.
+
+## Configure the application identity
+
+From a trusted database administration connection, create a login in the existing `app` database. Use an interactive password prompt. The application role owns the tables created by its startup migrations.
+
+```sql
+CREATE ROLE jude_app LOGIN;
+\password jude_app
+GRANT CONNECT ON DATABASE app TO jude_app;
+GRANT USAGE, CREATE ON SCHEMA public TO jude_app;
+```
+
+In Secrets Manager, open the secret named by `app_secret_arn` and store a JSON object. Set `DATABASE_URL` to the following URI shape, URL-encoding the application password. Replace the RDS endpoint with the hostname from `db_endpoint`. The runtime mounts the regional RDS CA bundle at `/run/rds-ca.pem`.
+
+```text
+postgresql://jude_app:URL_ENCODED_PASSWORD@RDS_HOST:5432/app?sslmode=verify-full&sslrootcert=/run/rds-ca.pem
+```
+
+The other values are optional single-line strings.
+
+| Key | Purpose |
+| --- | --- |
+| `OPENAI_API_KEY` | Enables configured OpenAI model and transcription workflows for private cases. |
+| `OPENAI_PROJECT_ID` | Selects the OpenAI project used for requests. |
+| `OPENAI_MODEL`, `OPENAI_ASSISTANT_MODEL`, `OPENAI_ANALYSIS_MODEL`, `OPENAI_REVIEW_MODEL`, `OPENAI_NOTES_MODEL`, `OPENAI_TRANSCRIPTION_MODEL` | Override individual model routes. |
+| `JUDE_MAIL_FROM` | Verified SES sender for invitations and resets. Set the matching `app_mail_identity_arn` Terraform variable. |
+| `JUDE_DELETE_GRACE_DAYS` | Retention interval for deleted cases, in days. |
+
+The instance profile reads the application secret and release digest, pulls from the environment’s ECR repository, and accesses this environment’s S3 objects and their KMS key. The RDS master secret stays with the database administrator. Application secret values stay outside Terraform state and EC2 user data.
+
+## Build and release
+
+Build an x86-64 Linux image for the default EC2 instance. The image includes the web build, voice server, migrations, synthetic originals, OCR language packs, PDF tools, LibreOffice and ffmpeg. Use a unique image tag for each release.
+
+```sh
+repository=$(terraform -chdir=infra/terraform output -raw app_registry)
+registry=${repository%%/*}
+revision=$(git rev-parse HEAD)
+aws ecr get-login-password --region ap-southeast-3 | docker login --username AWS --password-stdin "$registry"
+docker buildx build --platform linux/amd64 --tag "$repository:$revision" --push .
+aws ecr describe-images --region ap-southeast-3 --repository-name "${repository#*/}" --image-ids "imageTag=$revision" --query 'imageDetails[0].imageDigest' --output text
+```
+
+Set `app_image_digest` to that `sha256:…` value, review a fresh Terraform plan, then apply it to launch the host. The default instance type is `t3.medium`. The first boot installs Docker, fetches the digest and application settings, verifies the database through `/healthz`, then starts Caddy. Its automatic certificate flow requires the public DNS record to resolve to the Elastic IP.
+
+```sh
+curl --fail https://jude.example.org/healthz
+aws ssm start-session --region ap-southeast-3 --target "$(terraform -chdir=infra/terraform output -raw app_instance_id)"
+```
+
+Inside the SSM session, use `sudo systemctl status jude`, `sudo journalctl -u jude`, `sudo docker logs jude-app`, and `sudo docker logs jude-proxy` to diagnose startup. A host with a missing application secret retries startup every 30 seconds.
+
+## Subsequent releases and recovery
+
+Push the next immutable image, update `app_image_digest`, review and apply the plan, then run `sudo systemctl reload jude` through Session Manager. A reload retrieves and checks the release settings before replacing the running containers. Apply secret rotations the same way. Each release briefly restarts the single web host’s containers. Check `/healthz` and open an original document afterwards.
+
+To roll back application code, restore a previously published digest and restart the service. Confirm that its database schema is compatible with migrations already applied. Database recovery uses the existing RDS backup and point-in-time restore policy. Maintain your organisation’s S3 backup and retention policy for case originals.
+
+Caddy stores its ACME account and certificates under `/var/lib/jude/caddy` on the encrypted root disk. A replacement host obtains certificates again. The AMI stays fixed during regular release changes. Review a planned host replacement when updating the base operating system.
+
+Run the offline module checks locally with `terraform -chdir=infra/terraform fmt -check -recursive`, `terraform -chdir=infra/terraform validate` and `terraform -chdir=infra/terraform test` after initialization. The application tests use a mocked AWS provider.
+
+AWS documents the [Amazon Linux 2023 image parameters](https://docs.aws.amazon.com/linux/al2023/ug/ec2.html) and [RDS certificate rotation](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_ConnectToInstance.SSL.CertificateRotation.html).

@@ -12,6 +12,7 @@ EnvironmentFile=/etc/jude/host.env
 RuntimeDirectory=jude
 RuntimeDirectoryMode=0700
 ExecStart=/usr/local/sbin/jude-release
+ExecReload=/usr/local/sbin/jude-release
 ExecStop=-/usr/bin/docker stop --time 20 jude-proxy jude-app
 Restart=on-failure
 RestartSec=30
