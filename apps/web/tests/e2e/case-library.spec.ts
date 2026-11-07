@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
 
 test('case cards link findings independently and search by number', async ({ page, baseURL }) => {
   const demo = await page.request.post('/api/auth/demo', { headers: { origin: baseURL! } });
@@ -19,6 +20,21 @@ test('case cards link findings independently and search by number', async ({ pag
   await page.goto('/case/absent-case-register-test');
   await expect(page).toHaveURL(/\/cases\?notice=case-unavailable$/);
   await expect(page.getByText('Perkara itu tidak ditemukan, atau Anda tidak punya akses.')).toBeVisible();
+});
+
+test('the archive picker imports a zipped Jude case and explains an unreadable upload', async ({ page, baseURL }) => {
+  expect((await page.request.post('/api/auth/demo', { headers: { origin: baseURL! } })).ok()).toBe(true);
+  await page.goto('/cases');
+  await page.getByRole('button', { name: 'Perkara baru' }).click();
+  await page.getByRole('button', { name: /Impor arsip/ }).click();
+  const picker = page.getByRole('dialog').locator('input[type=file]');
+  await expect(picker).toHaveAttribute('accept', /\.zip/);
+  await picker.setInputFiles({ name: 'incomplete.zip', mimeType: 'application/zip', buffer: Buffer.from('Incomplete') });
+  await expect(page.getByRole('alert')).toContainText('berkas ekspor perkara Jude');
+  const bytes = await readFile(new URL('./fixtures/hearing-playback.jude', import.meta.url));
+  await picker.setInputFiles({ name: 'hearing-playback.jude.zip', mimeType: 'application/zip', buffer: bytes });
+  await expect(page).toHaveURL(/\/case\/[\w-]+$/);
+  await expect(page.getByRole('main').getByRole('heading', { level: 1 })).toBeVisible();
 });
 
 test.describe('on a phone', () => {
