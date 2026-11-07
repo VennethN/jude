@@ -6,32 +6,34 @@
 
   let { lang }: { lang: Language } = $props();
   const id = $derived(lang === 'id');
+  const pricing = $derived(page.url.pathname === '/pricing');
+  const home = $derived(pricing ? '/' : '');
 </script>
 
-{#if page.url.pathname === '/'}
-  <footer class="paper-foot">
+{#if page.url.pathname === '/' || pricing}
+  <footer class="paper-foot" class:pricing>
     <div class="foot-wrap">
       <div class="foot-top">
         <div class="foot-brand">
-          <a class="foot-mark" href="#public-main" aria-label={id ? 'Kembali ke atas' : 'Back to top'}>jude.</a>
+          <a class="foot-mark" href={pricing ? '/' : '#public-main'} aria-label={pricing ? (id ? 'Beranda Jude' : 'Jude home') : (id ? 'Kembali ke atas' : 'Back to top')}>jude.</a>
           <p>{id ? 'Kecerdasan ruang sidang berbasis bukti.' : 'Evidence-grounded courtroom intelligence.'}</p>
         </div>
         <nav class="foot-nav" aria-label={id ? 'Navigasi kaki halaman' : 'Footer navigation'}>
-          <a href="#lp-how">{id ? 'Cara kerja' : 'How it works'}</a>
-          <a href="#lp-source">{id ? 'Berbasis bukti' : 'Evidence first'}</a>
-          <a href="#lp-approach">{id ? 'Pendekatan kami' : 'Our approach'}</a>
-          <a href="/pricing">{id ? 'Harga' : 'Pricing'}</a>
+          <a href={home + '#lp-how'}>{id ? 'Cara kerja' : 'How it works'}</a>
+          <a href={home + '#lp-source'}>{id ? 'Berbasis bukti' : 'Evidence first'}</a>
+          <a href={home + '#lp-approach'}>{id ? 'Pendekatan kami' : 'Our approach'}</a>
+          <a href="/pricing" aria-current={pricing ? 'page' : undefined}>{id ? 'Harga' : 'Pricing'}</a>
           <a class="open" href="/cases">{id ? 'Buka ruang kerja' : 'Open workspace'} <Icon name="forward" size={15}/></a>
         </nav>
         <form class="foot-lang" method="POST" action="/language" aria-label={id ? 'Bahasa' : 'Language'}>
-          <input type="hidden" name="next" value="/" />
+          <input type="hidden" name="next" value={page.url.pathname + page.url.search} />
           <button name="lang" value="id" aria-pressed={id} lang="id" aria-label="ID · Bahasa Indonesia">ID</button>
           <button name="lang" value="en" aria-pressed={!id} lang="en" aria-label="EN · English">EN</button>
         </form>
       </div>
       <div class="foot-notes">
         <p>{id ? 'Dirancang untuk praktisi hukum Indonesia.' : 'Designed for Indonesian legal professionals.'}</p>
-        <p>{id ? 'Temuan menghubungkan bukti. Penilaian hukum tetap berada di tangan praktisi.' : 'Findings connect evidence. Legal judgment stays with the practitioner.'}</p>
+        <p>{pricing ? (id ? 'Harga dan kuota merupakan contoh. Tagihan disimulasikan. Temuan menghubungkan keterangan dengan berkas sumber untuk penilaian praktisi.' : 'Prices and quotas are examples. Billing is simulated. Findings link testimony to source records for practitioners to assess.') : (id ? 'Temuan menghubungkan bukti. Penilaian hukum tetap berada di tangan praktisi.' : 'Findings connect evidence. Legal judgment stays with the practitioner.')}</p>
         <p>{id ? 'Perkara contoh · data sintetis' : 'Example case · synthetic data'}</p>
       </div>
     </div>
@@ -79,6 +81,10 @@
     .foot-nav a { min-height: 40px; font-size: 16px; }
     .foot-lang { margin-top: 4px; }
     .foot-notes { grid-template-columns: 1fr; }
+    .pricing .foot-top { flex-direction: row; gap: 24px 48px; }
+    .pricing .foot-nav { flex-direction: row; flex: 1 1 100%; align-items: center; gap: 6px 27px; padding-top: 12px; }
+    .pricing .foot-nav a { font-size: 14.5px; }
+    .pricing .foot-nav a[aria-current='page'] { text-decoration: underline; }
   }
   @media (pointer: coarse) { .foot-nav a, .foot-lang button { min-height: 44px; } }
 </style>

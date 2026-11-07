@@ -1,383 +1,280 @@
 <script lang="ts">
+  import {
+    currency,
+    localized,
+    type BillingCycle,
+    type Language,
+    type Plan,
+    type PlanId,
+  } from '@jude/core/plans';
   import Icon from './Icon.svelte';
-  import { currency, type Plan, type Language, type BillingCycle } from '@jude/core/plans';
+  import PlanPlate from './PlanPlate.svelte';
+  import PlanAction from './PlanAction.svelte';
+  import { period, price, quotaValue } from './pricing';
+
   let {
     plans,
     lang,
     cycle,
     signedIn,
-    billing = false,
-    current,
     selected,
+    current,
     contact,
   }: {
     plans: Plan[];
     lang: Language;
     cycle: BillingCycle;
     signedIn: boolean;
-    billing?: boolean;
-    current?: string;
     selected?: string | null;
-    contact?: () => void;
+    current?: PlanId;
+    contact: () => void;
   } = $props();
-  let isId = $derived(lang === 'id');
+  const id = $derived(lang === 'id');
+  const contractCapacity = {
+    hours: localized('Jam sidang sesuai kontrak', 'Hearing hours by arrangement'),
+    cases: localized('Jumlah perkara sesuai kontrak', 'Case capacity by arrangement'),
+    boards: localized('Papan sesuai kontrak', 'Boards by arrangement'),
+    questions: localized('Pertanyaan sesuai kontrak', 'Questions by arrangement'),
+  };
+  const capacities = [
+    { key: 'hours', unit: localized('jam sidang per bulan', 'hearing hours a month') },
+    { key: 'cases', unit: localized('perkara aktif', 'active cases') },
+    { key: 'boards', unit: localized('papan temuan', 'findings boards') },
+    { key: 'questions', unit: localized('pertanyaan asisten per bulan', 'assistant questions a month') },
+  ] as const;
 </script>
 
-<div class="plan-grid" class:covers={!billing}>
-  {#each plans as plan}
-    <article class:pro={plan.id === 'pro'} class:selected={selected === plan.id} id={'plan-' + plan.id}>
-      {#if !billing && plan.id === 'pro'}<span class="ribbon"
-          >{isId ? 'Disarankan untuk advokat' : 'Recommended for advocates'}</span
-        >{/if}
-      <header class={'tier-' + plan.tier}>
-        {#if !billing}<small>{isId ? 'Paket' : 'Plan'}</small>{/if}
-        <h3>{plan.name[lang]}</h3>
-        {#if billing && plan.id === 'pro'}<span>{isId ? 'Untuk advokat' : 'For advocates'}</span>{/if}
-      </header>
-      <div class="plan-body">
-        <p class="tagline">{plan.tagline[lang]}</p>
-        <div class="amount">
-          <b
-            >{plan.monthly === null
-              ? isId
-                ? 'Sesuai kebutuhan'
-                : 'By arrangement'
-              : currency(cycle === 'yearly' ? (plan.yearlyPerMonth ?? 0) : plan.monthly, lang)}</b
-          >
-          <small
-            >{plan.contract
-              ? isId
-                ? 'Kontrak tahunan'
-                : 'Annual contract'
-              : plan.monthly === 0
-                ? isId
-                  ? 'Tanpa biaya'
-                  : 'Free plan'
-                : plan.perUser
-                  ? isId
-                    ? 'per pengguna per bulan'
-                    : 'per user per month'
-                  : isId
-                    ? 'per bulan'
-                    : 'per month'}</small
-          >
-        </div>
-        <p class="total">
-          {#if cycle === 'yearly' && plan.yearly && plan.yearlySaving}{currency(plan.yearly, lang)}
-            {isId ? 'per tahun' : 'per year'}{plan.perUser ? (isId ? ' per pengguna' : ' per user') : ''}. {isId
-              ? 'Hemat'
-              : 'Save'}
-            {currency(plan.yearlySaving, lang)}.{:else if plan.trial}{isId
-              ? 'Uji coba 14 hari tanpa kartu.'
-              : '14-day trial without a card.'}{:else if plan.contract}{isId
-              ? 'Bahas kapasitas bersama tim Jude.'
-              : 'Discuss capacity with the Jude team.'}{:else}{isId
-              ? 'Mulai dengan dua perkara aktif.'
-              : 'Start with two active cases.'}{/if}
-        </p>
-        <ul>
-          {#each plan.bullets as benefit}<li><Icon name="check" size={15} />{benefit[lang]}</li>{/each}
-        </ul>
-        {#if plan.contract}
-          <a
-            class="pub-button quiet"
-            href={'?cycle=' + cycle + '&contact=1#partner'}
-            onclick={(e) => {
-              if (contact && !e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey) {
-                e.preventDefault();
-                contact();
-              }
-            }}>{isId ? 'Hubungi tim' : 'Contact team'}<Icon name="forward" size={15} /></a
-          >
-        {:else if billing}
-          <form method="POST" action="?/plan">
-            <input type="hidden" name="planId" value={plan.id} /><input
-              type="hidden"
-              name="cycle"
-              value={cycle}
-            />
-            <button class:quiet={plan.id !== 'pro'} class="pub-button" disabled={current === plan.id}
-              >{current === plan.id
-                ? isId
-                  ? 'Paket aktif'
-                  : 'Current plan'
-                : (isId ? 'Pilih ' : 'Choose ') + plan.name[lang]}</button
-            >
-          </form>
-        {:else}
-          <a
-            class:quiet={plan.id !== 'pro'}
-            class="pub-button"
-            href={(signedIn ? '/billing' : '/signup') + '?plan=' + plan.id + '&cycle=' + cycle}
-            >{plan.trial
-              ? isId
-                ? 'Coba 14 hari'
-                : 'Try for 14 days'
-              : isId
-                ? 'Pilih Dasar'
-                : 'Choose Basic'}<Icon name="arrow" size={15} /></a
-          >
-        {/if}
+<div class="plans-grid">
+  {#each plans as plan, i (plan.id)}
+    <article
+      id={'plan-' + plan.id}
+      aria-labelledby={'plate-' + plan.id}
+      class:pro={plan.id === 'pro'}
+      class:selected={selected === plan.id}
+    >
+      {#if plan.id === 'pro'}
+        <span class="ribbon">{id ? 'Disarankan untuk advokat' : 'Recommended for advocates'}</span>
+        <img class="clip" src="/public/clip.webp" alt="" width="52" height="81" decoding="async" />
+      {/if}
+      <h2 id={'plate-' + plan.id}><PlanPlate {plan} {lang} /></h2>
+      <p class="tagline">{plan.tagline[lang]}</p>
+      <div class="price">
+        <strong class:custom={plan.contract}>{price(plan, cycle, lang)}</strong>{#if plan.monthly}<span
+            >{period(plan, lang)}</span
+          >{/if}
       </div>
+      <p class="billed" class:yearly={cycle === 'yearly'}>
+        {#if plan.contract}{id
+            ? 'Kontrak tahunan. Bicarakan kebutuhan tim Anda.'
+            : 'Annual contract. Discuss your team’s requirements.'}
+        {:else if plan.monthly === 0}{id ? 'Gratis selamanya.' : 'Free, forever.'}
+        {:else if cycle === 'yearly'}{id ? 'Ditagih ' : 'Billed '}{currency(plan.yearly!, lang)}
+          {id ? 'per tahun.' : 'a year.'}
+          <span class="saving">{id ? 'Hemat ' : 'Save '}{currency(plan.yearlySaving!, lang)}</span>
+        {:else}{id ? 'Ditagih setiap bulan.' : 'Billed monthly.'}{/if}
+      </p>
+      <PlanAction {plan} {lang} {cycle} {signedIn} {current} {contact} />
+      <p class="fine">
+        {#if plan.trial}{id ? 'Tanpa kartu kredit' : 'No credit card'}{/if}
+      </p>
+      <ul class="quotas" aria-label={id ? 'Kuota paket' : 'Plan quotas'}>
+        {#each capacities as cap}
+          <li>
+            {#if plan.contract}{contractCapacity[cap.key][lang]}
+            {:else if plan.quotas[cap.key] === null}{cap.unit[lang]} · {quotaValue(plan, cap.key, lang)}
+            {:else}<strong>{quotaValue(plan, cap.key, lang)}</strong> {cap.unit[lang]}{/if}
+          </li>
+        {/each}
+      </ul>
+      <ul class="benefits" aria-label={id ? 'Fitur paket' : 'Plan features'}>
+        {#if i > 0 && !plan.contract}<li>
+            <Icon name="check" size={15} /><span
+              >{id ? 'Semua fitur ' : 'Everything in '}{plans[i - 1].name[lang]}</span
+            >
+          </li>{/if}
+        {#each plan.bullets as benefit}<li>
+            <Icon name="check" size={15} /><span>{benefit[lang]}</span>
+          </li>{/each}
+      </ul>
     </article>
   {/each}
 </div>
 
 <style>
-  .plan-grid {
+  .plans-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 12px;
+    gap: 0 16px;
+    padding-top: 20px;
   }
   article {
-    display: flex;
-    flex-direction: column;
-    border: 1px solid #c8ccbd;
-    border-radius: 5px;
-    background: #fffdf4;
-    overflow: hidden;
-    scroll-margin-top: 20px;
-  }
-  article.pro {
-    border-color: #506d53;
-  }
-  article.selected {
-    outline: 2px solid #a47d41;
-    outline-offset: 2px;
-  }
-  header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    min-height: 69px;
-    padding: 14px 18px;
-    gap: 5px;
-  }
-  .tier-0 {
-    background: #e4e5d7;
-    color: #334839;
-  }
-  .tier-1 {
-    background: #31533d url('/public/case-cloth.webp') center/700px;
-    color: #fbf4df;
-    background-blend-mode: soft-light;
-  }
-  .tier-2 {
-    background: #d5bd84;
-    color: #3f371f;
-  }
-  .tier-3 {
-    background: #d7dedc;
-    color: #34464a;
-  }
-  header h3 {
-    font-size: clamp(1.7rem, 2.7vw, 2.3rem);
-  }
-  header span {
-    font: 0.71rem/1.3 var(--pub-body);
-  }
-  .plan-body {
-    padding: 19px clamp(14px, 1.7vw, 25px) 20px;
-    display: flex;
-    flex: 1;
-    flex-direction: column;
-  }
-  .tagline {
-    min-height: 4.6em;
-    font-size: 0.89rem;
-    line-height: 1.5;
-    color: #4e5d50;
-  }
-  .amount {
-    margin: 18px 0 8px;
-  }
-  .amount b {
-    font: 400 clamp(1.75rem, 2.65vw, 2.65rem)/1.05 var(--pub-display);
-    letter-spacing: -0.023em;
-    display: block;
-    overflow-wrap: break-word;
-  }
-  .amount small,
-  .total {
-    color: #566454;
-    font-size: 0.77rem;
-    line-height: 1.5;
-  }
-  .total {
-    min-height: 4.4em;
-  }
-  ul {
-    list-style: none;
-    margin: 13px 0 22px;
-    padding: 15px 0 0;
-    border-top: 1px solid #d4d8ca;
-    flex: 1;
-  }
-  li {
-    display: flex;
-    gap: 7px;
-    align-items: flex-start;
-    font-size: 0.84rem;
-    margin-bottom: 9px;
-    line-height: 1.45;
-  }
-  li :global(svg) {
-    flex: none;
-    margin-top: 2px;
-    color: #456443;
-  }
-  .pub-button,
-  .plan-body form {
-    width: 100%;
-  }
-  @media (max-width: 1000px) {
-    .plan-grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 18px;
-    }
-    .tagline {
-      min-height: 3em;
-    }
-    .total {
-      min-height: 2.8em;
-    }
-  }
-  @media (max-width: 540px) {
-    .plan-grid {
-      grid-template-columns: 1fr;
-    }
-    .tagline,
-    .total {
-      min-height: 0;
-    }
-    .amount {
-      margin: 14px 0 5px;
-    }
-    .amount b {
-      font-size: 2.5rem;
-    }
-    ul {
-      margin-bottom: 16px;
-    }
-    header {
-      min-height: 58px;
-    }
-  }
-
-  .covers {
-    gap: 15px;
-  }
-  .covers article {
-    position: relative;
-    overflow: visible;
-    border-radius: 11px;
-    background: #f5f2e9 url('/public/ivory-paper.webp') center/700px;
-    color: #233e30;
-    border-color: #bbbca9;
-    padding-top: 24px;
-  }
-  .covers article.pro {
-    border: 2px solid #c39a4e;
-    padding-top: 23px;
-  }
-  .covers header {
     position: relative;
     display: grid;
-    justify-content: normal;
-    justify-items: center;
-    align-content: center;
-    gap: 2px;
-    margin: 0 23px;
-    padding: 8px;
-    border-radius: 5px;
-    min-height: 73px;
-    border: 1px solid #afb6a8;
-    box-shadow: 0 2px 5px #18251a20;
+    grid-row: span 8;
+    grid-template-rows: subgrid;
+    row-gap: 0;
+    min-width: 0;
+    padding: 26px 24px 30px;
+    border-radius: 12px;
+    background: #f5eee2 url('/public/ivory-paper.webp') repeat center/600px;
+    color: #253b2d;
+    box-shadow:
+      0 22px 42px -23px #04140ccc,
+      0 2px 5px #04140c30;
+    scroll-margin: 50px;
   }
-  .covers header > small {
-    font: 600 0.73rem/1.4 var(--pub-body);
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
+  article.pro {
+    outline: 2px solid #e2b671;
   }
-  .covers header h3 {
-    font-size: 1.65rem;
-  }
-  .covers .tier-0 {
-    background: #f6f5ee;
-  }
-  .covers .tier-1 {
-    background: linear-gradient(125deg, #285642, #133a2b);
-    border: 3px double #a7945e;
-  }
-  .covers .tier-2 {
-    background: linear-gradient(
-      125deg,
-      #927844 0%,
-      #f1d19a 27%,
-      #cfad6e 44%,
-      #a28954 57%,
-      #eed6a1 79%,
-      #b79a62 100%
-    );
-    border: 3px double #9d7f43;
-  }
-  .covers .tier-3 {
-    background: linear-gradient(132deg, #c6d8da, #eff0e7 23%, #e5dae1 50%, #d1d6dc 70%, #f2ebe4);
-    border: 2px solid #acb6b6;
-  }
-  .covers :is(.tier-2, .tier-3):before,
-  .covers :is(.tier-2, .tier-3):after {
-    content: '';
-    position: absolute;
-    inset: 6px auto auto 6px;
-    width: 5px;
-    height: 5px;
-    border-radius: 50%;
-    background: radial-gradient(at 33% 25%, #fff9db, #807a68);
-    box-shadow: 0 47px 0 #897f69;
-  }
-  .covers :is(.tier-2, .tier-3):after {
-    left: auto;
-    right: 6px;
+  article.selected {
+    outline: 3px solid #bd8a41;
   }
   .ribbon {
     position: absolute;
     left: 18px;
     top: 0;
     transform: translateY(-50%);
-    background: #e5c080;
-    color: #3a311f;
-    border: 1px solid #b89250;
-    border-radius: 18px;
-    padding: 5px 12px;
-    font-size: 0.77rem;
-    font-weight: 600;
-    z-index: 1;
+    border-radius: 99px;
+    padding: 5px 13px;
+    background: #e8bf80;
+    color: #3e2e16;
+    font: 600 12px/1.35 var(--pub-body);
   }
-  .covers .plan-body {
-    padding: 18px 24px 24px;
+  .clip {
+    position: absolute;
+    top: -44px;
+    right: 18px;
+    width: 52px;
+    height: auto;
+    filter: drop-shadow(0 3px 3px #42341a4d);
+    pointer-events: none;
   }
-  .covers .tagline {
-    min-height: 52px;
+  h2 {
+    min-width: 0;
+    align-self: start;
   }
-  .covers .amount {
-    margin-top: 18px;
+  .tagline {
+    min-height: 65px;
+    margin: 16px 0 22px;
+    color: #475448;
+    font-size: 15px;
+    line-height: 1.55;
   }
-  @media (max-width: 760px) {
-    .covers {
-      grid-template-columns: repeat(4, minmax(245px, 82%));
+  .price {
+    display: grid;
+    align-content: start;
+    gap: 2px;
+  }
+  .price strong {
+    font: 400 clamp(36px, 2.9vw, 44px)/1 var(--pub-display);
+    letter-spacing: -0.025em;
+    font-variant-numeric: tabular-nums;
+  }
+  .price .custom {
+    font-size: clamp(30px, 2.3vw, 37px);
+  }
+  .price span,
+  .billed,
+  .fine {
+    color: #566054;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .billed {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-content: start;
+    align-items: center;
+    margin: 9px 0 20px;
+  }
+  .billed.yearly {
+    min-height: 73px;
+  }
+  .saving {
+    border-radius: 4px;
+    background: #eddfbe;
+    color: #604320;
+    font-size: 12px;
+    padding: 1px 5px;
+  }
+  .fine {
+    min-height: 22px;
+    margin: 8px 0 14px;
+    text-align: center;
+  }
+  ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .quotas {
+    margin-bottom: 16px;
+    font-size: 14px;
+    line-height: 1.65;
+  }
+  .quotas li {
+    padding: 8px 0;
+    border-top: 1px solid #23382b22;
+  }
+  .quotas strong {
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+  .benefits {
+    min-height: 145px;
+    display: grid;
+    align-content: start;
+    gap: 9px;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .benefits li {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .benefits :global(svg) {
+    flex: none;
+    color: #31573c;
+    transform: translateY(2px);
+  }
+  @media (max-width: 1100px) {
+    .plans-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      row-gap: 34px;
+    }
+  }
+  @media (max-width: 700px) {
+    .plans-grid {
+      grid-auto-flow: column;
+      grid-template-columns: none;
+      grid-auto-columns: 84%;
+      gap: 0 12px;
+      margin-inline: -20px;
+      padding: 26px 20px 18px;
       overflow-x: auto;
       overscroll-behavior-x: contain;
-      scroll-snap-type: x proximity;
-      scroll-padding: 3px;
-      padding: 16px 3px 15px;
+      scroll-snap-type: x mandatory;
+      scroll-padding-inline: 20px;
+      scrollbar-width: none;
     }
-    .covers article {
+    .plans-grid::-webkit-scrollbar {
+      display: none;
+    }
+    article {
       scroll-snap-align: start;
     }
-    .covers .tagline {
-      min-height: 42px;
+    .clip {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: no-preference) and (hover: hover) {
+    article {
+      transition: translate 0.35s ease;
+    }
+    article:hover {
+      translate: 0 -4px;
     }
   }
 </style>
