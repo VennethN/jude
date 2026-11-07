@@ -1,6 +1,7 @@
 <script lang="ts">
   import Dialog from '$lib/workspace/Dialog.svelte';
   import SheetHandle from '$lib/workspace/SheetHandle.svelte';
+  import FindingLink from './FindingLink.svelte';
   import SourceAvailability from './SourceAvailability.svelte';
   import {
     ArrowUpRight,
@@ -90,9 +91,7 @@
       <h3>{id ? 'Temuan terkait' : 'Related findings'}</h3>
       <ul class="ev-list">
         {#each related as f (f.id)}<li>
-            <a class="ev-link" href={base + '/findings/' + encodeURIComponent(f.id)} onclick={close}
-              >{local(f.title, lang)}</a
-            >
+            <FindingLink workspace={w} finding={f} {lang} showHearing onFollow={close}/>
           </li>{/each}
       </ul>
     </section>{/if}
