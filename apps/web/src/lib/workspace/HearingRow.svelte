@@ -35,6 +35,14 @@
     }
     return [...names.values()];
   });
+  const lead = $derived.by(() => {
+    if (!lines.length) return undefined;
+    if (h.mode === 'live') return voice(w.speakers, lines.at(-1)!.speakerId, lang);
+    const talk = new Map<string, number>();
+    for (const line of lines) talk.set(line.speakerId, (talk.get(line.speakerId) ?? 0) + line.text.length);
+    const ranked = [...talk.keys()].sort((a,b) => talk.get(b)! - talk.get(a)!).map(id => voice(w.speakers,id,lang));
+    return ranked.find(person => !['judge','judge_member'].includes(person.role)) ?? ranked[0];
+  });
   const mode = $derived(
     {
       live: en ? 'Live' : 'Langsung',
@@ -46,22 +54,24 @@
   const duration = $derived(Math.round((h.duration || 0) / 60));
 </script>
 
-<article class="hearing-row" class:compact class:live={h.mode === 'live'}>
-  <div class="mode-mark" aria-hidden="true">
-    {#if h.mode === 'live'}<Radio size={19} />
+<article class="hearing-row" class:library-row={!compact} class:compact class:live={h.mode === 'live'}>
+  <div class="mode-mark" data-role={!compact ? lead?.role : undefined} aria-hidden="true">
+    {#if !compact && lead}{lead.letters}
+    {:else if h.mode === 'live'}<Radio size={19} />
     {:else if h.mode === 'scheduled'}<CalendarClock size={18} />
     {:else if cast[0]}{cast[0].letters}
     {:else}<Speech size={18} />{/if}
   </div>
   <div class="details">
-    <div class="row-label">
+    {#if compact}<div class="row-label">
       <span>{en ? 'Hearing' : 'Sidang'} {String(h.number).padStart(2, '0')}</span><i></i><span
         class:live-ink={h.mode === 'live'}>{mode}</span
       >
-    </div>
-    <h3><a {href}><Match text={h.title[lang]} {term} /></a></h3>
+    </div>{/if}
+    <h3><a {href}>{#if !compact}<span class="hearing-number">{en ? 'Hearing' : 'Sidang'} {h.number}</span> {/if}<Match text={h.title[lang]} {term} /></a></h3>
     <div class="row-meta">
       <time datetime={h.date}>{formatDate(h.date, lang, true)}{h.time ? ' · ' + h.time + ' WIB' : ''}</time>
+      {#if !compact}<span class:live-ink={h.mode === 'live'}>{mode}</span>{/if}
       {#if duration}<span
           >{duration >= 60 ? Math.floor(duration / 60) + (en ? ' h ' : ' j ') : ''}{duration % 60}
           {en ? 'min' : 'mnt'}</span
@@ -77,7 +87,7 @@
   </div>
   <div class="row-end">
     {#if !compact && cast.length}<div class="cast" aria-label={cast.map((p) => p.name).join(', ')}>
-        {#each cast.slice(0, 4) as p}<span title={p.name} aria-hidden="true">{p.letters}</span>{/each}
+        {#each cast.slice(0, 5) as p}<span data-role={p.role} title={p.name} aria-hidden="true">{p.letters}</span>{/each}
       </div>{/if}
     {#if !compact && h.mode === 'scheduled' && onstart}<button class="action" onclick={onstart}
         ><Mic size={13} />{en ? 'Start recording' : 'Mulai rekam'}</button
@@ -253,4 +263,25 @@
       min-height: 42px;
     }
   }
+  .library-row { position:relative; grid-template-columns:36px minmax(0,1fr) auto; gap:14px; margin:0 -12px; padding:14px 12px; border:0; border-radius:7px; }
+  .library-row::after { content:''; position:absolute; left:62px; right:12px; bottom:0; height:1px; background:var(--line); pointer-events:none; }
+  .library-row:last-child::after { left:12px; }
+  .library-row:hover { background:color-mix(in srgb,var(--ink) 4%,transparent); }
+  .library-row:has(h3 a:focus-visible) { outline:2px solid var(--focus); outline-offset:-2px; }
+  .library-row h3 { margin:0 0 3px; font:400 19px/1.25 var(--display); }
+  .library-row h3 a::before { content:''; position:absolute; inset:0; border-radius:7px; }
+  .library-row .hearing-number { display:inline-block; margin-right:6px; vertical-align:middle; color:var(--muted); font:600 12px/1.5 var(--sans); white-space:nowrap; }
+  .library-row .mode-mark { width:36px; height:36px; font:600 11px var(--sans); }
+  .library-row .row-meta { font:400 12px/1.55 var(--sans); gap:0 5px; }
+  .library-row .row-end,.library-row .match-line { position:relative; z-index:1; }
+  .library-row .attention { border-radius:999px; padding:3px 10px 3px 5px; min-height:26px; color:var(--ink-strong,var(--ink)); }
+  .library-row .cast { padding-left:6px; }
+  .library-row .cast span { width:28px; height:28px; margin-left:-6px; font-size:9px; }
+  .library-row [data-role] { color:white; background:var(--role-unknown); }
+  .library-row [data-role=judge],.library-row [data-role=judge_member] { background:var(--role-judge); }
+  .library-row [data-role=counsel] { background:var(--role-counsel); }
+  .library-row [data-role=opposing] { background:var(--role-opposing); }
+  .library-row [data-role=witness] { background:var(--role-witness); }
+  .library-row [data-role=party] { background:var(--role-party); }
+  @container(max-width:520px) { .library-row { grid-template-columns:36px minmax(0,1fr); } .library-row .row-end { grid-column:2; justify-content:flex-start; } }
 </style>

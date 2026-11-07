@@ -1,311 +1,80 @@
 .hearing-detail {
-  --tone: var(--muted);
-  max-width: 86rem;
-  min-width: 0;
-  margin-inline: auto;
-  font-family: var(--sans);
+  --tone:var(--muted); --hearing-sticky:68px;
+  min-width:0; max-width:86rem; margin-inline:auto; font-family:var(--sans); container:hearing / inline-size;
 }
-.hearing-detail [data-tone='counsel'] {
-  --tone: var(--ev-supports);
+.desk.has-live .hearing-detail { --hearing-sticky:117px; }
+.hearing-detail.live-view { max-width:900px; margin-inline:0; }
+.hearing-detail [data-tone=judge], .hearing-detail [data-tone=judge_member] { --tone:var(--role-judge,#4c5b92); }
+.hearing-detail [data-tone=counsel] { --tone:var(--role-counsel,#2e6c4b); }
+.hearing-detail [data-tone=opposing] { --tone:var(--role-opposing,#a24e3d); }
+.hearing-detail [data-tone=witness] { --tone:var(--role-witness,#83621a); }
+.hearing-detail [data-tone=party] { --tone:var(--role-party,#6b6658); }
+.hearing-detail [data-tone=unknown] { --tone:var(--role-unknown,#687067); }
+.hearing-detail .back { display:flex; align-items:center; gap:6px; width:fit-content; min-height:28px; margin:0 0 6px; color:var(--muted); text-decoration:none; font:500 13px/1.35 var(--sans); }
+.hearing-detail .back:hover { text-decoration:underline; }
+.hearing-detail .hearing-heading { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 10px; }
+.hearing-detail h1 { margin:0; min-width:0; max-width:none; font:400 32px/1.16 var(--display); letter-spacing:-.022em; overflow-wrap:anywhere; }
+.hearing-detail .hearing-heading h1 span { display:inline-block; margin-right:6px; vertical-align:middle; color:var(--muted); font:600 13px/1.35 var(--sans); letter-spacing:0; white-space:nowrap; }
+.hearing-detail.live-view h1 { font-size:30px; }
+.hearing-detail .head-actions, .hearing-detail .session-control, .hearing-detail .control-actions, .hearing-detail .session-label { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+.hearing-detail .head-actions .button, .hearing-detail .head-actions .icon-button { min-height:36px; height:36px; border-radius:6px; font:600 13px/1.35 var(--sans); }
+.hearing-detail .head-actions .icon-button { width:36px; min-width:36px; background:transparent; border-color:transparent; }
+.hearing-detail .hearing-meta { margin:6px 0 16px; color:var(--muted); font:400 13px/1.5 var(--sans); }
+.hearing-detail .hearing-meta span { font-size:12px; }
+.hearing-detail .session-label { padding:7px 11px; min-height:34px; border-radius:999px; background:var(--st-inconsistency-bg,var(--wash)); color:var(--alert,var(--accent)); font:600 12px/1.5 var(--sans); }
+.hearing-detail .session-label span { color:var(--ink-strong,var(--ink)); font-variant-numeric:tabular-nums; }
+.hearing-detail .session-label svg { width:12px; height:12px; }
+.hearing-detail .end { color:var(--alert,var(--accent)); border-color:color-mix(in srgb,var(--alert,var(--accent)) 55%,var(--line)); }
+.hearing-detail .text-notice { display:flex; gap:9px; align-items:center; min-height:38px; margin-bottom:16px; padding:7px 12px; color:var(--muted); background:var(--surface-2,var(--wash)); border-radius:8px; font:400 12px/1.5 var(--sans); }
+.hearing-detail .text-notice input { margin-left:auto; width:clamp(44px,9vw,110px); height:22px; accent-color:var(--muted); }
+.hearing-detail .hearing-audio { display:none; }
+.hearing-detail .hearing-stage { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:16px; align-items:start; }
+.hearing-detail .hearing-stage.open, .hearing-detail.running .hearing-stage { grid-template-columns:minmax(0,1fr); }
+.hearing-detail .hearing-stage.open.inline { grid-template-columns:minmax(0,1fr) clamp(320px,37%,460px); }
+.hearing-detail.running .hearing-stage { margin-top:18px; }
+.hearing-detail .hear-reading,.hearing-detail .hearing-margin { display:grid; min-width:0; align-self:start; gap:14px; }
+.hearing-detail .participants { display:grid; gap:10px; border:1px solid var(--line); background:var(--surface); padding:16px; border-radius:12px; }
+.hearing-detail .participants h2,.hearing-detail .schedule-counsel h3 { font:600 14px/1.5 var(--sans); }
+.hearing-detail .participant { display:grid; grid-template-columns:30px 1fr auto; align-items:center; gap:10px; min-width:0; }
+.hearing-detail .participant button { border:0; color:var(--ink); background:transparent; text-align:left; padding:0; font:600 12.5px/1.4 var(--sans); }
+.hearing-detail .participant button:hover { text-decoration:underline; }
+.hearing-detail .person-disc { display:grid; place-items:center; width:30px; height:30px; border-radius:50%; color:white; background:var(--tone); font:600 10px var(--sans); }
+.hearing-detail .participant small { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
+.hearing-detail .share-bar { height:5px; background:var(--surface-2,var(--wash)); display:block; margin-top:5px; overflow:hidden; border-radius:3px; }
+.hearing-detail .share-bar i { display:block; height:100%; background:var(--tone); }
+.hearing-detail .turn { display:flex; align-items:center; gap:8px; min-height:38px; padding:6px 12px; margin-top:12px; border:1px solid var(--line); border-radius:6px; background:var(--selected,var(--wash)); color:var(--ink); font:600 13px var(--sans); }
+.hearing-detail .appointment { margin-top:20px; }
+.hearing-detail .appointment section { display:grid; justify-items:start; gap:10px; }
+.hearing-detail .appointment h2 { font:400 26px/1.45 var(--display); }
+.hearing-detail .appointment p { margin:0; color:var(--muted); font:400 14px/1.5 var(--sans); }
+.hearing-detail .schedule-meta { display:flex; align-items:center; gap:8px; }
+.hearing-detail .schedule-counsel { display:grid; justify-items:start; gap:6px; margin:12px 0; }
+.hearing-detail .notice { padding:10px 13px; margin:8px 0; color:var(--accent); background:var(--surface); }
+@container hearing (max-width:849px) {
+  .hearing-detail .hearing-stage { grid-template-columns:minmax(0,1fr); }
 }
-.hearing-detail [data-tone='opposing'] {
-  --tone: var(--ev-conflicts);
+@media(max-width:719px) {
+  .hearing-detail .back { display:none; }
+  .hearing-detail .hearing-heading h1 { flex-basis:100%; font-size:22px; line-height:1.15; }
+  .hearing-detail.live-view .hearing-heading h1 { font-size:18px; }
+  .hearing-detail .head-actions { width:100%; justify-content:space-between; }
+  .hearing-detail .head-actions .button,.hearing-detail .head-actions .icon-button { min-height:44px; height:44px; }
+  .hearing-detail .hearing-meta { margin:8px 0 16px; }
+  .hearing-detail .hearing-margin { margin-top:8px; }
+  .hearing-detail .session-label { min-height:30px; padding:4px 7px; }
+  .hearing-detail .session-control,.hearing-detail .control-actions { gap:4px; }
+  .hearing-detail .control-actions .button { font-size:12px; padding-inline:7px; }
+  .hearing-detail.running .hearing-stage { margin-top:10px; }
 }
-.hearing-detail [data-tone='witness'] {
-  --tone: color-mix(in srgb, var(--ev-highlight) 68%, var(--ink));
-}
-.hearing-detail [data-tone='judge'],
-.hearing-detail [data-tone='judge_member'] {
-  --tone: var(--ev-context);
-}
-.hearing-detail [data-tone='party'] {
-  --tone: var(--accent);
-}
-.hearing-detail .back,
-.hearing-detail .folio-line,
-.hearing-detail .hearing-heading,
-.hearing-detail .session-control,
-.hearing-detail .session-label,
-.hearing-detail .control-actions,
-.hearing-detail .mode-head,
-.hearing-detail .mode-head > span,
-.hearing-detail .turn {
-  display: flex;
-  align-items: center;
-}
-.hearing-detail .back {
-  width: fit-content;
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 0.78rem;
-  gap: 0.4rem;
-  min-height: 32px;
-  margin-bottom: 0.5rem;
-}
-.hearing-detail .back:hover {
-  text-decoration: underline;
-}
-.hearing-detail .hearing-heading {
-  justify-content: space-between;
-  gap: 1rem;
-  align-items: flex-end;
-  margin-bottom: 1.45rem;
-}
-.hearing-detail .hearing-heading > div {
-  min-width: 0;
-}
-.hearing-detail .folio-line {
-  gap: 0.65rem;
-  flex-wrap: wrap;
-  color: var(--muted);
-  font: 400 0.75rem/1.5 var(--mono);
-  margin: 0 0 0.5rem;
-}
-.hearing-detail .folio-line span {
-  color: var(--accent);
-}
-.hearing-detail .folio-line i {
-  height: 3px;
-  width: 3px;
-  border-radius: 50%;
-  background: var(--muted);
-}
-.hearing-detail h1 {
-  margin: 0;
-  font: 400 clamp(2.25rem, 4.25vw, 3.6rem)/1.03 var(--display);
-  letter-spacing: -0.035em;
-  overflow-wrap: anywhere;
-  max-width: 26ch;
-}
-.hearing-detail .options {
-  background: var(--surface);
-  flex: none;
-  align-self: flex-end;
-}
-.hearing-detail .mode-head,
-.hearing-detail .session-control {
-  justify-content: space-between;
-  gap: 0.8rem;
-  border-block: 1px solid var(--line);
-  padding: 0.78rem 0.05rem;
-  flex-wrap: wrap;
-  margin-bottom: 1.05rem;
-}
-.hearing-detail .mode-head > span,
-.hearing-detail .session-label {
-  gap: 0.55rem;
-  font-size: 0.83rem;
-  font-weight: 650;
-}
-.hearing-detail .mode-head small {
-  color: var(--muted);
-  font-size: 0.78rem;
-}
-.hearing-detail .session-control {
-  border-top-color: var(--ink);
-}
-.hearing-detail .session-label svg {
-  color: var(--accent);
-}
-.hearing-detail .session-label span {
-  font: 400 0.8rem var(--mono);
-  color: var(--muted);
-}
-.hearing-detail .control-actions {
-  gap: 0.5rem;
-}
-.hearing-detail .end {
-  color: var(--accent);
-}
-.hearing-detail .hearing-stage {
-  display: grid;
-  grid-template-columns: minmax(0, 2.15fr) minmax(15rem, 0.9fr);
-  gap: clamp(1.1rem, 2.5vw, 2.5rem);
-  align-items: start;
-}
-.hearing-detail .hear-reading {
-  min-width: 0;
-  display: grid;
-  gap: 0.8rem;
-}
-.hearing-detail .hearing-margin { min-width:0; align-self:start; }
-.hearing-detail .live-finding {
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
-  background: color-mix(in srgb, var(--accent) 4%, var(--surface));
-  border-radius: 0.4rem;
-  display: grid;
-  gap: 0.25rem;
-  position: relative;
-  padding: 0.8rem 2rem 0.85rem 1rem;
-  text-decoration: none;
-}
-.hearing-detail .live-finding p {
-  color: var(--accent);
-  font: 600 0.73rem var(--sans);
-  margin: 0;
-}
-.hearing-detail .live-finding p span {
-  color: var(--muted);
-  font: 400 0.71rem var(--mono);
-}
-.hearing-detail .live-finding strong {
-  font: 400 1.35rem/1.17 var(--display);
-}
-.hearing-detail .live-finding > span {
-  color: var(--muted);
-  font-size: 0.81rem;
-  line-height: 1.45;
-}
-.hearing-detail .live-finding > svg {
-  position: absolute;
-  right: 0.75rem;
-  top: calc(50% - 0.5rem);
-  color: var(--accent);
-}
-.hearing-detail .turn {
-  border: 1px solid var(--line);
-  border-radius: 0.4rem;
-  background: var(--wash);
-  color: var(--ink);
-  min-height: 40px;
-  gap: 0.5rem;
-  padding: 0.4rem 0.65rem;
-  margin-bottom: 0.75rem;
-  font-weight: 650;
-}
-.hearing-detail .appointment {
-  border-block: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  gap: clamp(1.2rem, 4vw, 3.5rem);
-  padding: clamp(1.4rem, 4vw, 3rem) 0;
-}
-.hearing-detail .date-leaf {
-  display: grid;
-  justify-items: center;
-  gap: 0.5rem;
-  flex: none;
-  background: var(--wash);
-  border-top: 3px solid var(--ink);
-  padding: 1.1rem 1.3rem;
-  min-width: 9rem;
-}
-.hearing-detail .date-leaf strong {
-  font: 400 4.3rem/1 var(--display);
-}
-.hearing-detail .date-leaf span {
-  font: 400 0.8rem var(--mono);
-  color: var(--muted);
-}
-.hearing-detail .appointment section {
-  display: grid;
-  justify-items: start;
-  gap: 0.5rem;
-}
-.hearing-detail .appointment h2 {
-  font: 400 clamp(1.65rem, 4vw, 2.7rem)/1.08 var(--display);
-}
-.hearing-detail .appointment p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.86rem;
-}
-.hearing-detail .appointment .button {
-  margin-top: 0.35rem;
-}
-.hearing-detail .notice {
-  padding: 0.65rem 0.85rem;
-  color: var(--accent);
-  background: var(--surface);
-  margin: 0.5rem 0;
-}
-.hearing-detail audio {
-  width: 100%;
-  min-height: 44px;
-}
-.hearing-detail .audio-row p {
-  color: var(--accent);
-  font-size: 0.82rem;
-  margin: 0.5rem 0;
-}
-@media (min-width: 1250px) {
-  .hearing-detail .hearing-stage.open {
-    grid-template-columns: minmax(0, 1.85fr) minmax(20rem, 1fr);
-  }
-}
-@media (max-width: 1249px) {
-  .hearing-detail .hearing-stage.open {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (max-width: 950px) {
-  .hearing-detail .hearing-stage {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-@media (max-width: 640px) {
-  .hearing-detail .hearing-heading {
-    gap: 0.6rem;
-    margin-bottom: 0.8rem;
-    align-items: center;
-  }
-  .hearing-detail h1 {
-    font-size: 2.12rem;
-    line-height: 1.04;
-  }
-  .hearing-detail .folio-line {
-    gap: 0.38rem;
-    font-size: 0.68rem;
-  }
-  .hearing-detail .back {
-    margin-bottom: 0.35rem;
-  }
-  .hearing-detail .options {
-    height: 38px;
-    width: 38px;
-    min-height: 38px;
-  }
-  .hearing-detail .session-control,
-  .hearing-detail .mode-head {
-    gap: 0.4rem 0.6rem;
-    margin-bottom: 0.7rem;
-    padding: 0.55rem 0;
-  }
-  .hearing-detail .control-actions .button {
-    min-height: 36px;
-    font-size: 0.73rem;
-    padding: 0.3rem 0.6rem;
-  }
-  .hearing-detail .session-label {
-    font-size: 0.77rem;
-  }
-  .hearing-detail .hearing-stage {
-    gap: 1.1rem;
-  }
-  .hearing-detail .hear-reading {
-    gap: 0.55rem;
-  }
-  .hearing-detail .appointment {
-    align-items: flex-start;
-  }
-  .hearing-detail .date-leaf {
-    min-width: 5.4rem;
-    padding: 0.75rem 0.45rem;
-  }
-  .hearing-detail .date-leaf strong {
-    font-size: 3.2rem;
-  }
-  .hearing-detail .date-leaf span {
-    font-size: 0.65rem;
-    text-align: center;
-  }
-  .hearing-detail .live-finding {
-    padding: 0.65rem 1.65rem 0.65rem 0.7rem;
-  }
-  .hearing-detail .live-finding strong {
-    font-size: 1.18rem;
-  }
-  .hearing-detail .mode-head small {
-    font-size: 0.73rem;
-  }
+
+.hearing-detail .compact-status { display:none; }
+@media(max-width:719px) {
+  .hearing-detail .head-actions { justify-content:flex-start; }
+  .hearing-detail.running .head-actions,.hearing-detail .session-control,.hearing-detail .control-actions { display:flex; flex-flow:row nowrap; width:auto; }
+  .hearing-detail .session-label { flex-wrap:nowrap; min-height:44px; gap:5px; }
+  .hearing-detail .session-label .status-word { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+  .hearing-detail .compact-status { display:inline; font:600 10px/1.35 var(--sans); }
+  .hearing-detail .meta-sample,.hearing-detail .playback-toggle span { display:none; }
+  .hearing-detail .playback-toggle { width:42px; }
+  .hearing-detail .head-actions .options { height:44px; width:36px; min-width:36px; padding:0; }
 }
