@@ -1,6 +1,7 @@
 <script lang="ts">
   import { isGuestPractice, guestPracticeMinutes } from '@jude/core/domain';
  import { onDestroy } from 'svelte';
+ import { prepareMicrophone, type PreparedMicrophone } from './microphone-input';
  import { connectStartedHearing } from './hearing-detail/active-recording.svelte';
  import { goto, invalidateAll } from '$app/navigation';
  import { CalendarDays, ChevronRight, FileAudio, FileUp, Mic } from '@lucide/svelte';
@@ -17,8 +18,9 @@
  let uploadKey = '';
  let keep = $state(false);
  let dismissed = false;
- onDestroy(() => { dismissed = true; });
- function dismiss(){dismissed=true;close();}
+ let pendingInput: PreparedMicrophone | undefined;
+ onDestroy(() => { dismissed = true; pendingInput?.release(); });
+ function dismiss(){dismissed=true;pendingInput?.release();close();}
  let flow=$state<Flow|''>(''),title=$state(''),date=$state(''),time=$state('09:00'),busy=$state(false),message=$state(''),file=$state<File>(),draft=$state<{speaker:string;time:number;text:string}[]>([]),language=$state('id');
  let recordingConsent=$state<'closed'|'permitted'|''>('');
  const closed=$derived(recordingConsent==='closed'),permission=$derived(recordingConsent==='permitted');
@@ -26,6 +28,7 @@
  $effect(()=>{
    const requested=scheduled?'live':['live','schedule','import','audio'].includes(initial)?initial as Flow:'';
    flow=requested;
+   if(isGuestPractice(account,w.caseRecord))language=lang;
    title=scheduled?.title[lang]??(requested==='live' && isGuestPractice(account,w.caseRecord) ? practiceTitle : '');
    date=scheduled?.date??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta'}).format(new Date());
  });
@@ -49,16 +52,32 @@
  ]);
  function fail(e:unknown){message=e instanceof ApiError && e.code==='guest_live_limit' ? (en?`Your ${guestPracticeMinutes} minutes of practice audio have been used. You can still review the transcript and findings.`:`Jatah ${guestPracticeMinutes} menit audio latihan Anda sudah terpakai. Transkrip dan temuan tetap dapat ditinjau.`) : e instanceof Error?e.message:(en?'Could not complete this action.':'Tindakan belum selesai.')}
  async function preview(f?:File){if(!f)return;file=f;uploadKey=crypto.randomUUID();if(flow!=='import')return;const body=new FormData();body.append('file',f);busy=true;message='';try{const r=await api<{title:string;date:string;turns:typeof draft}>(prefix+'/import/preview','POST',body);draft=r.turns;title=r.title;date=r.date}catch(e){fail(e)}finally{busy=false}}
- async function submit(e:SubmitEvent){e.preventDefault();if(busy)return;busy=true;message='';try{let h:Hearing;
+ async function submit(e:SubmitEvent){e.preventDefault();if(busy)return;busy=true;message='';
+   const originPath=location.pathname;
+   const useMicrophone=flow==='live' && !demo && canRecord && permission && !closed && !otherLive;
+   const input=useMicrophone ? prepareMicrophone() : undefined;
+   pendingInput=input;
+   let handedOff=false;
+   try{let h:Hearing;
    if(flow==='audio'){const form=new FormData();form.set('file',file!);form.set('title',title);form.set('date',date);form.set('lang',language);form.set('recordingPermission',String(permission&&!closed));h=await api<Hearing>('/api/live/'+w.caseRecord.id+'/upload','POST',form,{'Idempotency-Key':uploadKey})}
    else {const body={title,date,time,flow,language,recordingPermission:permission,closed,turns:flow==='import'?draft:undefined};h=await api<Hearing>(scheduled?prefix+'/'+scheduled.id+'/start':prefix+(flow==='import'?'/import':''),'POST',body)}
    if(dismissed)return;
    const autoConnect=flow==='live' && !demo && canRecord && permission && !closed && h.mode==='live' && h.recordingPermission?.by===account.user.id;
    const destination='/case/'+w.caseRecord.id+'/hearings/'+h.id;
    const caseId=w.caseRecord.id, userId=account.user.id, retain=!guest && keep;
-   close();await invalidateAll();await goto(destination);
-   if(autoConnect && location.pathname===destination)connectStartedHearing(caseId,h.id,userId,retain,h.startedAt,h.language,guest);
- }catch(e){fail(e)}finally{busy=false}}
+   pendingInput=undefined;
+   close();await invalidateAll();
+   if(location.pathname!==originPath && location.pathname!==destination)return;
+   await goto(destination);
+   if(input && autoConnect && location.pathname===destination){
+     handedOff=true;
+     connectStartedHearing(caseId,h.id,userId,retain,h.startedAt,h.language,guest,input);
+   }
+ }catch(e){fail(e)}finally{
+   if(!handedOff)input?.release();
+   pendingInput=undefined;
+   busy=false;
+ }}
 </script>
 <Dialog title={flow?choices.find(x=>x.id===flow)!.title:(en?'New hearing':'Sidang baru')} {lang} close={dismiss} wide={flow==='import'&&draft.length>0}>
 <div class="hearing-intake" class:choosing={!flow}>
@@ -81,7 +100,7 @@
  {#if flow==='live' && privateAudio}<label><input type="checkbox" bind:checked={keep}/> {en?'Also retain the audio recording in this case.':'Simpan juga rekaman audio dalam perkara ini.'}</label>{/if}
  {#if message}<p class="error-text" role="alert">{message}</p>{/if}
  <div class="actions"><button type="submit" class="button primary" disabled={busy||flow==='import'&&!draft.length||flow==='audio'&&(!privateAudio||!file||!permission||closed)||flow==='live'&&(!canRecord||!!otherLive||!permission||closed)}>{busy?(en?'Processing…':'Memproses…'):flow==='schedule'?(en?'Schedule hearing':'Jadwalkan sidang'):flow==='import'?(en?'Confirm and import':'Konfirmasi dan impor'):flow==='audio'?(en?'Transcribe audio':'Transkripsikan audio'):(en?'Start hearing':'Mulai sidang')}</button>
- {#if !scheduled}<button class="button subtle" type="button" onclick={()=>{flow='';draft=[];file=undefined;message=''}}>{en?'Back':'Kembali'}</button>{/if}</div>
+ {#if !scheduled}<button class="button subtle" type="button" disabled={busy} onclick={()=>{flow='';draft=[];file=undefined;message=''}}>{en?'Back':'Kembali'}</button>{/if}</div>
  </form>{/if}</div></Dialog>
 <style>
   :global(dialog:has(.hearing-intake)) { width:min(620px,calc(100% - 32px)); padding:22px; border-radius:14px; }
