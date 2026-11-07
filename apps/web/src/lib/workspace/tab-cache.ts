@@ -1,5 +1,5 @@
 import { browser } from '$app/environment';
-import { exampleCaseLabels, exampleWorkspaceLabels } from './example-labels';
+import { exampleCaseLabels, exampleWorkspaceLabels } from '@jude/core/example-labels';
 import { error, redirect } from '@sveltejs/kit';
 import type { CaseSummary, Workspace } from '@jude/core/domain';
 

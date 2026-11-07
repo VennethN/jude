@@ -233,7 +233,7 @@ test('provider outages, missing keys and non-regulatory private questions preser
   expect(fetch).not.toHaveBeenCalled();
   const answer = (await c.send(secret + ' UU 5/2025', { contexts })).messages.at(-1)!;
   expect(new URL(String(fetch.mock.calls[0][0])).searchParams.get('q')).toBe('UU Nomor 5 Tahun 2025');
-  expect(answer.text).toMatchObject({ id: expect.stringContaining(secret), en: expect.stringContaining(secret) });
+  expect(answer.text).toBe('“' + secret + '” [1]');
   expect(answer.legal).toBeUndefined();
   expect((await c.workspace()).legalDiscovery).toBe('unavailable');
   expect((await c.send('Pasal 809', { contexts })).messages.at(-1)?.legal).toBeUndefined();

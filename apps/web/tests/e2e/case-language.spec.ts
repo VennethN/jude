@@ -28,6 +28,8 @@ for (const width of [1440, 390]) {
     await expect(page.locator('.facts')).toContainText('Example District Court');
     await expect(page.locator('#case-main')).toContainText('Witness Dimas Prasetyo');
     await expect(page.locator('#case-main')).toContainText('Saya supervisor Gudang B sejak tahun 2022.');
+    await page.context().clearCookies({ name: 'jude_lang' });
+    expect(await (await page.request.get(base)).text()).toMatch(/<html[^>]* lang="en"/);
     await page.reload();
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Cakung Warehouse Embezzlement Case');
     await page.goto(base + '/documents/d1?p=d1p4');

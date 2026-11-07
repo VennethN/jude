@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { cases, documents, speakers, statements, passages, findings } from '../src/server/seed';
 import type { Workspace } from '../src/domain';
-import { exampleCaseLabels, exampleWorkspaceLabels } from '../../../apps/web/src/lib/workspace/example-labels';
+import { exampleCaseLabels, exampleWorkspaceLabels } from '../src/example-labels';
 import { displayTitle, displayCourt, displaySpeaker, findingQuestion } from '../../../apps/web/src/lib/workspace/format';
 
 const workspace: Workspace = {

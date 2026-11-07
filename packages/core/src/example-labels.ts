@@ -1,4 +1,4 @@
-import type { CaseRecord, L10n, Workspace } from '@jude/core/domain';
+import type { CaseRecord, L10n, Workspace } from './domain';
 
 // Case IDs are generated per organisation. Seeded document and speaker IDs are stable.
 const caseTitles: Record<string, string> = {
@@ -52,11 +52,9 @@ export function exampleCaseLabels<T extends CaseRecord>(record: T): T {
   return { ...record, displayTitle: translation(record.title, caseTitles), displayCourt: matchingLabel(record.court, court) };
 }
 
-export function exampleWorkspaceLabels(workspace: Workspace): Workspace {
-  if (workspace.caseRecord.label !== 'synthetic') return workspace;
+// Apply only to a known synthetic workspace or a case archive marked as a synthetic example.
+export function exampleDrafts(workspace: Workspace) {
   return {
-    ...workspace,
-    caseRecord: exampleCaseLabels(workspace.caseRecord),
     findings: workspace.findings.map(finding => ({
       ...finding,
       questionTranslation: finding.questionTranslation ?? translation(finding.question, questions),
@@ -69,6 +67,15 @@ export function exampleWorkspaceLabels(workspace: Workspace): Workspace {
           ? matchingLabel(option.text, procedure) : translation(option.text, questions)),
       })),
     })),
+  };
+}
+
+export function exampleWorkspaceLabels(workspace: Workspace): Workspace {
+  if (workspace.caseRecord.label !== 'synthetic') return workspace;
+  return {
+    ...workspace,
+    caseRecord: exampleCaseLabels(workspace.caseRecord),
+    ...exampleDrafts(workspace),
     documents: workspace.documents.map(doc => ({ ...doc, displayTitle: matchingLabel(doc.title, documentTitles[doc.id]) })),
     speakers: workspace.speakers.map(person => ({ ...person, displayLabel: matchingLabel(person.label, speakerLabels[person.id]) })),
   };

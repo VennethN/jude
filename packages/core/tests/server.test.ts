@@ -374,6 +374,7 @@ describe('case API', () => {
     const finding = w.findings.find((item) => item.note === 'Reviewed source')!;
     expect(finding.reviewed).toBe(true);
     expect(finding.questionTranslation).toEqual({ id: finding.question, en: 'When did you arrive at the gate?' });
+    expect(w.findings.find(f => f.question.startsWith('Dari tempat Saudara'))?.questionTranslation?.en).toMatch(/^How far was the East Gate/);
     expect(w.statements.some((s) => s.id === finding.statementId)).toBe(true);
     expect(w.passages.some((p) => p.id === finding.sources[0].passageId)).toBe(true);
     expect(w.threads.filter((t) => t.sample)).toHaveLength(4);

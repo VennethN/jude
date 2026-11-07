@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     "./domain": "./src/domain.ts",
+    "./example-labels": "./src/example-labels.ts",
     "./speakers": "./src/speakers.ts",
     "./legal": "./src/legal.ts",
     "./plans": "./src/plans.ts",
