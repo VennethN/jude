@@ -1,5 +1,11 @@
-import type { Handle } from '@sveltejs/kit';
+import { building } from '$app/environment';
+import { runAnalysisWorker } from '@jude/core/server/jobs';
+import type { Handle, ServerInit } from '@sveltejs/kit';
 import { sessionFromToken } from '@jude/core/server/auth';
+
+export const init: ServerInit = () => {
+  if (!building) runAnalysisWorker();
+};
 
 export const handle: Handle = async ({ event, resolve }) => {
   if (!['GET', 'HEAD', 'OPTIONS'].includes(event.request.method)) {

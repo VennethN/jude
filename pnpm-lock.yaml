@@ -11,9 +11,6 @@ importers:
       '@jude/core':
         specifier: workspace:*
         version: link:packages/core
-      '@jude/voice':
-        specifier: workspace:*
-        version: link:apps/voice
       '@jude/web':
         specifier: workspace:*
         version: link:apps/web
@@ -30,6 +27,9 @@ importers:
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
+      impeccable:
+        specifier: 4.8.0
+        version: 4.8.0
       typescript:
         specifier: ^6.0.3
         version: 6.0.3
@@ -39,49 +39,6 @@ importers:
       vitest:
         specifier: ^4.1.12
         version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2))
-
-  apps/voice:
-    dependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.1164.0
-        version: 3.1164.0
-      '@aws-sdk/client-sesv2':
-        specifier: ^3.1164.0
-        version: 3.1164.0
-      '@aws-sdk/s3-request-presigner':
-        specifier: ^3.1164.0
-        version: 3.1164.0
-      '@jude/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@node-rs/argon2':
-        specifier: ^2.2.2
-        version: 2.2.2
-      '@sveltejs/kit':
-        specifier: ^2.70.4
-        version: 2.70.4(@opentelemetry/api@1.10.0)(@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)))(svelte@5.57.3)(typescript@6.0.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2))
-      fflate:
-        specifier: ^0.8.2
-        version: 0.8.3
-      openai:
-        specifier: ^6.0.0
-        version: 6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.22.1)
-      pdfjs-dist:
-        specifier: ^6.5.438
-        version: 6.5.438
-      pg:
-        specifier: ^8.23.1
-        version: 8.23.1
-      ws:
-        specifier: ^8.22.1
-        version: 8.22.1
-    devDependencies:
-      '@types/ws':
-        specifier: ^8.18.2
-        version: 8.18.2
-      esbuild:
-        specifier: ^0.28.2
-        version: 0.28.2
 
   apps/web:
     dependencies:
@@ -100,9 +57,6 @@ importers:
       '@jude/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@jude/voice':
-        specifier: workspace:*
-        version: link:../voice
       '@lucide/svelte':
         specifier: ^1.64.0
         version: 1.70.0(svelte@5.57.3)
@@ -124,9 +78,6 @@ importers:
       pg:
         specifier: ^8.23.1
         version: 8.23.1
-      ws:
-        specifier: ^8.22.1
-        version: 8.22.1
     devDependencies:
       '@sveltejs/adapter-node':
         specifier: ^5.5.8
@@ -177,9 +128,6 @@ importers:
         specifier: ^8.23.1
         version: 8.23.1
     devDependencies:
-      '@sveltejs/kit':
-        specifier: ^2.70.4
-        version: 2.70.4(@opentelemetry/api@1.10.0)(@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)))(svelte@5.57.3)(typescript@6.0.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2))
       '@types/pg':
         specifier: ^8.23.1
         version: 8.23.1
@@ -430,6 +378,36 @@ packages:
 
   '@fontsource/courier-prime@5.3.0':
     resolution: {integrity: sha512-KIi1k4VG1Wv+/CGpb1AUpLkUuOAQA6zmvthqxOZGN0AV8BEgQgbK7qAtquv14zsBJAY1bb5BHIEbWVFLgENh0w==}
+
+  '@impeccable/cli-darwin-arm64@0.1.18':
+    resolution: {integrity: sha512-Uhs8Vu8lNnwanaPnAY1TeIqQP0h+qPApAAyZozG5JZOgF++U6tFPpA0X1hsXwbwS1ldiZ8zCbkeWp1TgHhQoDw==}
+    cpu: [arm64]
+    os: [darwin]
+    hasBin: true
+
+  '@impeccable/cli-darwin-x64@0.1.18':
+    resolution: {integrity: sha512-oEdi45ONAkBsWdAAv5V/vzUJJ+aw4qDZlvjWFaVy1QIsSY0tgGK7VUz4aXzCYctdojBL9naEkmA7geNnRHWnAQ==}
+    cpu: [x64]
+    os: [darwin]
+    hasBin: true
+
+  '@impeccable/cli-linux-arm64@0.1.18':
+    resolution: {integrity: sha512-LHqLzy8YWy8U+xOJm5hGgAZrr5YRoZ0ic3eixSx32XT3OYhkwf6ubJgIFT6L2M/qg/dXaucskGVBG4KV9RQGRw==}
+    cpu: [arm64]
+    os: [linux]
+    hasBin: true
+
+  '@impeccable/cli-linux-x64@0.1.18':
+    resolution: {integrity: sha512-cksllv5f/VryElehX8CcKCIOSpTHCKX9iLRxCre4A8cqtjmNsDKc8jtVO87hvfmCKISXKzHXfZGEIpJyGEiiBA==}
+    cpu: [x64]
+    os: [linux]
+    hasBin: true
+
+  '@impeccable/cli-windows-x64@0.1.18':
+    resolution: {integrity: sha512-gQa/hDCMeJPdanY8/F6dm+HX8CRUWw0qZemcmS7RnZoI1NFgPi8iYZ+PSA5m+KG/vf/fmkQrVEUJaZRIeHu9Pg==}
+    cpu: [x64]
+    os: [win32]
+    hasBin: true
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1000,9 +978,6 @@ packages:
   '@types/resolve@1.20.2':
     resolution: {integrity: sha512-60BCwRFOZCQhDncwQdxxeOEEkbc5dIMccYLwbxsS4TUNeVECQ/pBJ0j09mrHOl/JJvpRPGwO9SvE4nR2Nb/a4Q==}
 
-  '@types/ws@8.18.2':
-    resolution: {integrity: sha512-67MQl+fpWKVTT1NYdnmo3U4sc/xPo/zQBncVnI74qmQa0z/b+1g6iYqNmGCPbxO+zz2aklb08a0oHfegiVd0/w==}
-
   '@vitest/expect@4.1.12':
     resolution: {integrity: sha512-vFlTt+YEu9WBpNjdGayNmlMVzrWPi1+sv853/7t2FU7hpO5gAFBKHzQmkCq5Xjpr+evegF2994LQT3hF3mRlqQ==}
 
@@ -1145,6 +1120,11 @@ packages:
   hasown@2.0.4:
     resolution: {integrity: sha512-T2UbfbBEF32wiepXIsMlTW9+dDYC6wMh/t/vYA4tuOMKqWz/n3vr1NFSxQiyP+zk2mXsoMA/i/7qV6LKut1t1A==}
     engines: {node: '>= 0.4'}
+
+  impeccable@4.8.0:
+    resolution: {integrity: sha512-e0+wbJppJMiQN8npKmIkBbKetfSlarak7OIGlsRhc8folekz4PgStjuprhYi+imjqBb6OCMJLV9II2hHGmcCyg==}
+    engines: {node: '>=18.19.0'}
+    hasBin: true
 
   is-core-module@2.18.0:
     resolution: {integrity: sha512-qyax9fgaKOEC4qK8WZn7Q4IcoZC9RC1O1fFxRcRTq/oMMkWT/uXpqpXa12kzWR409zAt1drYN9N9BO26UmBCmw==}
@@ -1846,6 +1826,21 @@ snapshots:
 
   '@fontsource/courier-prime@5.3.0': {}
 
+  '@impeccable/cli-darwin-arm64@0.1.18':
+    optional: true
+
+  '@impeccable/cli-darwin-x64@0.1.18':
+    optional: true
+
+  '@impeccable/cli-linux-arm64@0.1.18':
+    optional: true
+
+  '@impeccable/cli-linux-x64@0.1.18':
+    optional: true
+
+  '@impeccable/cli-windows-x64@0.1.18':
+    optional: true
+
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
       '@jridgewell/sourcemap-codec': 1.6.0
@@ -2254,10 +2249,6 @@ snapshots:
 
   '@types/resolve@1.20.2': {}
 
-  '@types/ws@8.18.2':
-    dependencies:
-      '@types/node': 24.19.2
-
   '@vitest/expect@4.1.12':
     dependencies:
       '@standard-schema/spec': 1.1.0
@@ -2363,6 +2354,7 @@ snapshots:
       '@esbuild/win32-arm64': 0.28.2
       '@esbuild/win32-ia32': 0.28.2
       '@esbuild/win32-x64': 0.28.2
+    optional: true
 
   esm-env@1.2.2: {}
 
@@ -2392,6 +2384,14 @@ snapshots:
   hasown@2.0.4:
     dependencies:
       function-bind: 1.1.2
+
+  impeccable@4.8.0:
+    optionalDependencies:
+      '@impeccable/cli-darwin-arm64': 0.1.18
+      '@impeccable/cli-darwin-x64': 0.1.18
+      '@impeccable/cli-linux-arm64': 0.1.18
+      '@impeccable/cli-linux-x64': 0.1.18
+      '@impeccable/cli-windows-x64': 0.1.18
 
   is-core-module@2.18.0:
     dependencies:
@@ -2738,7 +2738,8 @@ snapshots:
       siginfo: 2.0.0
       stackback: 0.0.2
 
-  ws@8.22.1: {}
+  ws@8.22.1:
+    optional: true
 
   xtend@4.0.2: {}
 

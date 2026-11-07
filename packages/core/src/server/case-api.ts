@@ -1,3 +1,4 @@
+import { transcriptionAvailable } from './voice-capabilities';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CoreRequest } from './request';
 import type { ContextRef, SessionInfo, Thread, Workspace } from '../domain';
@@ -383,10 +384,12 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
   if (!resource && method === 'PATCH') return mutateWorkspace(org, caseId, (w) => patchCase(w, f));
   if (resource === 'threads' && id && act === 'messages' && method === 'POST')
     return postMessage(session, caseId, id, f, key);
+  const startingHearing = resource === 'hearings' && method === 'POST' && (f.flow === 'live' || act === 'start');
+  const voiceReady = startingHearing && !session.user.guest && await transcriptionAvailable();
   return transaction((db) =>
     idempotent(db, org, caseId + '/' + path.join('/') + '/' + method, key, async () => {
       if (resource === 'boards' && !id && method === 'POST') await checkQuota(db, org, 'boards', 1);
-      if (resource === 'hearings' && method === 'POST' && (f.flow === 'live' || act === 'start')) {
+      if (startingHearing) {
         await orgLock(db, org);
         const w = await workspaceIn(db, org, caseId);
         if (
@@ -399,7 +402,7 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
             'recording_permission',
             'Recording requires judicial permission in an open hearing.',
           );
-        if (w.caseRecord.label === 'private' && session.user.guest) unavailable('transcribe');
+        if (w.caseRecord.label === 'private' && !voiceReady) unavailable('transcribe');
         await liveQuota(db, org, w);
         if (w.caseRecord.label === 'private') {
           const active = await db.query<{ body: string }>(
@@ -420,7 +423,12 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
           if (method === 'POST' && id === 'import' && !act) return importHearing(w, f, session.user.id);
           if (method === 'POST' && !id) return addHearing(w, f, session.user.id);
           if (method === 'POST' && act === 'start') return startHearing(w, id, f, session.user.id);
-          if (method === 'POST' && act === 'end') return endHearing(w, id);
+          if (method === 'POST' && act === 'end') {
+            const hearing = required(w.hearings, h => h.id === id);
+            if (w.caseRecord.label !== 'synthetic' && hearing.recordingPermission?.by !== session.user.id)
+              throw new ApiError(403, 'forbidden', 'Only the recording lawyer may end this hearing.');
+            return endHearing(w, id);
+          }
           if (method === 'PATCH' && id && !act) return patchHearing(w, id, f);
         }
         if (resource === 'speakers' && method === 'PATCH' && id && !act) return patchSpeaker(w, id, f);

@@ -11,7 +11,6 @@ import {
   object,
   required,
   string,
-  unavailable,
   type Fields,
 } from './validation';
 
@@ -47,7 +46,7 @@ export function startHearing(w: Workspace, id: string, fields: Fields, userId: s
     );
   if (h.mode !== 'scheduled' || w.hearings.some((other) => other.mode === 'live'))
     throw new ApiError(409, 'already_recording', 'A hearing is already live.');
-  if (w.caseRecord.label !== 'synthetic' && !process.env.OPENAI_API_KEY) unavailable('transcribe');
+  h.language = choice(fields.language ?? h.language ?? 'id', ['id', 'en'] as const, 'language');
   h.mode = 'live';
   h.startedAt = new Date().toISOString();
   h.recordingPermission = {

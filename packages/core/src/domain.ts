@@ -60,6 +60,7 @@ export interface Hearing {
   title: L10n;
   date: string;
   mode: HearingMode;
+  language?: Lang;
   /** Seconds of audio for recorded hearings. */
   duration?: number;
   startedAt?: string;
