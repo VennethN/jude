@@ -543,6 +543,30 @@ describe('case API', () => {
     expect(state.boards.find((b) => b.id === board.id)!.cards[0]).toMatchObject(card);
     expect(state.boards.find((b) => b.id === board.id)!.name).toBe('Updated preparation');
   });
+  test('purging a hearing forgets aggregated voiceprints only in its own case', async () => {
+    const a = browser();
+    await a.ok<SessionInfo>('auth/signup', 'POST', {
+      name: 'Voice retention', email: randomUUID() + '@example.test', password: 'Recording-1234',
+    });
+    const c = await a.ok<CaseRecord>('cases', 'POST', { title: 'Voice retention' });
+    const other = await a.ok<CaseRecord>('cases', 'POST', { title: 'Separate voices' });
+    const base = 'cases/' + c.id;
+    const hearing = await a.ok<{ id: string }>(base + '/hearings', 'POST', {
+      title: 'Scheduled hearing', date: '2026-11-07', flow: 'schedule',
+    });
+    await transaction(async (db) => {
+      for (const cid of [c.id, other.id])
+        await db.query("INSERT INTO voiceprints(case_id,speaker_id,model,embedding) VALUES($1,'speaker','synthetic','[1,0]')", [cid]);
+      await db.query("INSERT INTO voiceprint_bindings(case_id,hearing_id,source_speaker,speaker_id) VALUES($1,$2,'source','speaker')", [c.id, hearing.id]);
+    });
+    await a.ok(base + '/hearings/' + hearing.id, 'DELETE');
+    await transaction(db => db.query('UPDATE case_trash SET deleted_at=$1 WHERE case_id=$2 AND id=$3',
+      [Date.now() - retentionMs() - 1000, c.id, hearing.id]));
+    await purgeExpired();
+    expect(await transaction(db => db.query('SELECT case_id FROM voiceprints WHERE case_id=$1', [c.id]))).toHaveLength(0);
+    expect(await transaction(db => db.query('SELECT case_id FROM voiceprint_bindings WHERE case_id=$1', [c.id]))).toHaveLength(0);
+    expect(await transaction(db => db.query('SELECT case_id FROM voiceprints WHERE case_id=$1', [other.id]))).toHaveLength(1);
+  });
   test('deletion releases storage immediately and the retention worker purges originals and case data', async () => {
     const a = browser(),
       me = await a.ok<SessionInfo>('auth/signup', 'POST', { name:'Retention test', email:randomUUID()+'@example.test', password:'Private-case-2', planId:'pro' });

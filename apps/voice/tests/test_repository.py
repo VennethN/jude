@@ -11,7 +11,7 @@ from uuid import uuid4
 from jude_voice.repository import Repository, VoiceError, now_ms, pack
 
 
-class VoiceRepositoryTest(unittest.TestCase):
+class VoiceRepositoryFixture(unittest.TestCase):
     """Uses the same migrations for SQLite and the optional PostgreSQL test DSN."""
 
     def setUp(self):
@@ -153,6 +153,8 @@ class VoiceRepositoryTest(unittest.TestCase):
             text=name if text is None else text,
         )
 
+
+class VoiceRepositoryTest(VoiceRepositoryFixture):
     def test_tenants_roles_membership_archive_and_session_revocation(self):
         self.assertEqual(self.repo.case(self.viewer, "case")["title"], "case")
         self.expect_error(404, self.repo.case, self.owner, "secret")

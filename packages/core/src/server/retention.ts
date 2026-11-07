@@ -134,6 +134,10 @@ export async function purgeExpired(now = Date.now()) {
         await queueOriginals(db, item.case_id, item.id);
         await db.query('DELETE FROM attachments WHERE case_id=$1 AND entity_id=$2', [item.case_id, item.id]);
         if (item.kind === 'hearings') {
+          // Profiles combine samples across hearings. Forget the case's derived
+          // voiceprints when any contributing hearing is permanently purged.
+          await db.query('DELETE FROM voiceprint_bindings WHERE case_id=$1', [item.case_id]);
+          await db.query('DELETE FROM voiceprints WHERE case_id=$1', [item.case_id]);
           await db.query('DELETE FROM voice_turns WHERE case_id=$1 AND hearing_id=$2', [
             item.case_id,
             item.id,
