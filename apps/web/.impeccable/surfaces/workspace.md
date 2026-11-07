@@ -1,7 +1,7 @@
 ---
 version: 1
 slug: workspace
-primary_target: apps/web/src/routes/(workspace)/+layout.svelte
+primary_target: src/routes/(workspace)/+layout.svelte
 ---
 # The open case file
 

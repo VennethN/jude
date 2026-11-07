@@ -1,0 +1,15 @@
+{
+  "version": 2,
+  "name": "Jude",
+  "typography": {
+    "Rufina": "wordmark",
+    "Caslon Display": "case titles, section headings and questions",
+    "Manrope": "testimony and interface",
+    "Courier Prime": "filed records"
+  },
+  "motion": {"reducedMotion": "static"},
+  "relations": {
+    "paper": {"conflicts":"#aa4b29","context":"#72549e","supports":"#186e59","related":"#59675c"},
+    "night": {"conflicts":"#ef9b72","context":"#b49cde","supports":"#75bc9d","related":"#b8c5b8"}
+  }
+}

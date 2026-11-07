@@ -39,3 +39,7 @@ Text and shape accompany review status. A paper folio can carry a single promine
 ## Night
 
 Use deep green-grey paper with lighter text. Keep written sources and testimony typographically distinct in both themes, including high-contrast and coarse-pointer layouts.
+
+## Comparing testimony
+
+Show the testimony and filed phrase together wherever space permits. Give each its own source link. On the overview a running hearing sits in the page flow above the case title. A tablet or phone keeps the assistant available in the top bar.
