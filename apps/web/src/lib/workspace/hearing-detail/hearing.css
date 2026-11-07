@@ -1,8 +1,8 @@
 .hearing-detail {
-  --tone:var(--muted); --hearing-sticky:68px;
+  --tone:var(--muted); --hearing-sticky:calc(var(--bar-height) + 12px);
   min-width:0; max-width:none; margin-inline:auto; font-family:var(--sans); container:hearing / inline-size;
 }
-.desk.has-live .hearing-detail { --hearing-sticky:117px; }
+.desk.has-live .hearing-detail { --hearing-sticky:calc(var(--bar-height) + 62px); }
 .hearing-detail.live-view { margin-inline:0; }
 .hearing-detail [data-tone=judge], .hearing-detail [data-tone=judge_member] { --tone:var(--role-judge,#4c5b92); }
 .hearing-detail [data-tone=counsel] { --tone:var(--role-counsel,#2e6c4b); }
@@ -52,7 +52,7 @@
 .hearing-detail .notice { padding:10px 13px; margin:8px 0; color:var(--accent); background:var(--surface); }
 @container hearing (min-width:1000px) {
   .hearing-detail .hearing-stage.has-context { grid-template-columns:minmax(0,1fr) 320px; }
-  .hearing-detail .hearing-margin { position:sticky; top:calc(var(--hearing-sticky) + var(--player-height) + 10px); }
+  .hearing-detail .hearing-margin { position:sticky; top:var(--hearing-sticky); }
 }
 @container hearing (max-width:999px) { .hearing-detail .hearing-margin { display:none; } }
 @media(max-width:719px) {

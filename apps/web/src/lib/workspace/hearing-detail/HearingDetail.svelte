@@ -137,7 +137,7 @@
   let finding = $derived(findings.find((f) => f.id === brief)),
     reply = $derived(replies.find((r) => r.id === replyId)),
     quick = $derived(!!(finding || reply));
-  let stageWidth = $state(0), playerHeight = $state(0), ready = $state(false);
+  let stageWidth = $state(0), ready = $state(false);
   let systemDark = $state(false);
   const night = $derived(account.prefs.theme === 'night' || (account.prefs.theme === 'system' && systemDark));
   onMount(() => {
@@ -507,7 +507,7 @@
       </div>
 {/snippet}
 
-<article class="hearing-detail" class:live-view={live || scheduled} class:running={live} style:--player-height={(!live && canPlay ? playerHeight : 0) + 'px'}>
+<article class="hearing-detail" class:live-view={live || scheduled} class:running={live}>
   <a class="back" href={base + '/hearings'}><ArrowLeft size={15} />{en ? 'All hearings' : 'Semua sidang'}</a>
   <header class="hearing-heading">
     <h1><span>{en ? 'Hearing' : 'Sidang'} {h.number}</span> {h.title[lang]}</h1>
@@ -577,7 +577,7 @@
           if (audio) { audio.playbackRate = playbackRate; if (pos > 0) audio.currentTime = pos; }
         }} ontimeupdate={heard} onplay={() => (playing = true)} onpause={() => (playing = false)}
         onerror={() => { audioError = true; playing = false; }}></audio>{/if}
-      <HearingTransport bind:height={playerHeight} hearing={h} {lines} {findings} speakers={w.speakers} {lang} current={pos} duration={trackLength}
+      <HearingTransport hearing={h} {lines} {findings} speakers={w.speakers} {lang} {ready} current={pos} duration={trackLength}
         {playing} rate={playbackRate} error={audioError} seek={(time) => seek(time, false)} toggle={togglePlayer}
         {setRate} openFinding={showFinding}/>
     {:else if !live}
@@ -613,7 +613,7 @@
           speaking={synthetic ? !replayPaused && !replayDone : capture?.state === 'recording'}
           partialStatus={synthetic ? (en ? 'Paused' : 'Dijeda') : capture?.state === 'offline' ? (en ? 'Reconnecting…' : 'Menghubungkan kembali…') : liveStatus}
           selected={picked}
-          audio={canPlay}
+          audio={!!h.audio}
           {textSize}
           anchored={!!queryLine || !!queryFinding}
           inspect={(kind, id) => (inspect = { kind, id })}
@@ -631,7 +631,6 @@
           {finding}
           {reply}
           findings={findingQueue}
-          play={!live && canPlay ? (t) => playAt(t, false) : undefined}
           select={showFinding}
           close={closeQuick}
         />

@@ -186,6 +186,8 @@ export interface Connection {
 
 export interface LegalRef {
   id: string;
+  provider?: "pasal" | "sample";
+  sourceUrl?: string;
   type: string;
   regulation: string;
   article: string;
@@ -299,6 +301,7 @@ export interface SessionInfo {
 }
 
 export interface Workspace {
+  legalDiscovery?: "sample" | "available" | "unavailable";
   version: number;
   caseRecord: CaseRecord;
   hearings: Hearing[];

@@ -46,7 +46,7 @@
       {#if variant === 'lead' && finding.question}<span class="suggested"><b>{lang === 'id' ? 'Bisa ditanyakan' : 'You could ask'}</b> <span lang="id">{finding.question}</span></span>{/if}
     </span>
   {/if}
-  {#if variant === 'lead'}<span class="quick-label">{lang === 'id' ? 'Lihat sekilas' : 'Quick look'}</span>{/if}
+  {#if variant === 'lead'}<span class="quick-label">{lang === 'id' ? 'Lihat temuan' : 'View finding'}</span>{/if}
   {#if onPreview}<ChevronRight size={variant === 'pill' ? 12 : 14} aria-hidden="true"/>
   {:else}<ArrowRight size={variant === 'pill' ? 12 : 14} aria-hidden="true"/>{/if}
 </a>

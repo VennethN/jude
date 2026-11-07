@@ -10,6 +10,7 @@ import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { CaseDocument, Workspace } from '../domain';
+import { pasalSourceUrl } from '../legal';
 import { billing, checkQuota } from './billing';
 import { emptyWorkspace, insertWorkspace, makeCase, readWorkspace } from './cases';
 import { type Database, transaction } from './db';
@@ -199,6 +200,9 @@ function parseWorkspace(raw: unknown) {
     article: rowText(r.article, 'article', 180),
     summary: bilingual(r.summary, 'summary', 5000),
     keywords: list(r.keywords ?? [], 'keywords', 100).map((v) => string(v, 'keyword', 120)),
+    provider: r.provider === 'sample' || (!r.provider && record.label === 'synthetic')
+      ? 'sample' : r.provider === 'pasal' && pasalSourceUrl(r.sourceUrl) ? 'pasal' : undefined,
+    sourceUrl: pasalSourceUrl(r.sourceUrl),
   }));
   w.passages = rows('passages').map((r) => ({
     id: ref(r.id),

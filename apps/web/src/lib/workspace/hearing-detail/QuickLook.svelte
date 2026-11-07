@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { ArrowRight, ArrowUpRight, ChevronDown, ChevronUp, ClipboardCopy, FileText, Play, X } from '@lucide/svelte';
+  import { ArrowRight, ArrowUpRight, ChevronDown, ChevronUp, ClipboardCopy, FileText, X } from '@lucide/svelte';
   import type { Finding, Lang, Reply, Workspace } from '@jude/core/domain';
   import Dialog from '../Dialog.svelte';
   import SheetHandle from '../SheetHandle.svelte';
@@ -17,7 +17,6 @@
     finding,
     reply,
     findings,
-    play,
     select,
     close
   }: {
@@ -27,7 +26,6 @@
     finding?: Finding;
     reply?: Reply;
     findings: Finding[];
-    play?: (time:number) => void;
     select: (id: string) => void;
     close: () => void;
   } = $props();
@@ -130,7 +128,6 @@
       {#if statement && speaker}<section class="comparison">
         <h3><span class="speaker-dot" data-tone={speaker.role} aria-hidden="true">{speaker.letters}</span>{en ? 'In court' : 'Di sidang'} · {speaker.name}</h3>
         <p>“<Match text={excerpt(statement.text,finding.said)} term={finding.said}/>”</p>
-        {#if play}<button class="text-action" onclick={() => play?.(statement!.t)}><Play size={13}/>{en ? 'Play from here' : 'Putar dari sini'}</button>{/if}
       </section>{/if}
       {#if source}<section class="comparison written"><h3><a href={source.href}><FileText size={13}/>{source.label}<ArrowUpRight size={12}/></a></h3>
         <p>“<Match text={excerpt(source.text,first?.match)} term={first?.match}/>”</p>
@@ -172,7 +169,7 @@
 
 <style>
   .quick { display:flex; flex-direction:column; min-width:0; color:var(--ink-strong,var(--ink)); background:var(--surface); }
-  aside.quick { position:sticky; top:calc(var(--hearing-sticky) + var(--player-height) + 12px); min-height:360px; max-height:calc(100dvh - var(--hearing-sticky) - var(--player-height) - 25px); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
+  aside.quick { position:sticky; top:var(--hearing-sticky); max-height:calc(100dvh - var(--hearing-sticky) - 12px); border:1px solid var(--line); border-radius:12px; overflow:hidden; }
   :global(dialog.side:has(.quick.overlay)) { width:min(560px,100%); }
   .quick.overlay { height:100%; }
   .look-head,.look-head > div,.statusline,.comparison h3,.comparison h3 a,.text-action,.suggestions li>div { display:flex; align-items:center; gap:6px; }
@@ -192,6 +189,7 @@
   .question,.comparison { display:grid; gap:6px; align-content:start; }
   .question { padding:14px 16px 12px; background:var(--selected,var(--wash)); border-radius:12px; }
   .question h3,.comparison h3,.note { margin:0; color:var(--muted); font:600 11.5px/1.5 var(--sans); letter-spacing:.01em; }
+  .question h3 { color:color-mix(in srgb,var(--muted) 65%,var(--ink-strong)); font-size:12px; }
   .question p { margin:0; color:var(--ink-strong,var(--ink)); font:400 18.5px/1.38 var(--display); text-wrap:pretty; }
   .text-action { justify-self:start; gap:5px; min-height:28px; border:0; padding:1px 0; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; color:var(--ink-strong,var(--ink)); background:transparent; font:600 12px/1.45 var(--sans); }
   .text-action:hover,.written a:hover { text-decoration-color:currentColor; }
@@ -203,11 +201,12 @@
   .comparison p { margin:0; overflow-wrap:anywhere; color:var(--ink-strong,var(--ink)); font:400 15px/1.5 var(--sans); }
   .written p { font-family:var(--mono); }
   .written a { color:var(--muted); text-decoration:underline; text-decoration-color:transparent; text-underline-offset:3px; }
-  .speaker-dot { flex:none; display:grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--tone,var(--role-unknown)); color:white; font:600 8px var(--sans); }
-  .speaker-dot[data-tone=witness] { background:var(--role-witness); }
-  .speaker-dot[data-tone=counsel] { background:var(--role-counsel); }
-  .speaker-dot[data-tone=judge],.speaker-dot[data-tone=judge_member] { background:var(--role-judge); }
-  .speaker-dot[data-tone=opposing] { background:var(--role-opposing); }
+  .speaker-dot { flex:none; display:grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--speaker-paper,var(--role-unknown-soft)); color:var(--speaker-ink,var(--role-unknown-ink)); font:600 10px/1 var(--sans); }
+  .speaker-dot[data-tone=witness] { --speaker-paper:var(--role-witness-soft); --speaker-ink:var(--role-witness-ink); }
+  .speaker-dot[data-tone=counsel] { --speaker-paper:var(--role-counsel-soft); --speaker-ink:var(--role-counsel-ink); }
+  .speaker-dot[data-tone=judge], .speaker-dot[data-tone=judge_member] { --speaker-paper:var(--role-judge-soft); --speaker-ink:var(--role-judge-ink); }
+  .speaker-dot[data-tone=opposing] { --speaker-paper:var(--role-opposing-soft); --speaker-ink:var(--role-opposing-ink); }
+  .speaker-dot[data-tone=party] { --speaker-paper:var(--role-party-soft); --speaker-ink:var(--role-party-ink); }
   .detail-link { min-height:42px; font-size:13px; }
   .trigger,.suggestions li { padding:10px 0; border-top:1px solid var(--line); }
   .trigger,.suggestions p { margin:0; line-height:1.5; }

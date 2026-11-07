@@ -16,7 +16,7 @@
   } = $props();
 
   const en = $derived(lang === 'en');
-  const title = $derived(en ? 'Worth a look' : 'Perlu dicek');
+  const title = $derived(en ? 'Hearing findings' : 'Temuan sidang');
   const top = $derived(alerts[0]);
   const more = $derived(alerts.slice(1));
   let announcement = $state('');

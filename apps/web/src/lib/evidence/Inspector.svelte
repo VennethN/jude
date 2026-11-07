@@ -9,6 +9,7 @@
     PanelsTopLeft
   } from '@lucide/svelte';
   import type { InspectTarget, Lang, Workspace } from '@jude/core/domain';
+  import { pasalSourceUrl } from '@jude/core/legal';
   import { assistantPath, boardPath, casePath, evidenceKey, local, sourceOf } from './records';
   import './evidence.css';
 
@@ -21,6 +22,8 @@
   let id = $derived(lang === 'id');
   let base = $derived(casePath(w));
   let law = $derived(target.kind === 'legal' ? w.legal.find((l) => l.id === target.id) : undefined);
+  const lawUrl = $derived(pasalSourceUrl(law?.sourceUrl));
+  const sampleLaw = $derived(law?.provider === 'sample' || (!law?.provider && w.caseRecord.label === 'synthetic'));
   let p = $derived(target.kind === 'passage' ? w.passages.find((l) => l.id === target.id) : undefined);
   let line = $derived(target.kind === 'statement' ? w.statements.find((l) => l.id === target.id) : undefined);
   let finding = $derived(target.kind === 'finding' ? w.findings.find((l) => l.id === target.id) : undefined);
@@ -44,19 +47,15 @@
 <Dialog sheet {title} {lang} {close}>
   <div class="ev-panel inspector">
   {#if law}
-    <h2 id="source-title" class="ev-title">{law.article}</h2>
-    <p>{law.regulation}</p>
+    <h2 id="source-title" class="ev-title">{law.article || law.regulation}</h2>
+    {#if law.article}<p>{law.regulation}</p>{/if}
     <p class="ev-meta">
-      {w.caseRecord.label === 'synthetic'
-        ? id
-          ? 'Metadata contoh Pasal.id'
-          : 'Sample Pasal.id metadata'
-        : 'Pasal.id'} · {id ? 'Periksa naskah resmi.' : 'Verify the official text.'}
+      {sampleLaw ? (id ? 'Metadata contoh Pasal.id' : 'Sample Pasal.id metadata')
+        : lawUrl ? 'Pasal.id' : (id ? 'Rujukan tersimpan' : 'Saved reference')} · {id ? 'Periksa naskah resmi.' : 'Verify the official text.'}
     </p>
     <p>{local(law.summary, lang)}</p>
-    <a class="ev-link" href="https://pasal.id" target="_blank" rel="noreferrer"
-      >Pasal.id <ArrowUpRight size={14} /></a
-    >
+    {#if lawUrl}<a class="ev-link" href={lawUrl} target="_blank" rel="noreferrer">{id ? 'Buka sumber di Pasal.id' : 'Open source on Pasal.id'} <ArrowUpRight size={14}/></a>
+    {:else if sampleLaw}<a class="ev-link" href="https://pasal.id" target="_blank" rel="noreferrer">{id ? 'Telusuri Pasal.id' : 'Browse Pasal.id'} <ArrowUpRight size={14}/></a>{/if}
   {:else if source}
     <h2 class="ev-title" id="source-title">{source.label}</h2>
     {#if p?.before}<p class="ev-record ev-muted">{p.before}</p>{/if}

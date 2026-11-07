@@ -176,6 +176,20 @@ test('the finding reaches the desk gutter and retains both source excerpts on a 
   await page.goto('/demo/hearings/h2?f=f1&s=s208');
   const finding = page.getByRole('complementary',{name:'Temuan',exact:true});
   await expect(finding).toBeVisible();
+  await expect(finding.getByRole('button',{name:'Putar dari sini'})).toHaveCount(0);
+  const line = page.locator('#line-s208');
+  const confirmReadingPosition = async () => {
+    await line.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
+    await expect.poll(() => page.evaluate(() => {
+      const player = document.querySelector('.player')!;
+      const transcript = document.querySelector('.transcript-panel')!;
+      const statement = document.querySelector('#line-s208 .words')!;
+      const box = statement.getBoundingClientRect();
+      const hit = document.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2);
+      return player.getBoundingClientRect().bottom <= transcript.getBoundingClientRect().top &&
+        statement.contains(hit);
+    })).toBe(true);
+  };
   for (const width of [1484,1280]) {
     await page.setViewportSize({width,height:786});
     const right = await finding.evaluate(node => node.getBoundingClientRect().right);
@@ -183,6 +197,8 @@ test('the finding reaches the desk gutter and retains both source excerpts on a 
     expect(width - right).toBeLessThan(45);
     await expect(finding.locator('.source-pair .comparison')).toHaveCount(2);
     expect(await finding.locator('.source-pair').evaluate(node => node.scrollHeight-node.clientHeight)).toBeLessThanOrEqual(1);
+    await confirmReadingPosition();
+    await expect(finding.getByRole('button', {name:'Tutup temuan'})).toBeInViewport();
   }
   await page.setViewportSize({width:390,height:844});
   const sheet = page.getByRole('dialog',{name:'Temuan',exact:true});
@@ -198,6 +214,7 @@ test('the finding reaches the desk gutter and retains both source excerpts on a 
   await page.keyboard.press('Escape');
   await expect(sheet).toHaveCount(0);
   await expect.poll(()=>page.evaluate(()=>document.activeElement?.getAttribute('href'))).toMatch(/\/findings\/f1$/);
+  await confirmReadingPosition();
   await page.getByRole('button',{name:'Opsi tampilan sidang'}).click();
   const options = page.getByRole('dialog');
   await options.getByRole('button',{name:'Mode malam ruang sidang'}).click();

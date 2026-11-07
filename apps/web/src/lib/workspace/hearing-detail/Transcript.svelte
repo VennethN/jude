@@ -343,7 +343,7 @@
                     .length}</button
                 >{/if}
               {#each s.legal ?? [] as lawId}{@const l = w.legal.find((l) => l.id === lawId)}{#if l}<button
-                    onclick={() => inspect('legal', lawId)}>{l.article}<ArrowUpRight size={11} /></button
+                    title={l.regulation} onclick={() => inspect('legal', lawId)}>{l.article || l.regulation}<ArrowUpRight size={11} /></button
                   >{/if}{/each}
             </div>{/if}
         </div>

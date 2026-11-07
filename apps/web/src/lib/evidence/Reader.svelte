@@ -6,7 +6,6 @@
     ChevronLeft,
     ChevronRight,
     Download,
-    Link as LinkIcon,
     Minus,
     Plus,
     Search,
@@ -14,12 +13,13 @@
     Trash2
   } from '@lucide/svelte';
   import type { Finding, InspectTarget, Lang, Workspace } from '@jude/core/domain';
-  import { apiPath, assistantPath, boardPath, casePath, local } from './records';
+  import { apiPath, assistantPath, casePath, local } from './records';
   import FindingLink from './FindingLink.svelte';
   import Match from './Match.svelte';
   import Inspector from './Inspector.svelte';
   import DocumentRemoval from './DocumentRemoval.svelte';
   import PdfSheet from './PdfSheet.svelte';
+  import PassageIndex from './PassageIndex.svelte';
   import './evidence.css';
 
   let { workspace: w, lang, docId }: { workspace: Workspace; lang: Lang; docId: string } = $props();
@@ -68,7 +68,6 @@
   );
   let inspect = $state<InspectTarget | null>(null);
   let deleting = $state(false);
-  let copied = $state('');
   let searchResults = $derived(
     query.trim() ? list.filter((p) => p.text.toLowerCase().includes(query.trim().toLowerCase())) : []
   );
@@ -102,15 +101,6 @@
   }
   function turn(n: number) {
     return goto(url({ page: String(n), p: null }), { noScroll: true, keepFocus: true });
-  }
-  async function copy(p: string) {
-    const href = new URL(url({ p, view: 'text', page: null }), window.location.origin);
-    try {
-      await navigator.clipboard.writeText(href.toString());
-      copied = id ? 'Tautan disalin.' : 'Link copied.';
-    } catch {
-      copied = href.toString();
-    }
   }
   function readSelection() {
     const range = window.getSelection();
@@ -229,6 +219,12 @@
         : 'Scanned file. Check OCR passages against the original page.'}
     </p>{/if}
   <div class="reader-layout">
+    {#key doc.id}
+      <PassageIndex workspace={w} passages={list} pageNumber={number} selectedId={selected?.id} {lang}
+        inspect={(p) => (inspect = { kind: 'passage', id: p.id })}
+        permalink={(p) => url({ p: p.id, view: 'text', page: null })}
+        citations={textView ? undefined : citationLinks}/>
+    {/key}
     <div class="ev-pane">
       <div class="ev-tools reader-tools" data-tour="reader-tools">
         <div class="ev-inline">
@@ -341,36 +337,6 @@
         </div>
       {/if}
     </div>
-    <aside class="margin" data-tour="doc-passages">
-      <h2 class="ev-title">{id ? 'Kutipan halaman ini' : 'On this page'}</h2>
-      {#if !active.length}<p class="ev-sub">
-          {id
-            ? 'Belum ada kutipan bertanda pada halaman ini.'
-            : 'There are no indexed passages on this page.'}
-        </p>{/if}
-      <ul class="ev-list">
-        {#each active as p (p.id)}
-          <li class:chosen={p.id === selected?.id}>
-            <button class="ev-pick" onclick={() => (inspect = { kind: 'passage', id: p.id })}
-              ><span class="ev-cap">{id ? 'Kutipan' : 'Passage'} {list.indexOf(p) + 1}</span><span
-                class="excerpt ev-record">{p.text}</span
-              ></button
-            >
-            {#if !textView}{@render citationLinks(p.id)}{/if}
-            <div class="ev-actions">
-              <button
-                class="ev-icon"
-                aria-label={id ? 'Salin tautan kutipan' : 'Copy passage link'}
-                onclick={() => copy(p.id)}><LinkIcon size={15} /></button
-              ><a class="ev-link" href={boardPath(w, { kind: 'passage', id: p.id })}
-                >{id ? 'Taruh di papan' : 'Put on board'}</a
-              >
-            </div>
-          </li>
-        {/each}
-      </ul>
-      <p class="ev-meta" role="status">{copied}</p>
-    </aside>
   </div>
 </div>
 {#if deleting}<DocumentRemoval
@@ -386,10 +352,12 @@
 <style>
   .reader-layout {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(14rem, 25%);
-    gap: 1.3rem;
+    grid-template-areas: 'document index';
+    grid-template-columns: minmax(0, 1fr) clamp(235px, 25%, 280px);
+    gap: clamp(14px, 1.6vw, 24px);
     align-items: start;
   }
+  .reader-layout > .ev-pane { grid-area: document; min-width: 0; }
   .reader-tools {
     margin: 0 0 0.65rem;
     border-top: 0;
@@ -416,31 +384,8 @@
   .passage { padding: 0; border: 0; color: var(--ink); font: 400 14.5px/1.75 var(--mono); background: transparent; text-align: start; cursor: pointer; }
   .passage:hover { text-decoration: underline; text-decoration-color: var(--line-strong); }
   .passage mark { background: var(--mark); color: var(--mark-ink); }
-  .passage-block.focused,.margin li.chosen { outline: 2px solid var(--focus); outline-offset: 0; }
+  .passage-block.focused { outline: 2px solid var(--focus); outline-offset: 0; }
   .finding-links { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; gap: 6px; }
-  .margin {
-    border-inline-start: 1px solid var(--line);
-    padding-inline-start: 1.1rem;
-  }
-  .margin h2 {
-    font-size: 1.46rem;
-    margin: 0.5rem 0 1rem;
-  }
-  .margin .ev-list li {
-    padding: 0.4rem 0 0.75rem;
-  }
-  .margin .ev-pick {
-    padding: 0.35rem 0;
-  }
-  .excerpt {
-    display: -webkit-box;
-    -webkit-line-clamp: 4;
-    line-clamp: 4;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-    margin: 0.5rem 0 0;
-    font-size: 0.85rem;
-  }
   .lookup {
     padding: 0.75rem 0;
     max-height: 18rem;
@@ -448,13 +393,10 @@
   }
   @container (max-width:760px) {
     .reader-layout {
-      display: block;
-    }
-    .margin {
-      border-inline: 0;
-      border-top: 1px solid var(--line);
-      padding: 1rem 0 0;
-      margin-top: 1rem;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 10px;
     }
     .reading {
       padding: 0.35rem;
