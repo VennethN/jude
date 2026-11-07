@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('case shortcuts respect focus, chords and modal ownership', async ({ page }) => {
   await page.goto('/demo');
+  await page.waitForLoadState('networkidle');
   const base = new URL(page.url()).pathname;
   const rail = page.getByRole('navigation', { name: 'Bagian perkara' });
   await expect(rail.getByRole('link', { name: 'Temuan' })).toHaveAccessibleDescription(/\d+ perlu diperiksa/);
@@ -9,7 +10,7 @@ test('case shortcuts respect focus, chords and modal ownership', async ({ page }
   await expect(rail.getByRole('link', { name: 'Sidang' })).toHaveAccessibleDescription(/berlangsung/);
   await page.keyboard.press('Control+k');
   const search = page.getByRole('dialog', { name: 'Cari dalam berkas perkara' });
-  const query = search.getByRole('textbox');
+  const query = search.getByRole('combobox');
   await expect(query).toBeFocused();
   await query.pressSequentially('g f / a');
   await expect(query).toHaveValue('g f / a');

@@ -1,0 +1,59 @@
+import { expect, test, type Locator } from '@playwright/test';
+
+const rect = (surface: Locator) => surface.evaluate((node) => {
+  const b = node.getBoundingClientRect();
+  return [b.x, b.y, b.width, b.height].map(Math.round);
+});
+
+for (const [width, height] of [[1440, 900], [390, 844]]) {
+  test(`case search and source inspection preserve focus at ${width}px`, async ({ page }) => {
+    const phone = width === 390;
+    await page.setViewportSize({ width, height });
+    await page.emulateMedia({ reducedMotion: phone ? 'reduce' : 'no-preference' });
+    await page.goto('/demo/documents/d1?p=d1p4');
+    await page.waitForLoadState('networkidle');
+    const trigger = page.getByRole('button', { name: 'Cari dalam perkara' });
+    await trigger.click();
+    const search = page.getByRole('dialog', { name: 'Cari dalam berkas perkara' });
+    const field = search.getByRole('combobox');
+    await expect(field).toBeFocused();
+    await expect(search).toContainText('Ketik minimal dua huruf');
+    await expect(search.getByRole('option')).toHaveCount(0);
+    await expect.poll(() => rect(search)).toEqual(phone ? [0, 24, 390, 820] : [400, 120, 640, 194]);
+    const motion = await search.evaluate((n) => getComputedStyle(n).animationName);
+    if (phone) expect(motion).toBe('none');
+    else expect(motion).toContain('palette-in');
+    await field.fill('g');
+    await expect(search.getByRole('option')).toHaveCount(0);
+    await field.fill('gerbang');
+    await expect(search.getByRole('option').first()).toBeVisible();
+    const first = await field.getAttribute('aria-activedescendant');
+    await field.press('ArrowDown');
+    await expect(field).not.toHaveAttribute('aria-activedescendant', first!);
+    await expect(field).toBeFocused();
+    await field.fill('zzzz-no-such-record');
+    await expect(search).toContainText('Tidak ada yang cocok');
+    await field.press('Escape');
+    await expect(search).toHaveCount(0);
+    await expect(trigger).toBeFocused();
+
+    const mark = page.locator('button.margin-mark[data-pid="d1p4"]');
+    await mark.click();
+    const inspector = page.getByRole('dialog', { name: 'Kutipan berkas' });
+    const close = inspector.getByRole('button', { name: 'Tutup' });
+    await expect(close).toBeFocused();
+    await expect.poll(() => rect(inspector)).toEqual(phone ? [0, 10, 390, 834] : [880, 0, 560, 900]);
+    await expect(inspector).toContainText('sedikit setelah pukul 20.00 WIB');
+    if (phone) expect(await inspector.evaluate(n => n.getAnimations().filter(a => a.playState === 'running').length)).toBe(0);
+    await close.press('Escape');
+    await expect(inspector).toHaveCount(0);
+    await expect(mark).toBeFocused();
+
+    await trigger.click();
+    await field.fill('Pemeriksaan saksi Rina');
+    const destination = await search.getByRole('option').first().getAttribute('href');
+    await field.press('Enter');
+    await expect(page).toHaveURL(new RegExp(destination!.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$'));
+    await expect(search).toHaveCount(0);
+  });
+}
