@@ -59,6 +59,13 @@ run "web_and_python_share_one_ec2" {
     voice_direct_hostname   = ""
   }
   assert {
+    condition = aws_ssm_parameter.transcribe_region[0].value == "ap-southeast-1" && anytrue([
+      for rule in jsondecode(aws_iam_role_policy.voice[0].policy).Statement :
+      contains(rule.Action, "transcribe:StartStreamTranscriptionWebSocket") && try(rule.Condition.StringEquals["aws:RequestedRegion"], "") == "ap-southeast-1"
+    ])
+    error_message = "Voice must use Singapore Transcribe streaming with IAM access limited to that region."
+  }
+  assert {
     condition     = length(aws_instance.voice) == 1 && length(aws_instance.web) == 0
     error_message = "Combined web and Python hosting must use one EC2, without a duplicate application host."
   }

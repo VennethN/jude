@@ -64,6 +64,13 @@ resource "aws_ssm_parameter" "voice_direct_hostname" {
   value = var.voice_direct_hostname
 }
 
+resource "aws_ssm_parameter" "transcribe_region" {
+  count = local.voice_count
+  name  = "/${local.name}/runtime/JUDE_TRANSCRIBE_REGION"
+  type  = "String"
+  value = "ap-southeast-1"
+}
+
 resource "aws_iam_role" "voice" {
   count       = local.voice_count
   name_prefix = "${local.name}-voice-"
@@ -81,6 +88,7 @@ resource "aws_iam_role_policy" "voice" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+      { Effect = "Allow", Action = ["transcribe:StartStreamTranscriptionWebSocket"], Resource = "*", Condition = { StringEquals = { "aws:RequestedRegion" = "ap-southeast-1" } } },
       { Effect = "Allow", Action = ["ecr:BatchCheckLayerAvailability", "ecr:GetDownloadUrlForLayer", "ecr:BatchGetImage"], Resource = aws_ecr_repository.app[0].arn },
       { Effect = "Allow", Action = ["ssm:GetParametersByPath", "ssm:GetParameter", "ssm:GetParameters"], Resource = "arn:aws:ssm:ap-southeast-3:*:parameter/${local.name}/runtime/*" },
       { Effect = "Allow", Action = ["ssm:UpdateInstanceInformation", "ssmmessages:CreateControlChannel", "ssmmessages:CreateDataChannel", "ssmmessages:OpenControlChannel", "ssmmessages:OpenDataChannel"], Resource = "*" },
