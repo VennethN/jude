@@ -4,6 +4,7 @@
   import { ArrowDown, ArrowUp, AudioLines, Clock3, CornerDownLeft, FileText, Lightbulb, Quote, Search } from '@lucide/svelte';
   import type { Lang, Workspace } from '@jude/core/domain';
   import { displaySpeaker, localized, timecode } from './format';
+  import SheetHandle from './SheetHandle.svelte';
 
   let { workspace: w, lang, close }: { workspace: Workspace; lang: Lang; close: () => void } = $props();
   type Hit = { title: string; description: string; href: string };
@@ -91,6 +92,7 @@
 </script>
 
 <dialog class="case-search" bind:this={dialog} aria-label={en ? 'Search the case file' : 'Cari dalam berkas perkara'} onclose={close} onclick={backdrop}>
+  <SheetHandle search dismiss={close} />
   <div class="search-in">
     <Search size={20} aria-hidden="true" />
     <input bind:this={input} bind:value={query} oninput={() => active = 0} onkeydown={keys}
@@ -164,7 +166,6 @@
   }
   @media (max-width:599px) {
     .case-search { width:100%; height:calc(100dvh - 24px); max-height:calc(100dvh - 24px); margin:auto 0 0; padding:10px 0 env(safe-area-inset-bottom,0px); border-radius:16px 16px 0 0; }
-    .case-search::before { content:''; position:absolute; top:5px; left:50%; width:36px; height:4px; border-radius:3px; background:color-mix(in srgb,var(--ink) 22%,transparent); transform:translateX(-50%); }
     .results { max-height:none; }
   }
   @media (prefers-reduced-motion:no-preference) {

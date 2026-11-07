@@ -57,3 +57,31 @@ for (const [width, height] of [[1440, 900], [390, 844]]) {
     await expect(search).toHaveCount(0);
   });
 }
+
+test('phone sheets follow the finger and dismiss only after a full pull', async ({ browser, baseURL }) => {
+  const context = await browser.newContext({ baseURL, viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, reducedMotion: 'reduce' });
+  try {
+    const page = await context.newPage();
+    const touch = await context.newCDPSession(page);
+    await page.goto('/demo/documents/d1?p=d1p4');
+    await page.waitForLoadState('networkidle');
+    const sheets = [
+      { trigger: page.getByRole('button', { name: 'Cari dalam perkara' }), title: 'Cari dalam berkas perkara' },
+      { trigger: page.locator('button.margin-mark[data-pid="d1p4"]'), title: 'Kutipan berkas' },
+    ];
+    for (const { trigger, title } of sheets) {
+      await trigger.tap();
+      const sheet = page.getByRole('dialog', { name: title });
+      const initial = await rect(sheet);
+      const x = 195, y = initial[1] + 9;
+      for (const [distance, end] of [[80, 'touchCancel'], [70, 'touchEnd'], [145, 'touchEnd']] as const) {
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+        await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + distance }] });
+        await expect.poll(() => rect(sheet)).toEqual([initial[0], initial[1] + distance, ...initial.slice(2)]);
+        await touch.send('Input.dispatchTouchEvent', { type: end, touchPoints: [] });
+        if (distance < 120) await expect.poll(() => rect(sheet)).toEqual(initial);
+      }
+      await expect(sheet).toHaveCount(0);
+    }
+  } finally { await context.close(); }
+});
