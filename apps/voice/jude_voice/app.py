@@ -276,7 +276,7 @@ def decode_turn(turn):
     if not isinstance(raw, str) or len(raw) > 2_000_000:
         raise ValueError()
     pcm = base64.b64decode(raw, validate=True)
-    if len(pcm) < 48 or len(pcm) % 2:
+    if not pcm or len(pcm) % 2:
         raise ValueError()
     return turn["id"], float(t), pcm, turn["keep"]
 

@@ -300,5 +300,31 @@ class RealtimeTest(unittest.IsolatedAsyncioTestCase):
             json.dumps({"type": prefix + "completed", "item_id": "current", "transcript": "Dua kata."}),
         ]
         partial = AsyncMock()
-        self.assertEqual(await recognizer.transcribe(b"\0" * 1000, partial), "Dua kata.")
+        self.assertEqual(await recognizer.transcribe(b"\x01\0" * 3000, partial), "Dua kata.")
         self.assertEqual([c.args[0] for c in partial.await_args_list], ["Dua ", "Dua kata"])
+
+    async def test_silence_skips_recognition_and_a_short_tail_keeps_its_original_samples(self):
+        recognizer = Realtime("id")
+        recognizer.socket = AsyncMock()
+        partial = AsyncMock()
+        self.assertEqual(await recognizer.transcribe(bytes(4800), partial), "")
+        recognizer.socket.send.assert_not_awaited()
+        recognizer.socket.recv.assert_not_awaited()
+        for pcm in (b"\x01\0", b"\x01\0" * 960, b"\x01\0" * 2400, b"\x01\0" * 2401):
+            with self.subTest(samples=len(pcm) // 2):
+                recognizer.socket.reset_mock()
+                turn = {"id": "tail", "t": 1.25, "keep": True, "pcm": base64.b64encode(pcm).decode()}
+                _, _, original, _ = transport.decode_turn(turn)
+                recognizer.socket.recv.side_effect = [
+                    json.dumps({"type": "input_audio_buffer.committed", "item_id": "one"}),
+                    json.dumps({
+                        "type": "conversation.item.input_audio_transcription.completed",
+                        "item_id": "one", "transcript": "heard",
+                    }),
+                ]
+                self.assertEqual(await recognizer.transcribe(original, partial), "heard")
+                self.assertEqual(original, pcm)
+                append, commit = [json.loads(c.args[0]) for c in recognizer.socket.send.await_args_list]
+                self.assertEqual(base64.b64decode(append["audio"]), pcm.ljust(4800, b"\0"))
+                self.assertEqual(commit["type"], "input_audio_buffer.commit")
+        partial.assert_not_awaited()

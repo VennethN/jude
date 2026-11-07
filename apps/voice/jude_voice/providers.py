@@ -241,6 +241,10 @@ class Realtime:
                     yield event
 
     async def transcribe(self, pcm: bytes, partial):
+        if not any(pcm):
+            return ""
+        # A worklet can flush less than 100 ms on stop. Pad only the provider's input.
+        pcm = pcm.ljust(4_800, b"\0")
         async with asyncio.timeout(45):
             for index in range(0, len(pcm), 48000):
                 await self.send(
