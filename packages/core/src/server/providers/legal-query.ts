@@ -18,6 +18,14 @@ const code = /\b(?:KUHAP|KUHP|KUHPerdata|KUHD)\b/i;
 const constitutionalTopics = new Set(['hak atas pendidikan', 'hak atas pekerjaan', 'kebebasan beragama', 'persamaan di hadapan hukum']);
 export const constitutionalTopic = (term: PublicLawSearch) => !!term.topic && constitutionalTopics.has(term.topic);
 
+export function sentencingTopic(text: string) {
+  const aggravating = /\b(?:memberatkan|memperberat|pemberat(?:an)?|aggravat(?:e|es|ed|ing|ion)|harsher sentence)\b/i.test(text);
+  const mitigating = /\b(?:meringankan|memperingan|peringan(?:an)?|mitigat(?:e|es|ed|ing|ion)|lighter sentence)\b/i.test(text);
+  if (aggravating && mitigating) return 'pedoman pemidanaan';
+  if (aggravating) return 'pemberatan pidana';
+  if (mitigating) return 'peringanan pidana';
+}
+
 const vocabulary: [RegExp, string][] = [
   [/\b(?:penggelapan|embezzlement)\b/i, 'penggelapan'],
   [/\b(?:alat bukti|admissibility|evidence law)\b/i, 'alat bukti'],

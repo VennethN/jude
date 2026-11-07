@@ -305,7 +305,10 @@ async function postMessage(
     let legalStatus: LegalSearchStatus | undefined;
     const options = { signal, status: (value: LegalSearchStatus) => { legalStatus = value; } };
     if (withLegal && isLawQuestion(text)) progress?.('legal');
-    const legalQuestion = await answerLawQuestion(workspace, text, contexts, lang, withLegal, options);
+    const legalQuestion = await answerLawQuestion(workspace, text, contexts, lang, withLegal, {
+      ...options, allowModel: !session.user.guest && workspace.caseRecord.label === 'private',
+      orgId: org, history: before.history, progress, publish,
+    });
     const answer: ChatMessage = legalQuestion?.answer ?? await answerQuestion(
       workspace, text, contexts, lang, !session.user.guest && workspace.caseRecord.label === 'private',
       org, publish, { signal, progress, history: before.history },
