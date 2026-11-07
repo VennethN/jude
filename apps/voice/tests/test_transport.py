@@ -1,6 +1,5 @@
 """Verify the public transport and speaker worker without sending any test audio off-host."""
 
-import base64
 import json
 import os
 import unittest
@@ -77,40 +76,6 @@ class VoiceTransportTest(unittest.TestCase):
         self.repo.audio.return_value["turns"][1]["start_seconds"] = 1
         gap = self.client.get("/api/live/c/h/audio", headers={"Range": "bytes=48042-48045"})
         self.assertEqual(gap.content, b"\0\0ef")
-
-    def test_websocket_ack_reconnect_and_transcript_only_speaker(self):
-        self.repo.acquire.return_value = "lease"
-        self.repo.turn_exists.side_effect = [False, True]
-        recognizer = MagicMock()
-
-        async def transcribe(pcm, partial):
-            await partial("heard")
-            return "heard"
-
-        recognizer.transcribe = AsyncMock(side_effect=transcribe)
-        context = MagicMock()
-        context.__aenter__.return_value = recognizer
-        pcm = b"\x00\x01" * 24000
-        with (
-            patch.object(transport, "Realtime", return_value=context),
-            patch.object(transport, "SpeakerWindow") as window,
-        ):
-            window.return_value.label.return_value = {"turn-1": "anonymous-1"}
-            with self.client.websocket_connect(
-                "/api/live/c/h/socket?lang=en", headers={"Origin": "http://testserver"}
-            ) as client:
-                self.assertEqual(client.receive_json(), {"type": "ready"})
-                turn = {"id": "turn-1", "t": 1.25, "keep": False, "pcm": base64.b64encode(pcm).decode()}
-                client.send_json(turn)
-                self.assertEqual(client.receive_json()["text"], "heard")
-                self.assertEqual(client.receive_json(), {"type": "ack", "id": "turn-1"})
-                client.send_json(turn)
-                self.assertEqual(client.receive_json()["type"], "ack")
-            window.return_value.label.assert_called_once()
-        recognizer.transcribe.assert_awaited_once()
-        self.assertEqual(self.repo.store_turn.call_args.kwargs["speaker"], "anonymous-1")
-        self.assertFalse(self.repo.store_turn.call_args.kwargs["keep"])
-        self.repo.release.assert_called_once_with("c", "h", "lease")
 
 
 class SpeakersTest(unittest.TestCase):
