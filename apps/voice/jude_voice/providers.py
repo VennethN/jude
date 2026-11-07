@@ -1,26 +1,33 @@
-"""Speech recognition and local diarization for a single authorized recording."""
+"""Amazon speech recognition for a single authorized recording."""
 
 import asyncio
-import base64
-import json
 import os
 import struct
 import subprocess
 import tempfile
 from pathlib import Path
 
-import httpx
-from websockets.asyncio.client import connect
+from .transcribe import (
+    ProviderError,
+    TranscribeStream,
+    recognize,
+    transcription_available,
+)
 
-from .diarization import diarization_available, diarize
+__all__ = [
+    "ProviderError",
+    "Realtime",
+    "TranscribeStream",
+    "normalize_audio",
+    "transcribe_file",
+    "transcription_available",
+    "wav_header",
+    "windows",
+]
 
 MAX_SECONDS = 1800
 SAMPLE_RATE = 16000
 _JOBS = asyncio.Semaphore(2)
-
-
-class ProviderError(Exception):
-    pass
 
 
 def wav_header(byte_length: int, rate: int = 24000) -> bytes:
@@ -122,145 +129,45 @@ def windows(turns, duration: float):
             start = stop
 
 
-def openai_headers():
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise ProviderError("Transcription is not configured.")
-    result = {"Authorization": "Bearer " + key}
-    if project := os.getenv("OPENAI_PROJECT_ID"):
-        result["OpenAI-Project"] = project
-    return result
-
-
 async def transcribe_file(data: bytes, suffix: str, language: str):
-    headers = openai_headers()
-    if not diarization_available():
-        raise ProviderError("Provision the pyannote model to process hearing audio.")
+    """Return (native segments, duration) from one recording-wide AWS stream.
+
+    Speaker labels are anonymous and scoped to this upload. No pyannote model
+    is required; the legacy windows and WAV helpers remain available to callers.
+    """
+    if not await asyncio.to_thread(transcription_available):
+        raise ProviderError("Transcription is not configured.")
     async with _JOBS:
         pcm = await asyncio.to_thread(normalize_audio, data, suffix)
         duration = len(pcm) / (SAMPLE_RATE * 2)
-        turns = await asyncio.to_thread(diarize, wav_header(len(pcm), SAMPLE_RATE) + pcm, ".wav")
-        result = []
-        async with httpx.AsyncClient(timeout=httpx.Timeout(90, connect=10)) as client:
-            for start, stop, speaker in windows(turns, duration):
-                chunk = pcm[int(start * SAMPLE_RATE) * 2 : int(stop * SAMPLE_RATE) * 2]
-                response = await client.post(
-                    "https://api.openai.com/v1/audio/transcriptions",
-                    headers=headers,
-                    data={
-                        "model": os.getenv("OPENAI_TRANSCRIPTION_MODEL") or "gpt-transcribe",
-                        "language": language,
-                        "response_format": "json",
-                    },
-                    files={
-                        "file": ("turn.wav", wav_header(len(chunk), SAMPLE_RATE) + chunk, "audio/wav")
-                    },
-                )
-                if not response.is_success:
-                    raise ProviderError("Transcription service is unavailable.")
-                text = response.json().get("text")
-                if isinstance(text, str) and text.strip():
-                    result.append(
-                        {"start": start, "end": stop, "text": text.strip(), "speaker": speaker}
-                    )
+        _, result = await recognize(pcm, SAMPLE_RATE, language)
         if not result:
             raise ValueError("No intelligible speech was found.")
         return result, duration
 
 
 class Realtime:
-    """A provider connection belongs to one authorized microphone session."""
+    """Turn recognizer; each turn owns an AWS stream, never a speaker identity.
+
+    ``segments`` is replaced after each successful call, with timestamps relative
+    to the original 24 kHz PCM and anonymous, stream-local AWS speaker labels.
+    The caller must reconcile voices acoustically across turns.
+    """
 
     def __init__(self, language: str):
         self.language = language
-        self.socket = None
+        self.segments = []
+        self._lock = asyncio.Lock()
 
     async def __aenter__(self):
-        self.socket = await connect(
-            "wss://api.openai.com/v1/realtime?intent=transcription",
-            additional_headers=openai_headers(),
-            open_timeout=10,
-            max_size=4 * 1024 * 1024,
-        )
-        await self.send(
-            {
-                "type": "session.update",
-                "session": {
-                    "type": "transcription",
-                    "audio": {
-                        "input": {
-                            "format": {"type": "audio/pcm", "rate": 24000},
-                            "transcription": {
-                                "model": os.getenv("OPENAI_REALTIME_TRANSCRIPTION_MODEL")
-                                or "gpt-live-transcribe",
-                                "languages": [self.language],
-                            },
-                            "turn_detection": None,
-                        }
-                    },
-                },
-            }
-        )
-        try:
-            async with asyncio.timeout(15):
-                while True:
-                    event = json.loads(await self.socket.recv())
-                    if event.get("type") == "session.updated":
-                        return self
-                    if event.get("type") == "error":
-                        raise ProviderError("Transcription session unavailable.")
-        except BaseException:
-            await self.socket.close()
-            raise
+        return self
 
     async def __aexit__(self, *_):
-        if self.socket:
-            await self.socket.close()
+        pass
 
-    async def send(self, value):
-        await self.socket.send(json.dumps(value))
-
-    async def _transcript_events(self):
-        """Match early and late transcription events to this buffer's acknowledged item."""
-        item_id = None
-        early = {}
-        while True:
-            event = json.loads(await self.socket.recv())
-            kind = event.get("type", "")
-            if kind == "error":
-                raise ProviderError("Transcription was interrupted.")
-            if kind == "input_audio_buffer.committed" and item_id is None:
-                item_id = event["item_id"]
-                for pending in early.pop(item_id, ()):
-                    yield pending
-                early.clear()
-            elif kind.startswith("conversation.item.input_audio_transcription.") and event.get("item_id"):
-                if item_id is None:
-                    early.setdefault(event["item_id"], []).append(event)
-                elif event["item_id"] == item_id:
-                    yield event
-
-    async def transcribe(self, pcm: bytes, partial):
-        if not any(pcm):
-            return ""
-        # A worklet can flush less than 100 ms on stop. Pad only the provider's input.
-        pcm = pcm.ljust(4_800, b"\0")
-        async with asyncio.timeout(45):
-            for index in range(0, len(pcm), 48000):
-                await self.send(
-                    {
-                        "type": "input_audio_buffer.append",
-                        "audio": base64.b64encode(pcm[index : index + 48000]).decode(),
-                    }
-                )
-            await self.send({"type": "input_audio_buffer.commit"})
-            preview = ""
-            async for event in self._transcript_events():
-                kind = event["type"]
-                if kind == "conversation.item.input_audio_transcription.delta":
-                    preview += event.get("delta", "")
-                    await partial(preview)
-                elif kind == "conversation.item.input_audio_transcription.completed":
-                    return str(event.get("transcript", "")).strip()
-                elif kind == "conversation.item.input_audio_transcription.failed":
-                    raise ProviderError("Transcription was interrupted.")
+    async def transcribe(self, pcm: bytes, partial) -> str:
+        async with self._lock:
+            self.segments = []
+            text, segments = await recognize(pcm, 24000, self.language, partial)
+            self.segments = segments
+            return text
