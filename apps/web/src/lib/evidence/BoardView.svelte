@@ -681,7 +681,7 @@
               </div>
             </div>
           </div>
-          <section class="empty-mobile">
+          <section class="empty-mobile" data-tour="board-canvas">
             <PanelsTopLeft size={22} aria-hidden="true" />
             <p>
               {id
@@ -713,7 +713,7 @@
           >
         </div>
       </div>
-      <aside class="desktop-library">{@render library()}</aside>
+      <aside class="desktop-library" data-tour="board-add">{@render library()}</aside>
     </div>
     {#if selected && selection && item}<section class="card-editor ev-notice">
         <header class="ev-inline">

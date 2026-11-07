@@ -91,7 +91,7 @@
 <svelte:head><title>{c.title} · Jude</title></svelte:head>
 <div class="overview">
   <header class="file-head">
-    <div class="file-id">
+    <div class="file-id" data-tour="case-file">
       <span class="case-type"
         >{c.label === 'synthetic'
           ? en

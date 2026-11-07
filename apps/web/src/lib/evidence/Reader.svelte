@@ -177,7 +177,7 @@
 {/snippet}
 {#snippet textPassage(passageId: string, text: string)}
   <div class="passage-block" class:focused={selected?.id === passageId}>
-    <button class="passage" data-pid={passageId} onclick={() => (inspect = { kind: 'passage', id: passageId })}>
+    <button class="passage" data-tour={selected?.id === passageId ? 'source-passage' : undefined} data-pid={passageId} onclick={() => (inspect = { kind: 'passage', id: passageId })}>
       {#if citations.has(passageId)}<mark><Match {text} term={query}/></mark>{:else}<Match {text} term={query}/>{/if}
     </button>
     {@render citationLinks(passageId)}

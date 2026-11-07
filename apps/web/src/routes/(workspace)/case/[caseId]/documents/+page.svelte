@@ -166,7 +166,7 @@
         aria-label={id ? 'Pilih berkas' : 'Choose files'}
         onchange={(e) => upload(Array.from(e.currentTarget.files ?? []))}
       />
-      <button class="ev-button primary" disabled={!interactive || busy} onclick={() => input.click()}
+      <button class="ev-button primary" data-tour="doc-upload" disabled={!interactive || busy} onclick={() => input.click()}
         ><Upload size={17} />{busy
           ? id
             ? 'Mengunggah…'

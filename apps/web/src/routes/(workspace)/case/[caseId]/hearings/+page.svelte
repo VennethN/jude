@@ -147,7 +147,7 @@
         onclick={() => (manage = !manage)}
         >{manage ? (en ? 'Done' : 'Selesai') : en ? 'Manage hearings' : 'Kelola sidang'}</button
       >{/if}
-  {:else}<section class="empty">
+  {:else}<section class="empty" data-tour="hearings-list">
       <span class="empty-icon"><Speech size={22} aria-hidden="true" /></span>
       <h2>{en ? 'Your first hearing starts here.' : 'Sidang pertama Anda dimulai di sini.'}</h2>
       <p>

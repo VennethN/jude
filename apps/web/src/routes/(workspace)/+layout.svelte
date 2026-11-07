@@ -225,7 +225,7 @@
       panelQuestion = judePanelQuestion.text;
       overlay = 'assistant';
     }
-    if (judeTour && account.demo) {
+    if (judeTour) {
       tourFromOverview = true;
       overlay = 'tour';
     }
@@ -530,9 +530,9 @@
               {#if w}<button onclick={caseMenu}
                   ><FolderOpen size={16} />{en ? 'Case actions' : 'Tindakan perkara'}</button
                 >{/if}
-              {#if account.demo}<button onclick={() => menuOverlay('tour')}
+              <button onclick={() => menuOverlay('tour')}
                   ><Compass size={16} />{en ? 'Guided tours' : 'Panduan perkara'}</button
-                >{/if}
+                >
               <button
                 class="shortcut-tool"
                 aria-keyshortcuts="Shift+/"
@@ -617,7 +617,7 @@
       </div>
     {/if}
     <main id="case-main" tabindex="-1" class="content">
-      {#if account.demo && !account.prefs.tourSeen && overlay !== 'tour'}<TourInvite {en} compact={section === 'assistant' && !!page.params.threadId}/>{/if}
+      {#if !account.prefs.tourSeen && overlay !== 'tour' && (account.demo || !w || !section)}<TourInvite {en} demo={!!account.demo} register={!w} compact={section === 'assistant' && !!page.params.threadId}/>{/if}
       {@render children()}
     </main>
   </div>
@@ -669,7 +669,9 @@
     </Dialog>
   {/if}
   {#if overlay === 'search' && w}<Search workspace={w} lang={data.lang} close={() => (overlay = null)} />{/if}
-  {#if overlay === 'tour' && account.demo}<Tours
+  {#if overlay === 'tour'}<Tours
+      workspace={w}
+      cases={page.data.cases ?? []}
       startOverview={tourFromOverview}
       session={account}
       lang={data.lang}

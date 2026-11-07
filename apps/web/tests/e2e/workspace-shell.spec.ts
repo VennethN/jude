@@ -107,12 +107,13 @@ test('the overview invitation starts its first tour step and keeps keyboard owne
   await page.goto('/demo');
   await page.getByRole('button', { name: 'Mulai tur' }).click();
   const tour = page.locator('.tour-strip');
-  await expect(tour).toContainText('Mengenal perkara · 1/3');
+  await expect(tour).toHaveAttribute('data-step','file');
+  await expect(page.locator('.tour-stage .spot')).toBeVisible();
   await page.keyboard.press('Control+k');
-  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.getByRole('dialog')).toHaveCount(1);
   await page.keyboard.press('ArrowRight');
-  await expect(tour).toContainText('Mengenal perkara · 2/3');
-  await expect(page).toHaveURL(/\/hearings$/);
+  await expect(tour).toHaveAttribute('data-step','hearing');
+  await expect(page).toHaveURL(/\/hearings\/h3$/);
   await page.keyboard.press('Escape');
   await expect(tour).toHaveCount(0);
 });

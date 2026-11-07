@@ -972,9 +972,9 @@
       <button class="btn btn-sm" onclick={() => onchoose('', true)}><ArrowLeft size={14} />{t('cx.map.all')}</button
       >
     {/if}
-    <button class="btn btn-sm" onclick={onpick}><Search size={14} />{t('cx.map.pick')}</button>
+    <button class="btn btn-sm" data-tour="map-search" onclick={onpick}><Search size={14} />{t('cx.map.pick')}</button>
     {#if relCounts.length}
-      <div class="rels" role="group" aria-label={t('cx.map.relations')}>
+      <div class="rels" data-tour="map-filters" role="group" aria-label={t('cx.map.relations')}>
         {#each relCounts as x (x.r)}
           <button
             class="chip rel"
