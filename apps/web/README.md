@@ -15,6 +15,8 @@ Open the URL printed by Vite. Sign up or select **Coba perkara contoh**. For liv
 
 To run only web locally against the existing EC2 voice service, set `JUDE_VOICE_REMOTE=true`, `ORIGIN=http://localhost:5173`, and `VOICE_ORIGIN=https://jude-voice.15.232.90.76.sslip.io` in the root `.env`, then run `pnpm dev --host localhost --port 5173 --strictPort`. Use the same PostgreSQL database as voice so sessions and case permissions are shared; use a local absolute RDS CA path. These settings access production records. The development proxy validates the local origin before forwarding HTTP and WebSocket requests with the hosted origin. Python and the diarization model remain on EC2. Keep this development server bound to loopback.
 
+To test GPT-Transcribe for live hearings, set `CHATGPT_TRANSCRIBE=true` in the root `.env`, restart `pnpm dev`, and connect a new microphone session. The hosted development gateway applies the trial to that connection. Set the flag to `false` to use the voice host’s default again. The authenticated WebSocket’s `ready` message reports the selected `transcriptionModel`.
+
 ```sh
 pnpm --filter @jude/web check
 pnpm --filter @jude/web build

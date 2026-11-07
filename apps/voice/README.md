@@ -25,7 +25,13 @@ apps/voice/.venv/bin/python -m pip install --index-url https://download.pytorch.
 apps/voice/.venv/bin/python -m pip install -r apps/voice/requirements-diarization.txt
 ```
 
-Accept the Community-1 model terms and provision a snapshot on the voice host. Set `JUDE_DIARIZATION_MODEL` to its absolute directory. To retrieve the pinned revision using an authorized Hugging Face account, set the value to `pyannote/speaker-diarization-community-1` and supply `HF_TOKEN`. Local model loading works offline. Set `OPENAI_API_KEY` in the voice environment. `OPENAI_PROJECT_ID`, `OPENAI_TRANSCRIPTION_MODEL` and `OPENAI_REALTIME_TRANSCRIPTION_MODEL` are optional. [Community-1 model and access terms](https://huggingface.co/pyannote/speaker-diarization-community-1) · [File transcription](https://developers.openai.com/api/docs/guides/speech-to-text) · [Realtime transcription](https://developers.openai.com/api/docs/guides/realtime-transcription)
+Accept the Community-1 model terms and provision a snapshot on the voice host. Set `JUDE_DIARIZATION_MODEL` to its absolute directory. To retrieve the pinned revision using an authorized Hugging Face account, set the value to `pyannote/speaker-diarization-community-1` and supply `HF_TOKEN`. Local model loading works offline. Set `OPENAI_API_KEY` in the voice environment and optionally `OPENAI_PROJECT_ID`. [Community-1 model and access terms](https://huggingface.co/pyannote/speaker-diarization-community-1)
+
+For the live hearing experiment, set `CHATGPT_TRANSCRIBE=true` in the root `.env` or the voice service environment and restart voice. New microphone sessions use the exact `gpt-transcribe` model. It begins recognition after each audio turn is committed and can emit partial text before the final transcript. With the switch unset or `false`, microphone sessions use `OPENAI_REALTIME_TRANSCRIPTION_MODEL` if configured, otherwise `gpt-live-transcribe`. [Realtime transcription](https://developers.openai.com/api/docs/guides/realtime-transcription)
+
+To try the model on one authorized recording, append `transcription=gpt-transcribe` to the hearing WebSocket query. This is the only client-selectable model. Other values use the voice host’s configured model. The authenticated `ready` frame reports the choice in `transcriptionModel`, alongside `maxInFlight`. All turns on that connection share the choice.
+
+Uploads use `OPENAI_TRANSCRIPTION_MODEL`, which defaults to `gpt-transcribe`. Both recording paths send the hearing’s Indonesian or English language hint. [File transcription](https://developers.openai.com/api/docs/guides/speech-to-text)
 
 Set `VOICE_HOST`, `VOICE_PORT` and the public web `ORIGIN` for the deployment. Configure web with an internal `VOICE_ORIGIN`. Both apps share `DATABASE_URL` for PostgreSQL or an absolute `JUDE_DB_PATH` for local SQLite. Local audio uses `JUDE_FILES_DIR`. AWS audio uses a private S3 bucket and KMS key. [AWS deployment](docs/aws.md)
 

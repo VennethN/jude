@@ -54,3 +54,15 @@ test('remote mode requires TLS and loopback; ordinary local voice is unchanged',
   assert.throws(() => voiceProxy({ ...env, ORIGIN: 'http://0.0.0.0:5173' }));
   assert.deepEqual(voiceProxy({}), { target: 'http://127.0.0.1:3001', ws: true, changeOrigin: false });
 });
+
+test('a local transcription trial selects GPT for new hosted recording sockets', () => {
+  const socket = '/api/live/case-1/hearing-1/socket?lang=id';
+  const trial = voiceProxy({ ...env, CHATGPT_TRANSCRIBE: 'true' });
+  assert.equal(trial.rewrite(socket), socket + '&transcription=gpt-transcribe');
+  assert.equal(trial.rewrite(socket + '&transcription=other'), socket + '&transcription=gpt-transcribe');
+  for (const path of ['/api/live/case-1/upload', '/api/live/capabilities', '/api/live/case-1/hearing-1/audio']) {
+    assert.equal(trial.rewrite(path), path);
+  }
+  assert.equal(voiceProxy(env).rewrite(socket), socket);
+  assert.equal(voiceProxy({ ...env, CHATGPT_TRANSCRIBE: 'false' }).rewrite(socket), socket);
+});
