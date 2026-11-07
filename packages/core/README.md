@@ -4,7 +4,9 @@ The web desk and the voice service use this TypeScript package to open the same 
 
 ## Case records
 
-A workspace contains a case, hearings, speakers, verbatim statements, findings, source passages, filed documents, evidence connections, boards, conversations, replies and legal references. Each organisation receives its own three labelled synthetic examples. The session maps familiar demonstration references such as `c1` to that organisation’s case IDs. Entity IDs within an example resolve within its case.
+A workspace contains a case, hearings, speakers, verbatim statements, findings, source passages, filed documents, evidence connections, boards, conversations, replies and legal references. New registered accounts start with an empty case register. The guest entry imports one private copy of a fictional warehouse case from the shipped `warehouse-v1.jude` archive. Each guest owns a different case UUID. Only this application-owned archive preserves familiar entity IDs within the case. Normal file imports remap their entities.
+
+The archive contains the filed originals, historical testimony and findings, one scheduled hearing and two bilingual exhibits concerning entry at the East Gate. Returning guests who enter the demo receive the current practice case while retaining their previous cases and annotations. `session.demo.refs` resolves the public links. Imported practice exhibits are authorized through the guest case and read from the immutable bundle. Their contents can be exported with that case. Run `node packages/core/scripts/pack-guest-case.mjs` to regenerate the source-controlled archive. Retain earlier bundle versions when changing immutable filed originals.
 
 Use `readWorkspace(orgId, caseId)` for a snapshot. Use `mutateWorkspace(orgId, caseId, edit)` for synchronous edits, or `changeIn(db, orgId, caseId, edit)` inside a larger transaction. Keep provider and file requests outside database transactions. A completed edit increments the case version and persists changed entities atomically. Board edits also require the board’s current version.
 

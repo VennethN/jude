@@ -3,7 +3,7 @@ import type { CoreRequest } from './request';
 import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import type { Preferences, SessionInfo } from '../domain';
 import { transaction, type Database } from './db';
-import { orgLock, seedOrganization } from './cases';
+import { orgLock } from './cases';
 import {
   ApiError,
   bool,
@@ -187,11 +187,30 @@ async function createOrganization(
   );
   if (!result.length) throw new ApiError(409, 'email_in_use', 'This email is already registered.');
   await db.query("INSERT INTO memberships(org_id,user_id,role) VALUES($1,$2,'owner')", [orgId, userId]);
-  if (details.guest) await seedOrganization(db, orgId);
+  if (details.guest) {
+    const { importBundledCase } = await import('./archive');
+    await importBundledCase(db, orgId, userId);
+  }
   return makeSession(db, userId, orgId);
 }
 export async function beginDemo(event: CoreRequest) {
-  if (event.locals.session) return event.locals.session;
+  const session = event.locals.session;
+  if (session) {
+    if (!session.user.guest || session.role !== 'owner' || !session.demo ||
+        session.demo.refs.practice === session.demo.caseId) return session;
+    // Returning guests may have annotated a previous synthetic case. Preserve it and
+    // install the new practice archive only when they enter the demo explicitly.
+    const upgraded = await transaction(async db => {
+      await orgLock(db, session.organization.id);
+      const current = await byUser(db, session.user.id, session.organization.id);
+      if (!current.user.guest || current.role !== 'owner' || !current.demo ||
+          current.demo.refs.practice === current.demo.caseId) return current;
+      const { importBundledCase } = await import('./archive');
+      return { ...current, demo: await importBundledCase(db, current.organization.id, current.user.id, current.demo.refs) };
+    });
+    event.locals.session = upgraded;
+    return upgraded;
+  }
   return attach(
     event,
     await transaction(async (db) => {

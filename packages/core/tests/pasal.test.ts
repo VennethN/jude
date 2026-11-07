@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { Client } from 'pg';
 import type { CaseRecord, ContextRef, LegalRef, SessionInfo, Thread, Workspace } from '../src/domain';
-import { mutateWorkspace } from '../src/server/cases';
+import { emptyWorkspace, insertWorkspace, makeCase, mutateWorkspace } from '../src/server/cases';
 import { transaction } from '../src/server/db';
 import { runAnalysisWorker } from '../src/server/jobs';
 import * as model from '../src/server/providers/openai';
@@ -88,9 +88,15 @@ async function caseThread(synthetic = false) {
         email: randomUUID() + '@example.test',
         password: 'Docket-1234',
       });
-  const caseId = synthetic
-    ? session.demo!.caseId
-    : (await client.ok<CaseRecord>('cases', 'POST', { title: 'Riana private docket' })).id;
+  let caseId: string;
+  if (synthetic) {
+    const sample = emptyWorkspace({ ...makeCase({title:'Legacy synthetic sample'}), label:'synthetic' });
+    sample.legal = sampleLaws.map(law => ({ ...law, provider: 'sample' }));
+    await transaction(db => insertWorkspace(db,session.organization.id,sample,session.user.id));
+    caseId = sample.caseRecord.id;
+  } else {
+    caseId = (await client.ok<CaseRecord>('cases', 'POST', { title: 'Riana private docket' })).id;
+  }
   const base = 'cases/' + caseId;
   const thread = await client.ok<Thread>(base + '/threads', 'POST', {});
   const messages = base + '/threads/' + thread.id + '/messages';

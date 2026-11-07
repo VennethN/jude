@@ -8,7 +8,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
-import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { strFromU8, strToU8, zipSync } from 'fflate';
 import type { CaseDocument, Workspace } from '../domain';
 import { pasalSourceUrl } from '../legal';
 import { numberGroupedVoices } from '../speakers';
@@ -33,7 +33,8 @@ import {
 } from './validation';
 import { getOriginal, putOriginal, removeOriginal } from './providers/storage';
 
-const limits = { zip: 48 * 1024 * 1024, expanded: 96 * 1024 * 1024, entries: 6000 };
+import { limits, readCaseFiles } from './archive-files';
+import { bundledArchiveFiles, bundledOriginalKey } from './bundled-case';
 const jsonBytes = (value: unknown) => strToU8(JSON.stringify(value));
 const collections = [
   'hearings',
@@ -136,7 +137,7 @@ function archiveVoiceNumber(value: unknown) {
   if (!Number.isSafeInteger(value)) invalid('voiceNumber');
   return number(value, 'voiceNumber', 1, 1_000_000);
 }
-function parseWorkspace(raw: unknown) {
+function parseWorkspace(raw: unknown, bundled: boolean) {
   const data = object(raw),
     record = object(data.caseRecord);
   const w = emptyWorkspace(makeCase(record));
@@ -155,7 +156,7 @@ function parseWorkspace(raw: unknown) {
   const assignId = (v: unknown) => {
     const id = archiveId(v);
     if (maps.has(id)) invalid('id');
-    maps.set(id, randomUUID());
+    maps.set(id, bundled ? id : randomUUID());
   };
   maps.set(archiveId(record.id), w.caseRecord.id);
   const rows = (kind: Collection) => list(data[kind] ?? [], kind).map((v) => object(v, kind));
@@ -425,33 +426,73 @@ function parseWorkspace(raw: unknown) {
   return { w, maps, original: rows('documents') };
 }
 
-function readCaseFiles(bytes: Uint8Array): Record<string, Uint8Array> {
-  const prefixes: string[] = [];
-  let count = 0, total = 0;
-  // Inspect the directory before expanding any data. A Finder-created ZIP may have one enclosing folder.
-  unzipSync(bytes, { filter(entry) {
-    if (++count > limits.entries || (total += entry.originalSize) > limits.expanded)
-      throw new ApiError(413, 'file_too_large', 'The archive exceeds the import limit.');
-    if (/^(?:(?!\.|__MACOSX\/)[^/\\:\x00]+\/)?manifest\.json$/.test(entry.name))
-      prefixes.push(entry.name.slice(0, -'manifest.json'.length));
-    return false;
-  } });
-  if (prefixes.length !== 1)
-    throw new ApiError(422, 'archive_manifest', 'Choose an archive containing one Jude case manifest.');
-  const prefix = prefixes[0];
-  const seen = new Set<string>();
-  const entries = unzipSync(bytes, { filter(entry) {
-    if (!entry.name.startsWith(prefix)) return false;
-    const path = entry.name.slice(prefix.length);
-    const keep = path === 'case.json' || path === 'manifest.json' || path === 'audio/index.json'
-      || /^originals\/[a-zA-Z0-9][\w-]*$/.test(path)
-      || /^audio\/[\w-]+\/(recording\.(mp3|wav|m4a|mp4|mpeg|mpga|webm|ogg|flac)|[\w-]+\.pcm)$/.test(path)
-      || /^documents\/[\w-]+\/(original\.(pdf|docx|md|txt)|viewer\.pdf)$/.test(path);
-    if (keep && seen.has(path)) invalid('file');
-    if (keep) seen.add(path);
-    return keep;
-  } });
-  return Object.fromEntries(Object.entries(entries).map(([name, data]) => [name.slice(prefix.length), data]));
+function decodeWorkspace(files: Record<string, Uint8Array>, bundled = false) {
+  const manifest = object(JSON.parse(strFromU8(files['manifest.json'])), 'manifest');
+  if (manifest.format !== 'jude') throw new ApiError(422, 'archive_manifest', 'Choose a Jude case archive.');
+  if (manifest.version !== 1) throw new ApiError(422, 'archive_version', 'This archive version is unsupported.');
+  if (files['case.json']) return parseWorkspace(JSON.parse(strFromU8(files['case.json'])), bundled);
+  if (manifest.kind === 'case' && manifest.case) return parseWorkspace(workspaceFromManifest(manifest, files), bundled);
+  throw new ApiError(422, 'archive_incomplete', 'The archive is missing its case record.');
+}
+
+type Decoded = ReturnType<typeof decodeWorkspace>;
+function documentFiles(
+  files: Record<string, Uint8Array>,
+  { w, original, maps }: Decoded,
+  objectKey: (documentId: string, kind: string, entry: string) => string,
+) {
+  const result: { metadata: Attachment; bytes: Uint8Array }[] = [];
+  for (const src of original) {
+    const old = archiveId(src.id);
+    const doc = w.documents.find(d => d.id === maps.get(old))!;
+    const base = '/api/cases/' + w.caseRecord.id + '/documents/' + doc.id;
+    for (const kind of ['original', 'viewer']) {
+      const name = kind === 'viewer' ? 'viewer.pdf' : 'original.' + doc.file.toLowerCase();
+      const entry = 'documents/' + old + '/' + name;
+      const bytes = files[entry];
+      if (!bytes?.length) continue;
+      result.push({ metadata: {
+        entity_id: doc.id, kind, object_key: objectKey(doc.id, kind, entry),
+        file_name: name, mime: kind === 'viewer' ? mimes.PDF : mimes[doc.file], byte_length: bytes.length,
+      }, bytes });
+      if (kind === 'original') doc.original = base + '/original';
+      if (kind === 'viewer' || doc.file === 'PDF') doc.pdf = base + '/' + kind;
+    }
+    doc.status = w.passages.some(p => p.docId === doc.id) ? 'ready' : 'text_unavailable';
+  }
+  return result;
+}
+
+async function saveImport(
+  db: Database, org: string, w: Workspace, attachments: Attachment[],
+  turns: Awaited<ReturnType<typeof restoreAudio>>, creator?: string,
+) {
+  await checkQuota(db, org, 'cases', 1);
+  await checkQuota(db, org, 'boards', w.boards.length);
+  const audioBytes = turns.reduce((total, t) => total + (t.object_key ? t.bytes : 0), 0);
+  const documentBytes = attachments.filter(a => a.kind !== 'viewer').reduce((sum, a) => sum + Number(a.byte_length), 0);
+  await checkQuota(db, org, 'storage', (documentBytes + audioBytes) / 1e9);
+  await insertWorkspace(db, org, w, creator);
+  for (const a of attachments) await storeFile(db, { ...a, case_id: w.caseRecord.id });
+  await insertArchivedTurns(db, w.caseRecord.id, turns);
+}
+
+export async function importBundledCase(db: Database, org: string, creator: string, previousRefs: Record<string, string> = {}) {
+  const files = await bundledArchiveFiles();
+  const decoded = decodeWorkspace(files, true);
+  const { w, maps } = decoded;
+  const caseId = w.caseRecord.id;
+  const attachments = documentFiles(files, decoded, (_id, _kind, entry) => bundledOriginalKey(org, caseId, entry)).map(f => f.metadata);
+  if (files['audio/index.json'] || w.documents.some(doc => !doc.original))
+    throw new Error('The bundled practice case must contain its original exhibits and no retained audio.');
+  await saveImport(db, org, w, attachments, [], creator);
+  const refs: Record<string, string> = { ...Object.fromEntries(maps), practice: caseId };
+  for (const [alias, oldId] of Object.entries(previousRefs)) {
+    const current = maps.get(alias);
+    if (current && !Object.hasOwn(refs, oldId)) refs[oldId] = current;
+  }
+  await db.query('UPDATE organizations SET demo_id=$1,demo_refs=$2 WHERE id=$3', [caseId, JSON.stringify(refs), org]);
+  return { caseId, refs };
 }
 
 export async function importArchive(org: string, form: FormData, creator?: string) {
@@ -459,66 +500,26 @@ export async function importArchive(org: string, form: FormData, creator?: strin
   if (!(file instanceof File) || !file.size) invalid('file');
   if (file.size > limits.zip) throw new ApiError(413, 'file_too_large', 'The archive exceeds the import limit.');
   await transaction((db) => checkQuota(db, org, 'cases', 1));
-  let files: Record<string, Uint8Array>, decoded: ReturnType<typeof parseWorkspace>;
+  let files: Record<string, Uint8Array>, decoded: Decoded;
   try {
     files = readCaseFiles(new Uint8Array(await file.arrayBuffer()));
-    const manifest = object(JSON.parse(strFromU8(files['manifest.json'])), 'manifest');
-    if (manifest.format !== 'jude') throw new ApiError(422, 'archive_manifest', 'Choose a Jude case archive.');
-    if (manifest.version !== 1) throw new ApiError(422, 'archive_version', 'This archive version is unsupported.');
-    if (files['case.json']) decoded = parseWorkspace(JSON.parse(strFromU8(files['case.json'])));
-    else if (manifest.kind === 'case' && manifest.case) decoded = parseWorkspace(workspaceFromManifest(manifest, files));
-    else throw new ApiError(422, 'archive_incomplete', 'The archive is missing its case record.');
+    decoded = decodeWorkspace(files);
   } catch (e) {
     if (e instanceof ApiError) throw e;
     throw new ApiError(422, 'archive_invalid', 'The case archive could not be read.');
   }
-  const { w, maps, original } = decoded;
-  const attachments: Attachment[] = [];
+  const { w, maps } = decoded;
   const pending = new Set<string>();
   let committed = false;
   try {
-    for (const src of original) {
-      const old = archiveId(src.id),
-        doc = w.documents.find((d) => d.id === maps.get(old))!;
-      const base = '/api/cases/' + w.caseRecord.id + '/documents/' + doc.id;
-      for (const kind of ['original', 'viewer']) {
-        const name = kind === 'viewer' ? 'viewer.pdf' : 'original.' + doc.file.toLowerCase();
-        const bytes = files['documents/' + old + '/' + name];
-        if (!bytes?.length) continue;
-        const mime = kind === 'viewer' ? mimes.PDF : mimes[doc.file];
-        const object_key = org + '/' + w.caseRecord.id + '/' + doc.id + '/' + kind;
-        attachments.push({
-          entity_id: doc.id,
-          kind,
-          object_key,
-          file_name: name,
-          mime,
-          byte_length: bytes.length,
-        });
-        pending.add(object_key);
-        await putOriginal(object_key, bytes, mime);
-        if (kind === 'original') doc.original = base + '/original';
-        if (kind === 'viewer' || doc.file === 'PDF') doc.pdf = base + '/' + kind;
-      }
-      doc.status = w.passages.some((p) => p.docId === doc.id) ? 'ready' : 'text_unavailable';
+    const originals = documentFiles(files, decoded, (id, kind) => [org, w.caseRecord.id, id, kind].join('/'));
+    for (const {metadata, bytes} of originals) {
+      pending.add(metadata.object_key);
+      await putOriginal(metadata.object_key, bytes, metadata.mime);
     }
+    const attachments = originals.map(f => f.metadata);
     const turns = await restoreAudio(files, w, maps, org, attachments, pending);
-    const audioBytes = turns.reduce((total, t) => total + (t.object_key ? t.bytes : 0), 0);
-    await transaction(async (db) => {
-      await checkQuota(db, org, 'cases', 1);
-      await checkQuota(db, org, 'boards', w.boards.length);
-      await checkQuota(
-        db,
-        org,
-        'storage',
-        attachments
-          .filter((a) => a.kind !== 'viewer')
-          .reduce((sum, a) => sum + Number(a.byte_length), audioBytes) / 1e9,
-      );
-      await insertWorkspace(db, org, w, creator);
-      for (const a of attachments) await storeFile(db, { ...a, case_id: w.caseRecord.id });
-      await insertArchivedTurns(db, w.caseRecord.id, turns);
-    });
+    await transaction(db => saveImport(db, org, w, attachments, turns, creator));
     committed = true;
     return w.caseRecord;
   } finally {
