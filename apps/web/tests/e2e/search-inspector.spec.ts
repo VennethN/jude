@@ -81,6 +81,8 @@ test('phone sheets follow the finger and dismiss only after a full pull', async 
         expect(await reference.evaluate(node => node.isConnected)).toBe(true);
         await reference.dispose();
       }
+      // Keep the citation clear of the fixed hearing player and phone navigation.
+      await trigger.evaluate(node => node.scrollIntoView({ block: 'center', behavior: 'instant' }));
       await trigger.tap();
       const sheet = page.getByRole('dialog', { name: title });
       await expect(sheet).toBeVisible();
