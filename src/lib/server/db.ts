@@ -13,9 +13,11 @@ interface Driver {
 }
 
 async function migrations() {
-  const folder = resolve('migrations');
+  const folder = resolve(process.env.JUDE_MIGRATIONS_DIR || 'migrations');
   const files = (await readdir(folder)).filter((file) => /^\d+.*\.sql$/.test(file)).sort();
-  return Promise.all(files.map(async (file) => [file, await readFile(resolve(folder, file), 'utf8')] as const));
+  return Promise.all(
+    files.map(async (file) => [file, await readFile(resolve(folder, file), 'utf8')] as const),
+  );
 }
 
 function sqliteDriver(sqlite: DatabaseSync): Driver {
@@ -29,7 +31,7 @@ function sqliteDriver(sqlite: DatabaseSync): Driver {
         return '?';
       });
       return sqlite.prepare(query).all(...values) as T[];
-    }
+    },
   };
   return {
     transaction<T>(work: (db: Database) => Promise<T>) {
@@ -46,7 +48,7 @@ function sqliteDriver(sqlite: DatabaseSync): Driver {
       });
       tail = run.catch(() => undefined);
       return run;
-    }
+    },
   };
 }
 
@@ -60,7 +62,7 @@ function postgresDriver(pool: Pool): Driver {
           forUpdate: ' FOR UPDATE',
           async query<T>(sql: string, args: Scalar[] = []) {
             return (await client.query(sql, args)).rows as T[];
-          }
+          },
         });
         await client.query('COMMIT');
         return result;
@@ -70,7 +72,7 @@ function postgresDriver(pool: Pool): Driver {
       } finally {
         client.release();
       }
-    }
+    },
   };
 }
 
@@ -78,7 +80,7 @@ async function initialize(): Promise<Driver> {
   let driver: Driver;
   if (process.env.DATABASE_URL) {
     const { Pool } = await import('pg');
-    driver = postgresDriver(new Pool({connectionString: process.env.DATABASE_URL, max: 8}));
+    driver = postgresDriver(new Pool({ connectionString: process.env.DATABASE_URL, max: 8 }));
   } else {
     if (process.env.NODE_ENV === 'production' && !process.env.JUDE_DB_PATH) {
       throw new Error('Configure DATABASE_URL or an explicit JUDE_DB_PATH for this installation.');
@@ -94,10 +96,14 @@ async function initialize(): Promise<Driver> {
   await driver.transaction(async (db) => {
     if (db.forUpdate) await db.query('SELECT pg_advisory_xact_lock(1937446201)');
     await db.query('CREATE TABLE IF NOT EXISTS schema_migrations (name TEXT PRIMARY KEY)');
-    const done = await db.query<{name:string}>('SELECT name FROM schema_migrations');
+    const done = await db.query<{ name: string }>('SELECT name FROM schema_migrations');
     for (const [name, sql] of scripts) {
-      if (done.some(row => row.name === name)) continue;
-      for (const statement of sql.split(';').map(s => s.trim()).filter(Boolean)) await db.query(statement);
+      if (done.some((row) => row.name === name)) continue;
+      for (const statement of sql
+        .split(';')
+        .map((s) => s.trim())
+        .filter(Boolean))
+        await db.query(statement);
       await db.query('INSERT INTO schema_migrations(name) VALUES ($1)', [name]);
     }
   });
@@ -106,10 +112,9 @@ async function initialize(): Promise<Driver> {
 
 let driverPromise: Promise<Driver> | undefined;
 export async function transaction<T>(work: (db: Database) => Promise<T>) {
-  const driver = await (driverPromise ??= initialize().catch(error => {
+  const driver = await (driverPromise ??= initialize().catch((error) => {
     driverPromise = undefined;
     throw error;
   }));
   return driver.transaction(work);
 }
-
