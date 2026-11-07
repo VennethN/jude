@@ -136,7 +136,8 @@ function hitOf(raw: unknown, query: Search): Hit | undefined {
     !numbers.some((value) => value.toUpperCase() === query.article)
   )
     return;
-  const article = query.article || (/^\d{1,4}[A-Z]?$/.test(proven) ? proven : '');
+  const article =
+    query.article || (!query.numbered && !query.code && /^\d{1,4}[A-Z]?$/.test(proven) ? proven : '');
   const url =
     (proven && proven === article ? source(passage.href) : undefined) ??
     source(passage.work_href) ??
@@ -261,19 +262,45 @@ async function searchPasal(query: Search, key: string): Promise<LegalRef[]> {
 
 function contextLaws(w: Workspace, refs: (Citation | ContextRef)[]) {
   const ids = new Set<string>(),
-    statements = new Set<string>();
+    statements = new Set<string>(),
+    passages = new Set<string>();
   for (const ref of refs) {
     if (ref.kind === 'finding') {
       const finding = w.findings.find((f) => f.id === ref.id);
       if (finding) {
         finding.legal?.forEach((id) => ids.add(id));
         statements.add(finding.statementId);
+        for (const source of finding.sources) passages.add(source.passageId);
       }
     } else if (ref.kind === 'statement') statements.add(ref.id);
+    else if (ref.kind === 'passage') passages.add(ref.id);
   }
   const lines = w.statements.filter((line) => statements.has(line.id));
   for (const line of lines) line.legal?.forEach((id) => ids.add(id));
-  return { ids, lines };
+  const text = [
+    ...lines.map((line) => line.text),
+    ...w.passages.filter((p) => passages.has(p.id)).map((p) => p.text),
+  ];
+  return { ids, text };
+}
+
+async function privateLookup(w: Workspace, query?: Search): Promise<LegalRef[]> {
+  const key = token();
+  if (!key || !query || legalDiscoveryMode(w) !== 'available') return [];
+  try {
+    return await searchPasal(query, key);
+  } catch {
+    interrupted = { fingerprint: digest(key), until: Date.now() + 60000 };
+    return [];
+  }
+}
+
+/** An automatic finding may look up only the named law within an independently checked quotation. */
+export function discoverCitedLegal(w: Workspace, quotations: string[]): Promise<LegalRef[]> {
+  const query = quotations
+    .map((quote) => searchTerms(quote, true))
+    .find((term) => term?.numbered || term?.code);
+  return privateLookup(w, query);
 }
 
 export async function discoverLegal(
@@ -308,15 +335,8 @@ export async function discoverLegal(
       .map((item) => item.ref);
   }
   const saved = w.legal.filter((row) => row.provider === 'pasal' && related.ids.has(row.id));
-  const safeQuery = query ?? related.lines.flatMap((line) => searchTerms(line.text, true) ?? [])[0];
-  const key = token();
-  if (!key || !safeQuery || legalDiscoveryMode(w) === 'unavailable') return saved.slice(0, 3);
-  try {
-    return [...saved, ...(await searchPasal(safeQuery, key))].slice(0, 6);
-  } catch {
-    interrupted = { fingerprint: digest(key), until: Date.now() + 60000 };
-    return saved.slice(0, 3);
-  }
+  const safeQuery = query ?? related.text.map((line) => searchTerms(line, true)).find(Boolean);
+  return [...saved, ...(await privateLookup(w, safeQuery))].slice(0, 6);
 }
 
 export function retainLegal(w: Workspace, discoveries: LegalRef[]) {
