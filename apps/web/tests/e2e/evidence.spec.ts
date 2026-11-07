@@ -13,6 +13,7 @@ test('open a marked PDF passage, inspect the record, then review its finding', a
   await expect(page.locator('.spoken blockquote')).toContainText('jam setengah sepuluh malam');
   await expect(page.locator('.filed blockquote').first()).toContainText('20.00 WIB');
 
+  await page.getByRole('button', { name: 'Tambah catatan' }).click();
   await page.getByLabel('Catatan pemeriksaan').fill('Periksa catatan kartu gerbang sebelum bertanya.');
   await page.getByRole('button', { name: 'Tandai diperiksa' }).click();
   await expect(page.getByRole('button', { name: 'Buka kembali' })).toBeVisible();
@@ -43,17 +44,20 @@ test('keep an original upload and open its indexed text from the case library', 
   expect((await response.body()).toString('utf8')).toBe(content);
 });
 
-test('a phone keeps a grouped evidence map inside its own scrolling viewport', async ({ page }) => {
+test('a phone keeps a grouped evidence map inside the viewport with a readable list below', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await page.goto('/demo/connections?of=statement:s208');
-  await expect(page.getByRole('heading', { name: 'Pasangan dalam kelompok' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Bukti dalam kelompok ini' })).toBeVisible();
   const dimensions = await page.evaluate(() => ({
     viewport: innerWidth,
     document: document.documentElement.scrollWidth,
-    map: document.querySelector('.map')!.scrollWidth
+    map: document.querySelector('.map')!.getBoundingClientRect().width,
+    panelY: document.querySelector('.group-panel')!.getBoundingClientRect().top,
+    mapBottom: document.querySelector('.map')!.getBoundingClientRect().bottom
   }));
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
-  expect(dimensions.map).toBeGreaterThan(dimensions.viewport);
+  expect(dimensions.map).toBeLessThanOrEqual(dimensions.viewport);
+  expect(dimensions.panelY).toBeGreaterThan(dimensions.mapBottom);
 });
 
 test('undo board deletion keeps its identity and opens the restored board', async ({ page }) => {

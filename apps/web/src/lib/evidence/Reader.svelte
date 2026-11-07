@@ -13,8 +13,9 @@
     ScanText,
     Trash2
   } from '@lucide/svelte';
-  import type { InspectTarget, Lang, Workspace } from '@jude/core/domain';
-  import { apiPath, assistantPath, boardPath, casePath, local, statuses } from './records';
+  import type { Finding, InspectTarget, Lang, Workspace } from '@jude/core/domain';
+  import { apiPath, assistantPath, boardPath, casePath, local } from './records';
+  import FindingLink from './FindingLink.svelte';
   import Match from './Match.svelte';
   import Inspector from './Inspector.svelte';
   import DocumentRemoval from './DocumentRemoval.svelte';
@@ -26,6 +27,17 @@
   let doc = $derived(w.documents.find((d) => d.id === docId)!);
   let list = $derived(w.passages.filter((p) => p.docId === doc.id));
   let selected = $derived(list.find((p) => p.id === page.url.searchParams.get('p')));
+  const citations = $derived.by(() => {
+    const byPassage = new Map<string, Finding[]>();
+    for (const finding of w.findings) {
+      for (const passageId of new Set(finding.sources.map(source => source.passageId))) {
+        const rows = byPassage.get(passageId);
+        if (rows) rows.push(finding);
+        else byPassage.set(passageId, [finding]);
+      }
+    }
+    return byPassage;
+  });
   let original = $derived(apiPath(w, 'documents/' + encodeURIComponent(doc.id) + '/original'));
   let pdfUrl = $derived(doc.pdf || (doc.file === 'PDF' ? original : undefined));
   let textView = $derived(!pdfUrl || page.url.searchParams.get('view') === 'text');
@@ -164,6 +176,24 @@
   });
 </script>
 
+{#snippet citationLinks(passageId: string)}
+  {#if citations.has(passageId)}
+    <div class="finding-links">
+      {#each citations.get(passageId) ?? [] as finding (finding.id)}
+        <FindingLink workspace={w} {finding} {lang} variant="pill"/>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
+{#snippet textPassage(passageId: string, text: string)}
+  <div class="passage-block" class:focused={selected?.id === passageId}>
+    <button class="passage" data-pid={passageId} onclick={() => (inspect = { kind: 'passage', id: passageId })}>
+      {#if citations.has(passageId)}<mark><Match {text} term={query}/></mark>{:else}<Match {text} term={query}/>{/if}
+    </button>
+    {@render citationLinks(passageId)}
+  </div>
+{/snippet}
+
 <svelte:head><title>{doc.title} · Jude</title></svelte:head>
 <svelte:document onselectionchange={readSelection} />
 <div class="ev-page" data-tour="reader">
@@ -269,20 +299,13 @@
         {#if textView}
           <article class="transcript" data-tour="doc-text">
             <h2 class="ev-meta">{id ? 'Halaman' : 'Page'} {number}</h2>
-            {#if paragraphGroups.length}{#each paragraphGroups as group}{#if group.ref}<button
-                    class="passage"
-                    data-pid={group.ref}
-                    class:focused={selected?.id === group.ref}
-                    onclick={() => (inspect = { kind: 'passage', id: group.ref! })}
-                    ><Match text={group.text} term={query} /></button
-                  >{:else}<p class="ev-record">{group.text}</p>{/if}{/each}{/if}
-            {#each active.filter((p) => !paragraphGroups.some((g) => g.ref === p.id)) as p (p.id)}<button
-                class="passage"
-                data-pid={p.id}
-                class:focused={p.id === selected?.id}
-                onclick={() => (inspect = { kind: 'passage', id: p.id })}
-                ><Match text={p.text} term={query} /></button
-              >{/each}
+            {#each paragraphGroups as group}
+              {#if group.ref}{@render textPassage(group.ref, group.text)}
+              {:else}<p class="ev-record">{group.text}</p>{/if}
+            {/each}
+            {#each active.filter((p) => !paragraphGroups.some((g) => g.ref === p.id)) as p (p.id)}
+              {@render textPassage(p.id, p.text)}
+            {/each}
             {#if !active.length && !paragraphGroups.length}<p>
                 {textLoading
                   ? id
@@ -327,20 +350,13 @@
         </p>{/if}
       <ul class="ev-list">
         {#each active as p (p.id)}
-          {@const fs = w.findings.filter((f) => f.sources.some((s) => s.passageId === p.id))}
           <li class:chosen={p.id === selected?.id}>
             <button class="ev-pick" onclick={() => (inspect = { kind: 'passage', id: p.id })}
               ><span class="ev-cap">{id ? 'Kutipan' : 'Passage'} {list.indexOf(p) + 1}</span><span
                 class="excerpt ev-record">{p.text}</span
               ></button
             >
-            <div class="finding-links">
-              {#each fs as f (f.id)}<a
-                  class="ev-link"
-                  data-fid={f.id}
-                  href={casePath(w) + '/findings/' + encodeURIComponent(f.id)}>{statuses[f.status][lang]}</a
-                >{/each}
-            </div>
+            {#if !textView}{@render citationLinks(p.id)}{/if}
             <div class="ev-actions">
               <button
                 class="ev-icon"
@@ -396,26 +412,12 @@
     margin: 0 0 1.25rem;
     font-weight: 600;
   }
-  .passage {
-    border: 1px solid transparent;
-    padding: 0.4rem;
-    margin: 0 0 0.55rem;
-    display: block;
-    color: var(--ink);
-    font: 400 0.99rem/1.65 var(--mono);
-    background: color-mix(in srgb, var(--ev-highlight) 14%, var(--surface));
-    text-align: start;
-    cursor: pointer;
-  }
-  .passage.focused,
-  .margin li.chosen {
-    outline: 2px solid var(--accent);
-    outline-offset: 0;
-  }
-  .finding-links {
-    display: grid;
-    justify-items: start;
-  }
+  .passage-block { display: grid; gap: 6px; min-width: 0; padding: 6px 8px; margin: 0 -8px 8px; border-radius: 4px; scroll-margin-top: 120px; }
+  .passage { padding: 0; border: 0; color: var(--ink); font: 400 14.5px/1.75 var(--mono); background: transparent; text-align: start; cursor: pointer; }
+  .passage:hover { text-decoration: underline; text-decoration-color: var(--line-strong); }
+  .passage mark { background: var(--mark); color: var(--mark-ink); }
+  .passage-block.focused,.margin li.chosen { outline: 2px solid var(--focus); outline-offset: 0; }
+  .finding-links { display: flex; flex-wrap: wrap; align-items: center; min-width: 0; gap: 6px; }
   .margin {
     border-inline-start: 1px solid var(--line);
     padding-inline-start: 1.1rem;

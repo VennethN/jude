@@ -12,6 +12,8 @@
 	color: var(--pub-ink);
 	font: 400 1rem/1.6 var(--pub-body);
 	color-scheme: light;
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
 }
 .public-world *, .public-world *::before, .public-world *::after { box-sizing: border-box; }
 .public-world h1, .public-world h2, .public-world h3, .public-world p, .public-world figure, .public-world blockquote { margin: 0; }

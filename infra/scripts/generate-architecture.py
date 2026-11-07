@@ -3,7 +3,7 @@
 
 Usage: python3 infra/scripts/generate-architecture.py
 SVG uses only Python's standard library; PNG additionally uses Pillow.
-Official SVG artwork and PNG caches live in docs/architecture/icons.
+Official SVG artwork and PNG caches live in infra/docs/architecture/icons.
 Vendor sources and SHA-256 digests are recorded in icons/sources.json.
 Generating either format is offline; ImageMagick is not a runtime dependency.
 Edit the layout below, or pass --config settings.json to override CONFIG values.
@@ -39,7 +39,7 @@ PINK = "#c92d69"
 TEAL = "#009b8c"
 BLUE = "#2874d8"
 GREEN = "#469f25"
-ASSETS = Path(__file__).resolve().parents[2] / "docs/architecture/icons"
+ASSETS = Path(__file__).resolve().parents[1] / "docs/architecture/icons"
 ICON_BY_TITLE = {
     "CloudFront": "cloudfront", "CloudWatch Logs": "cloudwatch",
     "OpenAI API": "openai", "Internet Gateway": "internet-gateway",
@@ -263,7 +263,7 @@ def generate(config, output, png):
 
 
 def main():
-    root = Path(__file__).resolve().parents[2]
+    root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir",type=Path,default=root/"docs/architecture")
     parser.add_argument("--config",type=Path,help="JSON overrides for CONFIG")

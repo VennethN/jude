@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invalidate } from '$app/navigation';
+  import { invalidate, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { tick, untrack } from 'svelte';
   import {
@@ -11,7 +11,6 @@
     ChevronRight,
     MessageSquareReply,
     FileText,
-    ListFilter,
     Mic,
     Moon,
     Pause,
@@ -45,6 +44,7 @@
   import Transcript from './Transcript.svelte';
   import Timeline from './Timeline.svelte';
   import QuickLook from './QuickLook.svelte';
+  import HearingFindings from './HearingFindings.svelte';
   import VoiceDialog from './VoiceDialog.svelte';
   import { getCapture, connectCapture, pauseCapture, stopCapture } from './active-recording.svelte';
   import { voice } from './people';
@@ -189,14 +189,22 @@
   function weight(f: Finding) {
     return (f.isNew ? 4 : 0) + (f.status === 'potential_inconsistency' ? 2 : 1);
   }
-  function showFinding(id: string) {
-    brief = id;
-    replyId = '';
+  function showFinding(id: string, remember = true) {
     const f = findings.find((f) => f.id === id);
     if (f) {
+      const changed = brief !== id;
+      brief = id;
+      replyId = '';
       picked = f.statementId;
       transcript?.reveal(picked);
-      if (f.isNew)
+      if (remember) {
+        const next = new URL(page.url);
+        next.searchParams.set('f', id);
+        next.searchParams.set('s', picked);
+        next.searchParams.delete('play');
+        if (next.href !== page.url.href) replaceState(next, page.state);
+      }
+      if (changed && f.isNew)
         void write(apiPath(w, 'findings/' + encodeURIComponent(f.id)), 'PATCH', {}).catch(() => {});
     }
   }
@@ -212,6 +220,12 @@
   function closeQuick() {
     brief = '';
     replyId = '';
+    if (page.url.searchParams.has('f')) {
+      const next = new URL(page.url);
+      next.searchParams.delete('f');
+      if (picked) next.searchParams.set('s', picked);
+      replaceState(next, page.state);
+    }
   }
   function peek(e: MouseEvent, id: string) {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
@@ -281,7 +295,7 @@
           : 'Ucapan yang ditautkan tidak tersedia dalam sidang ini.';
         return;
       }
-      if (found) showFinding(found.id);
+      if (found && brief !== found.id) showFinding(found.id, false);
       if (play && h.audio) void playAt(line.t);
       else seek(line.t);
     });
@@ -599,38 +613,10 @@
           select={showFinding}
           close={closeQuick}
         />
-      {:else}<aside class="hearing-margin" aria-labelledby="margin-title">
-          <header>
-            <div>
-              <ListFilter size={18} />
-              <h2 id="margin-title">{en ? 'Hearing findings' : 'Temuan sidang'}</h2>
-            </div>
-            <span>{String(findings.length).padStart(2, '0')}</span>
-          </header>
-          {#if findings.length}<ul>
-              {#each (alerts.length ? alerts : findings).slice(0, 4) as f (f.id)}<li>
-                  <a href={base + '/findings/' + f.id} onclick={(e) => peek(e, f.id)}
-                    ><small>{timecode(times.get(f.statementId) ?? 0)} · {statuses[f.status][lang]}</small
-                    ><strong>{f.title[lang]}</strong></a
-                  >
-                </li>{/each}
-            </ul>
-            <a class="index-link" href={base + '/findings?hearing=' + encodeURIComponent(h.id)}
-              >{en ? 'All findings in this hearing' : 'Semua temuan sidang ini'}<ArrowUpRight size={14} /></a
-            >
-          {:else}<p class="margin-empty">
-              {live
-                ? en
-                  ? 'Findings linked to testimony will appear here.'
-                  : 'Temuan yang berkaitan dengan ucapan akan muncul di sini.'
-                : en
-                  ? 'No findings have been filed for this hearing.'
-                  : 'Belum ada temuan dalam sidang ini.'}
-            </p>{/if}
-          {#if lines.some((s) => s.flagged)}<a class="index-link" href={base + '/findings?tab=saved'}
-              >{en ? 'Bookmarked testimony' : 'Ucapan yang ditandai'}<ArrowUpRight size={14} /></a
-            >{/if}
-        </aside>{/if}
+      {:else}<aside class="hearing-margin" aria-label={en ? 'Hearing context' : 'Konteks sidang'}>
+        <HearingFindings {findings} {times} {lang} {live} casePath={base} hearingId={h.id}
+          bookmarked={lines.some((line) => line.flagged)} onPreview={(item) => showFinding(item.id)} />
+      </aside>{/if}
     </div>
   {/if}
 </article>

@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { goto, invalidateAll } from '$app/navigation';
+  import { page } from '$app/state';
+  import { goto, invalidateAll, replaceState } from '$app/navigation';
   import {
     ArrowDownToLine,
     ArrowRight,
@@ -8,11 +9,9 @@
     CalendarDays,
     ChevronRight,
     CircleAlert,
-    Ellipsis,
     FilePlus2,
     FileText,
     GitFork,
-    ListChecks,
     MessageSquareText,
     Mic,
     Radio,
@@ -24,21 +23,19 @@
   } from '@lucide/svelte';
   import { api } from '$lib/client';
   import { needsReview } from '@jude/core/domain';
+  import FindingLink from '$lib/evidence/FindingLink.svelte';
   import CaseForm from '$lib/workspace/CaseForm.svelte';
   import Dialog from '$lib/workspace/Dialog.svelte';
   import HearingRow from '$lib/workspace/HearingRow.svelte';
   import { voice } from '$lib/workspace/hearing-detail/people';
   import { casePrompts } from '$lib/workspace/case-prompts';
-  import { assistantPath } from '$lib/evidence/records';
   import { formatDate, timecode } from '$lib/workspace/format';
   let { data } = $props();
   const w = $derived(data.workspace),
     c = $derived(w.caseRecord),
     base = $derived('/case/' + c.id),
     en = $derived(data.lang === 'en');
-  const review = $derived(w.findings.filter(needsReview)),
-    first = $derived(review.find((f) => f.status === 'potential_inconsistency') ?? review[0]);
-  const spoken = $derived(w.statements.find((s) => s.id === first?.statementId));
+  const review = $derived(w.findings.filter(needsReview));
   const empty = $derived(!w.hearings.length && !w.documents.length);
   const live = $derived(w.hearings.find((h) => h.mode === 'live'));
   const today = $derived(
@@ -52,7 +49,6 @@
       .sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''))[0],
   );
   const latest = $derived(w.statements.filter((s) => s.hearingId === live?.id).sort((a, b) => b.t - a.t)[0]);
-  const passage = $derived(w.passages.find((p) => p.id === first?.sources[0]?.passageId));
   const pending = $derived(w.connections.filter((link) => !link.reviewed).length);
   let now = $state(0),
     question = $state('');
@@ -65,14 +61,21 @@
   const elapsed = $derived(
     live?.startedAt && now ? Math.max(0, (now - Date.parse(live.startedAt)) / 1000) : (latest?.t ?? 0),
   );
-  async function ask(text: string) {
+  function ask(text: string) {
     const query = text.trim();
     if (!query) return;
     question = '';
-    await goto(assistantPath(w, { kind: 'case' }), { state: { judeAsk: { caseId: c.id, text: query } } });
+    replaceState('', { ...page.state, judePanelQuestion: { caseId: c.id, text: query } });
   }
   let dialog = $state<null | 'menu' | 'edit' | 'remove'>(null),
     message = $state('');
+  $effect(() => {
+    const { judeCaseMenu, ...rest } = page.state as { judeCaseMenu?: boolean };
+    if (judeCaseMenu) {
+      replaceState(page.url, rest);
+      dialog = 'menu';
+    }
+  });
   async function action(path: string, method: string) {
     try {
       await api('/api/cases/' + c.id + path, method);
@@ -97,11 +100,7 @@
           : en
             ? 'Private case'
             : 'Perkara privat'}</span
-      >{#if c.reference}<span>{c.reference}</span>{/if}<button
-        class="icon-button"
-        onclick={() => (dialog = 'menu')}
-        aria-label={en ? 'Case menu' : 'Menu perkara'}><Ellipsis size={19} /></button
-      >
+      >{#if c.reference}<span>{c.reference}</span>{/if}
     </div>
     <h1>{c.title}</h1>
     {#if c.summary[data.lang]}<p class="summary">{c.summary[data.lang]}</p>{/if}
@@ -192,35 +191,18 @@
       <div class="column">
         <section class="folio review">
           <div class="heading">
-            <h2><ListChecks size={18} />{en ? 'Needs review' : 'Perlu dicek'}</h2>
-            <span class="count">{review.length}</span>
+            <h2><CircleAlert size={16} />{en ? 'Worth a look' : 'Perlu dicek'}</h2>
+            {#if review.length}<span class="count">{review.length}</span>{/if}
           </div>
-          {#if first}<a class="lead-title" href={base + '/findings/' + first.id}>{first.title[data.lang]}</a>
-            <div class="evidence-pair">
-              {#if spoken && first.said}<a href={base + '/hearings/' + first.hearingId + '?s=' + spoken.id}
-                  ><small><Mic size={13} />{en ? 'Testimony' : 'Kesaksian'} · {timecode(spoken.t)}</small><q
-                    >{first.said}</q
-                  ></a
-                >{/if}
-              {#if passage}<a
-                  class="document-quote"
-                  href={base + '/documents/' + passage.docId + '?p=' + passage.id}
-                  ><small
-                    ><FileText size={13} />{w.documents.find((d) => d.id === passage.docId)?.title} · {en
-                      ? 'p.'
-                      : 'hlm.'}
-                    {passage.page}</small
-                  ><q>{first.sources[0].match || passage.text}</q></a
-                >{/if}
-            </div>
-            {#each review.filter((f) => f.id !== first.id).slice(0, 2) as f (f.id)}<a
-                class="queue-row"
-                href={base + '/findings/' + f.id}
-                ><CircleAlert size={14} /><span>{f.title[data.lang]}</span><ChevronRight size={14} /></a
-              >{/each}
-            <a class="text-action" href={base + '/findings/' + first.id}
-              >{en ? 'Review the sources' : 'Tinjau sumber'}<ArrowRight size={15} /></a
-            >
+          {#if review.length}
+            <ul class="review-list">
+              {#each review.slice(0, 3) as finding (finding.id)}
+                <li><FindingLink workspace={w} {finding} lang={data.lang} showHearing /></li>
+              {/each}
+            </ul>
+            <a class="button primary start-review" href={base + '/findings'}>
+              {en ? 'Start reviewing' : 'Mulai meninjau'}<ArrowRight size={16}/>
+            </a>
           {:else}<p class="muted">
               {w.findings.length
                 ? en
@@ -395,12 +377,10 @@
   .live-heading,
   .live-heading a,
   .latest-line,
-  .evidence-pair small,
   .calendar-entry,
   .text-action,
   .doc-row,
-  .pending,
-  .queue-row {
+  .pending {
     display: flex;
     align-items: center;
   }
@@ -410,14 +390,7 @@
     font-size: 0.83rem;
     font-variant-numeric: tabular-nums;
   }
-  .file-id > .icon-button {
-    margin-left: auto;
-    height: 36px;
-    min-height: 36px;
-    width: 40px;
-    min-width: 40px;
-    background: transparent;
-  }
+
   .case-type {
     padding: 2px 8px;
     background: var(--wash);
@@ -449,7 +422,6 @@
   .facts dt,
   .calendar-entry small,
   .heading a,
-  .evidence-pair small,
   .doc-row small {
     color: var(--muted);
   }
@@ -582,52 +554,16 @@
     min-height: 28px;
   }
   .count {
-    background: color-mix(in srgb, var(--accent) 13%, var(--paper));
-    color: var(--accent);
+    background: var(--st-inconsistency-bg);
+    color: var(--st-inconsistency-ink);
     min-width: 24px;
     text-align: center;
     border-radius: 25px;
     font-weight: 600;
     font-size: 0.83rem;
   }
-  .lead-title {
-    display: block;
-    font: 400 clamp(1.65rem, 2.6cqi, 2.25rem)/1.13 var(--display);
-    text-decoration: none;
-    letter-spacing: -0.022em;
-    max-width: 37ch;
-  }
-  .evidence-pair {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    margin: 14px 0 9px;
-    border-block: 1px solid var(--line);
-  }
-  .evidence-pair a {
-    padding: 12px 10px 12px 0;
-    display: grid;
-    align-content: start;
-    gap: 6px;
-    text-decoration: none;
-    min-width: 0;
-  }
-  .evidence-pair .document-quote {
-    padding-left: 12px;
-    border-left: 1px solid var(--line);
-    font-family: var(--mono);
-  }
-  .evidence-pair small {
-    font: 500 0.78rem/1.4 var(--sans);
-    gap: 5px;
-  }
-  .evidence-pair q {
-    font-size: 0.97rem;
-    line-height: 1.45;
-  }
-  .document-quote q {
-    font-size: 0.92rem;
-  }
-  .queue-row,
+  .review-list { list-style: none; display: grid; margin: 0 -10px 12px; padding: 0; }
+  .start-review { width: fit-content; }
   .doc-row {
     gap: 9px;
     min-height: 43px;
@@ -636,12 +572,8 @@
     border-bottom: 1px solid var(--line);
     font-size: 0.87rem;
   }
-  .queue-row span,
   .doc-row span {
     flex: 1;
-  }
-  .queue-row :global(svg:first-child) {
-    color: var(--accent);
   }
   .text-action {
     color: var(--ink);
@@ -776,14 +708,6 @@
     .live-heading a {
       white-space: normal;
       text-align: right;
-    }
-    .evidence-pair {
-      grid-template-columns: 1fr;
-    }
-    .evidence-pair .document-quote {
-      border-left: 0;
-      border-top: 1px solid var(--line);
-      padding-left: 0;
     }
     .facts {
       display: grid;

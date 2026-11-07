@@ -127,6 +127,17 @@ describe('case API', () => {
     const a = browser(),
       session = await a.ok<SessionInfo>('auth/demo', 'POST'),
       base = 'cases/' + session.demo!.caseId;
+    expect((await a.ok<Workspace>(base + '/workspace')).boards).toEqual([]);
+    const activations = await Promise.all(['f1', 'f3'].map((id) => a.ok<Board>(base + '/boards/first', 'POST', {
+      name: 'Papan 1', card: { kind: 'finding', id },
+    })));
+    expect(activations[0].id).toBe(activations[1].id);
+    const initialBoards = (await a.ok<Workspace>(base + '/workspace')).boards;
+    expect(initialBoards).toHaveLength(1);
+    expect(initialBoards[0].cards.map((c) => c.id).sort()).toEqual(['f1', 'f3']);
+    await a.ok(base + '/boards/' + initialBoards[0].id, 'DELETE');
+    expect((await a.request(base + '/boards/first', 'POST', {name:'Papan 1', card:{kind:'finding',id:'absent'}})).status).toBe(422);
+    expect((await a.ok<Workspace>(base + '/workspace')).boards).toEqual([]);
     const b = await a.ok<Board>(base + '/boards', 'POST', { name: 'Garis waktu' });
     const path = base + '/boards/' + b.id;
     const card = { key: 'finding:f1', kind: 'finding', id: 'f1', x: 0, y: 0, note: 'Periksa' };

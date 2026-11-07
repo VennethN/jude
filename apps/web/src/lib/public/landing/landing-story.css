@@ -1,0 +1,2338 @@
+/* The cover and source plates use fixed photographic textures. Motion only changes their position, highlights and paper shadows. */
+  .lp {
+    --lp-bg: #faf7f0;
+    --lp-ink: #14281f;
+    --lp-forest: #16382b;
+    --lp-forest-deep: #153328;
+    --lp-cloth-light: #62a07c;
+    --lp-desk-shadow: #030e09;
+    --lp-carbon: #111c16;
+    --lp-cream: #f6f0e4;
+    --lp-accent: #eadcc4;
+    --lp-paper: #f5eee2;
+    --lp-muted: #64675e;
+    --lp-line: #d9d6ca;
+    --lp-button: #f4ebda;
+    --lp-button-ink: #15271d;
+    --lp-button-hover: #e8d6b5;
+    --lp-amber: #e9bf7c;
+    --lp-amber-ink: #422d10;
+    --lp-amber-wash: color-mix(in srgb, var(--lp-amber) 42%, transparent);
+    --lp-sage-ink: #245037;
+    --lp-rel-conflicts: #b57539;
+    --lp-rel-conflicts-text: #835025;
+    /* The map's lines and their names, as the product draws them (see --rel-* in app.css). */
+    --lp-wire-conflicts: #d9622b;
+    --lp-wire-conflicts-text: #a8481c;
+    --lp-wire-context: #6a52cf;
+    --lp-wire-context-text: #5a43c0;
+    --lp-wire-related: #55584f;
+    --lp-wire-related-text: #4f524a;
+    --lp-ease: cubic-bezier(0.16, 1, 0.3, 1);
+    /* Written records are typed; spoken testimony keeps the display serif. */
+    --lp-doc: "Courier Prime", "Courier New", Courier, monospace;
+    --lp-section: 84px;
+    min-height: calc(100dvh / var(--z, 1));
+    background: var(--lp-bg);
+    color: var(--lp-ink);
+    font: 400 15px / 1.65 "Manrope", system-ui, sans-serif;
+    overflow-x: clip;
+  }
+  .lp ::selection {
+    background: var(--lp-amber-wash);
+    color: inherit;
+  }
+  .lp :focus-visible {
+    outline: 2px solid var(--lp-amber);
+    outline-offset: 6px;
+  }
+  .lp [tabindex="-1"]:focus {
+    outline: none;
+  }
+  .lp .wrap {
+    width: min(90%, 1440px);
+    margin-inline: auto;
+  }
+  .lp .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .lp .paper {
+    background-color: var(--lp-paper);
+    background-image: url("/public/ivory-paper.webp");
+    background-size: 600px 600px;
+    color: var(--lp-carbon);
+  }
+
+  /* Cover: the forest case file, set into the page with a quiet margin. */
+  .lp .cover {
+    padding: 14px 14px 0;
+  }
+  .lp .frame {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    border-radius: 28px 28px 0 0;
+    background-color: var(--lp-forest-deep);
+    /* The forest surfaces are lit from the top left (and, on cloth, deepen toward the far corner). */
+    background-image: radial-gradient(125% 95% at 0% 0%, color-mix(in srgb, var(--lp-cloth-light) 30%, transparent), color-mix(in srgb, var(--lp-cloth-light) 10%, transparent) 38%, transparent 68%), url("/public/jude-case-files.webp");
+    background-position: center bottom;
+    background-size: cover;
+    background-repeat: no-repeat;
+    color: var(--lp-cream);
+    padding: 0 max(5%, 28px);
+    overflow: hidden;
+    isolation: isolate;
+  }
+  .lp .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    min-height: 56px;
+    padding: 10px 30px;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: 23px;
+    line-height: 1.3;
+    text-decoration: none;
+    cursor: pointer;
+    transition:
+      background-color 0.2s,
+      color 0.2s,
+      transform 0.15s var(--lp-ease);
+  }
+  .lp .button:active {
+    transform: scale(0.98);
+  }
+  .lp .button svg {
+    transition: transform 0.2s var(--lp-ease);
+  }
+  .lp .button:hover svg {
+    transform: translateX(4px);
+  }
+  .lp .cream {
+    background: var(--lp-button);
+    color: var(--lp-button-ink);
+  }
+  .lp .cream:hover {
+    background: var(--lp-button-hover);
+  }
+  .lp .outline {
+    border-color: color-mix(in srgb, var(--lp-cream) 70%, transparent);
+    color: var(--lp-cream);
+  }
+  .lp .outline:hover {
+    background: var(--lp-paper);
+    color: var(--lp-forest);
+  }
+
+  .lp .opening {
+    max-width: 1100px;
+    padding: clamp(40px, calc(7vh / var(--z, 1)), 84px) 0 clamp(48px, calc(8vh / var(--z, 1)), 96px);
+  }
+  .lp .display {
+    display: grid;
+    font-family: "Rufina", Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(58px, 5.85vw, 90px);
+    line-height: 0.98;
+    letter-spacing: -0.025em;
+    text-wrap: balance;
+  }
+  .lp .turn {
+    color: var(--lp-accent);
+  }
+  .lp .lead {
+    max-width: 30em;
+    margin-top: 28px;
+    font-size: 20px;
+    line-height: 1.55;
+    color: color-mix(in srgb, var(--lp-cream) 88%, transparent);
+  }
+  .lp .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    margin-top: 36px;
+  }
+  /* The cover arrives once: the headline's two lines, its lead and the actions settle in turn,
+     while the source sheet below runs its own comparison. */
+  .lp .cover .display > span,
+  .lp .cover .lead {
+    animation: lp-in 0.95s var(--lp-ease) both;
+  }
+  .lp .cover .display > span:nth-child(2) {
+    animation-delay: 0.08s;
+  }
+  .lp .cover .lead {
+    animation-delay: 0.14s;
+  }
+  /* The actions keep their solid fill and only rise, so the cream button never reads murky. */
+  .lp .cover .actions {
+    animation: lp-rise-only 0.9s var(--lp-ease) 0.15s both;
+  }
+  @keyframes lp-rise-only {
+    from {
+      transform: translateY(14px);
+    }
+  }
+  @keyframes lp-in {
+    from {
+      opacity: 0;
+      transform: translateY(18px);
+    }
+  }
+  @keyframes lp-in-fade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  /* The source paper rises from the lower edge of the cover. */
+  .lp .sheet {
+    position: relative;
+    align-self: center;
+    width: min(85%, 1340px);
+    margin: 0;
+    padding: 18px clamp(24px, 3vw, 44px) 40px;
+    border-radius: 14px 14px 0 0;
+    box-shadow: 0 -14px 40px color-mix(in srgb, var(--lp-desk-shadow) 28%, transparent);
+  }
+  .lp .sheet-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-height: 32px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid color-mix(in srgb, var(--lp-carbon) 12%, transparent);
+    padding-bottom: 12px;
+  }
+  .lp .sample {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--lp-muted);
+    white-space: nowrap;
+  }
+  .lp .replay {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+    min-height: 32px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 13px;
+    color: var(--lp-forest);
+  }
+  .lp .replay:hover {
+    background: color-mix(in srgb, var(--lp-forest) 7%, transparent);
+  }
+  .lp .compare {
+    display: grid;
+    grid-template-columns: 1.1fr 1fr 1.1fr;
+    align-items: start;
+  }
+  .lp .side {
+    display: grid;
+    gap: 14px;
+    padding-right: 28px;
+  }
+  .lp .side.earlier {
+    padding: 0 0 0 28px;
+  }
+  .lp .side-label {
+    line-height: 1.65;
+    font-family: "Manrope", sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--lp-muted);
+  }
+  /* The opening quotation mark hangs in the margin, so the words align with the label above. */
+  .lp .quote {
+    margin: 0;
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: clamp(27px, 2.65vw, 42px);
+    line-height: 1.2;
+    text-indent: -0.4em;
+    text-wrap: balance;
+  }
+  .lp .quote.typed {
+    font-family: var(--lp-doc);
+    font-size: clamp(22px, 2.05vw, 32px);
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    text-indent: -0.6em;
+  }
+  .lp .typed {
+    font-family: var(--lp-doc);
+  }
+  .lp .hl {
+    /* --lp-amber-wash, written out: a gradient is an image, so no var() (see the note at the top). */
+    background: linear-gradient(color-mix(in srgb, var(--lp-amber) 42%, transparent), color-mix(in srgb, var(--lp-amber) 42%, transparent)) no-repeat 0 88% / 100% 0.55em;
+    padding: 0 2px;
+  }
+  .lp .source {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    width: fit-content;
+    min-height: 32px;
+    font-size: 13.5px;
+    color: var(--lp-forest);
+    text-decoration: underline;
+    text-decoration-color: color-mix(in srgb, var(--lp-forest) 35%, transparent);
+    text-underline-offset: 4px;
+  }
+  .lp .source:hover {
+    text-decoration-color: currentColor;
+  }
+  .lp .finding {
+    display: grid;
+    justify-items: center;
+    align-content: center;
+    gap: 14px;
+    align-self: stretch;
+    padding: 6px 24px 0;
+    border-inline: 1px solid color-mix(in srgb, var(--lp-carbon) 14%, transparent);
+    text-align: center;
+  }
+  .lp .pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 7px 18px;
+    border-radius: 30px;
+    background: var(--lp-amber);
+    color: var(--lp-amber-ink);
+    font-size: 13.5px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .lp .pill.small {
+    padding: 3px 11px;
+    font-size: 12px;
+  }
+  .lp .thread {
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+  .lp .thread .end {
+    flex-shrink: 0;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--lp-rel-conflicts);
+  }
+  .lp .thread .line {
+    flex: 1;
+    height: 1.5px;
+    background: var(--lp-rel-conflicts);
+    transform-origin: left center;
+  }
+  .lp .check {
+    max-width: 22em;
+    font-size: 14.5px;
+    line-height: 1.55;
+    color: var(--lp-ink);
+    text-wrap: balance;
+  }
+
+  /* One finite sequence: the sheet settles, each time is marked, the thread draws, the finding lands. */
+  .lp .sheet.run {
+    animation: lp-rise 0.75s var(--lp-ease) both;
+  }
+  .lp .sheet.run .hl.one {
+    animation: lp-mark 0.6s var(--lp-ease) 0.45s both;
+  }
+  .lp .sheet.run .hl.two {
+    animation: lp-mark 0.6s var(--lp-ease) 1.05s both;
+  }
+  .lp .sheet.run .thread .line {
+    animation: lp-draw 0.8s var(--lp-ease) 1.6s both;
+  }
+  .lp .sheet.run .thread .end {
+    animation: lp-fade 0.4s var(--lp-ease) 1.55s both;
+  }
+  .lp .sheet.run .pill {
+    animation: lp-settle 0.5s var(--lp-ease) 2.3s both;
+  }
+  .lp .sheet.run .check {
+    animation: lp-fade 0.6s var(--lp-ease) 2.5s both;
+  }
+  .lp .sheet.held,
+  .lp .sheet.held * {
+    animation-play-state: paused !important;
+  }
+  @keyframes lp-rise {
+    from {
+      transform: translateY(8px);
+    }
+  }
+  @keyframes lp-mark {
+    from {
+      background-size: 0% 0.55em;
+    }
+  }
+  @keyframes lp-draw {
+    from {
+      transform: scaleX(0);
+    }
+  }
+  @keyframes lp-fade {
+    from {
+      opacity: 0.25;
+    }
+  }
+  @keyframes lp-settle {
+    from {
+      transform: scale(0.94);
+      opacity: 0.5;
+    }
+  }
+
+  /* Editorial sections share one rhythm: more space above a heading than below it. */
+  .lp .chapters {
+    display: grid;
+  }
+  .lp .intro {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
+    gap: 40px clamp(40px, 6vw, 110px);
+    align-items: end;
+    padding: calc(var(--lp-section) * 1.15) 0 calc(var(--lp-section) * 0.6);
+  }
+  .lp .rufina {
+    font-family: "Rufina", Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(40px, 4vw, 64px);
+    line-height: 1.04;
+    letter-spacing: -0.02em;
+    color: var(--lp-forest);
+    text-wrap: balance;
+  }
+  .lp .intro-lead {
+    max-width: 34em;
+    margin-top: 22px;
+    font-size: 19px;
+    line-height: 1.6;
+  }
+  .lp .intro-aside {
+    font-size: 15.5px;
+    color: var(--lp-muted);
+    padding-top: 18px;
+    border-top: 1px solid var(--lp-line);
+  }
+  .lp .headline {
+    font-family: "Caslon Display", Georgia, serif;
+    font-weight: 400;
+    font-size: clamp(42px, 4.2vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--lp-forest);
+    text-wrap: balance;
+  }
+  .lp .section-head {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
+    gap: 24px clamp(40px, 6vw, 110px);
+    align-items: end;
+    margin-bottom: 52px;
+  }
+  .lp .section-head p {
+    font-size: 16.5px;
+    color: var(--lp-muted);
+  }
+
+  /* The gathering: four sources around one statement, drawn as a case-wide thread. */
+  .lp .gather {
+    padding-bottom: var(--lp-section);
+  }
+  .lp .desk {
+    position: relative;
+    container-type: inline-size;
+    width: 100%;
+    max-width: 1200px;
+    margin: 0 auto;
+    aspect-ratio: 1200 / 560;
+  }
+  .lp .wires {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .lp .wire {
+    fill: none;
+    stroke-width: 1.5;
+    stroke-dasharray: 1;
+  }
+  .lp .wire.suggested {
+    stroke-dasharray: 0.012 0.01;
+  }
+  .lp .wire[data-rel="conflicts"] {
+    stroke: var(--lp-wire-conflicts);
+  }
+  .lp .wire[data-rel="context"] {
+    stroke: var(--lp-wire-context);
+  }
+  .lp .wire[data-rel="related"] {
+    stroke: var(--lp-wire-related);
+  }
+  .lp .wire-label {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--lp-bg);
+    font-size: clamp(11px, 1cqi, 12.5px);
+    font-weight: 600;
+  }
+  .lp .wire-label[data-rel="conflicts"],
+  .lp .slip-rel[data-rel="conflicts"] {
+    color: var(--lp-wire-conflicts-text);
+  }
+  .lp .wire-label[data-rel="context"],
+  .lp .slip-rel[data-rel="context"] {
+    color: var(--lp-wire-context-text);
+  }
+  .lp .wire-label[data-rel="related"],
+  .lp .slip-rel[data-rel="related"] {
+    color: var(--lp-wire-related-text);
+  }
+  .lp .slip {
+    position: absolute;
+    display: grid;
+    align-content: start;
+    gap: 0.5cqi;
+    padding: 1.15cqi 1.35cqi;
+    border-radius: 6px;
+    background-color: var(--lp-paper);
+    background-image: url("/public/ivory-paper.webp");
+    background-size: 600px 600px;
+    box-shadow:
+      0 1px 0 color-mix(in srgb, var(--lp-carbon) 6%, transparent),
+      0 10px 24px color-mix(in srgb, var(--lp-ink) 10%, transparent);
+    transform: rotate(var(--fr, 0deg));
+    /* A transparent edge lets the browser smooth the outline of a turned slip. */
+    outline: 1px solid transparent;
+  }
+  .lp .slip-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: clamp(11px, 1.02cqi, 13px);
+    font-weight: 600;
+    color: var(--lp-muted);
+  }
+  .lp .slip-text {
+    font-size: clamp(12.5px, 1.24cqi, 15px);
+    line-height: 1.45;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .lp .slip mark,
+  .lp .t-text mark,
+  .lp .page-sheet mark {
+    /* A gradient, so a scene can lay the mark across the phrase; --lp-amber-wash, written out. */
+    background: linear-gradient(color-mix(in srgb, var(--lp-amber) 42%, transparent), color-mix(in srgb, var(--lp-amber) 42%, transparent)) no-repeat 0 0 / 100% 100%;
+    color: inherit;
+    padding: 0 2px;
+    border-radius: 2px;
+  }
+  .lp .slip-rel {
+    display: none;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+  .lp .statement {
+    left: 35.83%;
+    top: 35.7%;
+    width: 28.33%;
+    height: 28.57%;
+    align-content: center;
+    background: var(--lp-forest);
+    background-image: none;
+    color: var(--lp-cream);
+    --fr: 0deg;
+  }
+  .lp .statement .slip-meta {
+    color: color-mix(in srgb, var(--lp-cream) 72%, transparent);
+  }
+  .lp .statement-text {
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: clamp(18px, 2.3cqi, 28px);
+    line-height: 1.2;
+  }
+  /* The case file the sources come out of: a short stack of sheets peeking out under the testimony. */
+  .lp .file {
+    position: absolute;
+    z-index: 0;
+    left: 37.4%;
+    top: 40.2%;
+    width: 25.2%;
+    height: 28.2%;
+    border-radius: 6px;
+    background-color: color-mix(in srgb, var(--lp-paper) 80%, var(--lp-accent));
+    background-image: url("/public/ivory-paper.webp");
+    background-size: 600px 600px;
+    box-shadow:
+      0 1px 0 color-mix(in srgb, var(--lp-carbon) 6%, transparent),
+      0 10px 24px color-mix(in srgb, var(--lp-ink) 12%, transparent);
+    transform: rotate(1.6deg);
+  }
+  .lp .file::before,
+  .lp .file::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background-color: var(--lp-paper);
+    background-image: url("/public/ivory-paper.webp");
+    background-size: 600px 600px;
+    box-shadow: 0 1px 2px color-mix(in srgb, var(--lp-ink) 10%, transparent);
+  }
+  .lp .file::before {
+    transform: translate(-7px, 7px) rotate(-3deg);
+  }
+  .lp .file::after {
+    transform: translate(6px, 12px) rotate(1.4deg);
+  }
+  .lp .bap {
+    left: 3.33%;
+    top: 7.14%;
+    width: 26.67%;
+    height: 23.2%;
+    --fr: -0.8deg;
+  }
+  .lp .log {
+    left: 5%;
+    top: 69.6%;
+    width: 26.67%;
+    height: 23.2%;
+    --fr: 0.6deg;
+  }
+  .lp .shift {
+    left: 70%;
+    top: 8.9%;
+    width: 26.67%;
+    height: 23.2%;
+    --fr: 0.7deg;
+  }
+  .lp .law {
+    left: 68.33%;
+    top: 67.9%;
+    width: 26.67%;
+    height: 23.2%;
+    --fr: -0.6deg;
+  }
+  .lp .legend {
+    margin-top: 22px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--lp-muted);
+  }
+
+  /* How it works: ruled rows that pair a caption with one product moment on forest cloth. */
+  .lp .how {
+    padding: var(--lp-section) 0;
+    border-top: 1px solid var(--lp-line);
+  }
+  .lp .steps {
+    display: grid;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .lp .step {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+    gap: clamp(32px, 5vw, 88px);
+    align-items: center;
+    padding: 44px 0;
+    border-top: 1px solid var(--lp-line);
+  }
+  .lp .step.flip .caption {
+    order: 2;
+  }
+  .lp .step.flip {
+    grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
+  }
+  .lp .caption h3 {
+    font-family: "Caslon Display", Georgia, serif;
+    font-weight: 400;
+    font-size: 33px;
+    line-height: 1.2;
+    color: var(--lp-forest);
+  }
+  .lp .caption p {
+    max-width: 30em;
+    margin-top: 14px;
+    font-size: 16px;
+    color: var(--lp-sage-ink);
+  }
+  .lp .plate {
+    display: grid;
+    place-items: end center;
+    min-height: 360px;
+    padding: 56px clamp(20px, 4vw, 64px) 0;
+    border-radius: 22px;
+    overflow: hidden;
+    background-color: var(--lp-forest-deep);
+    background-image: radial-gradient(125% 95% at 0% 0%, color-mix(in srgb, var(--lp-cloth-light) 30%, transparent), color-mix(in srgb, var(--lp-cloth-light) 10%, transparent) 38%, transparent 68%), radial-gradient(110% 85% at 100% 100%, color-mix(in srgb, var(--lp-desk-shadow) 45%, transparent), transparent 66%), url("/public/case-cloth.webp");
+    background-repeat: no-repeat, no-repeat, repeat;
+    background-size: 100% 100%, 100% 100%, 1300px auto;
+  }
+  .lp .vignette {
+    position: relative;
+    display: grid;
+    gap: 12px;
+    width: min(100%, 480px);
+    padding: 22px 24px 34px;
+    border-radius: 9px 9px 0 0;
+    box-shadow: 0 -10px 34px color-mix(in srgb, var(--lp-desk-shadow) 32%, transparent);
+  }
+  .lp .v-sample {
+    position: absolute;
+    right: 14px;
+    bottom: 9px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--lp-muted);
+  }
+  .lp .v-line {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+  }
+  .lp .v-line.quiet {
+    opacity: 0.62;
+  }
+  .lp .v-name {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tone, var(--lp-ink));
+  }
+  .lp .v-listening {
+    font-weight: 500;
+    color: var(--lp-muted);
+  }
+  .lp .v-line p {
+    font-size: 14px;
+  }
+  .lp .v-said {
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: 26px !important;
+    line-height: 1.2;
+  }
+  .lp .v-head {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--lp-muted);
+  }
+  .lp .reading ul {
+    display: grid;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .lp .vignette.reading li {
+    display: grid;
+    grid-template-columns: 18px minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 0;
+    border-top: 1px solid color-mix(in srgb, var(--lp-carbon) 10%, transparent);
+    font-size: 14px;
+  }
+  .lp .v-pages {
+    font-size: 12.5px;
+    color: var(--lp-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .lp .v-state {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--lp-sage-ink);
+  }
+  .lp .examine .pill {
+    justify-self: start;
+  }
+  .lp .v-title {
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: 23px;
+    line-height: 1.25;
+  }
+  .lp .v-sub {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: var(--lp-muted);
+  }
+  .lp .v-checks {
+    display: grid;
+    gap: 6px;
+    margin: -4px 0 0;
+    padding-left: 18px;
+    font-size: 14px;
+  }
+  .lp .v-question {
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: 19px;
+    line-height: 1.3;
+  }
+
+  /* Signal: a transcript where almost everything stays quiet. */
+  .lp .signal {
+    padding: var(--lp-section) 0;
+    border-top: 1px solid var(--lp-line);
+  }
+  .lp .transcript {
+    position: relative;
+    width: 100%;
+    margin: 0 auto;
+    padding: 10px clamp(18px, 3vw, 36px) 16px;
+    max-width: 980px;
+    border-radius: 10px;
+    box-shadow: 0 1px 0 color-mix(in srgb, var(--lp-carbon) 5%, transparent);
+  }
+  .lp .t-list {
+    display: grid;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .lp .panel-sample {
+    padding-top: 10px;
+    border-top: 1px solid color-mix(in srgb, var(--lp-carbon) 10%, transparent);
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--lp-muted);
+  }
+  .lp .t-row {
+    display: grid;
+    grid-template-columns: 150px minmax(0, 1fr) auto;
+    gap: 6px 22px;
+    align-items: baseline;
+    padding: 16px 0;
+    border-top: 1px solid color-mix(in srgb, var(--lp-carbon) 10%, transparent);
+  }
+  .lp .t-row:first-child {
+    border-top: 0;
+  }
+  .lp .t-who {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--lp-muted);
+  }
+  .lp .t-text {
+    font-size: 16px;
+    color: var(--lp-muted);
+  }
+  .lp .t-ok {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12.5px;
+    color: var(--lp-sage-ink);
+    white-space: nowrap;
+  }
+  .lp .t-row.raised .t-who,
+  .lp .t-row.raised .t-text {
+    color: var(--lp-ink);
+  }
+  .lp .t-row.raised .t-text {
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: 23px;
+    line-height: 1.3;
+  }
+  .lp .t-row .pill {
+    justify-self: start;
+  }
+  .lp .t-note {
+    grid-column: 2 / -1;
+    font-size: 14px;
+    color: var(--lp-rel-conflicts-text);
+  }
+
+  /* The page: a real-looking source document; Jude's note stays in the margin, outside the record. */
+  /* Not .spread or .page: the PDF.js viewer stylesheet is global and styles both names. */
+  .lp .page-spread {
+    padding: var(--lp-section) 0;
+    border-top: 1px solid var(--lp-line);
+  }
+  .lp .spread-text {
+    display: grid;
+    gap: 10px;
+  }
+  .lp .spread-text .quiet {
+    font-size: 14px;
+  }
+  .lp .page-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 720px) minmax(240px, 300px);
+    gap: 0;
+  }
+  .lp .page-sheet {
+    --page-pad: clamp(28px, 5vw, 68px);
+    position: relative;
+    padding: clamp(36px, 5vw, 60px) var(--page-pad) 56px;
+    font-family: var(--lp-doc);
+    font-size: 14px;
+    line-height: 1.7;
+    box-shadow:
+      0 1px 0 color-mix(in srgb, var(--lp-carbon) 6%, transparent),
+      0 24px 50px color-mix(in srgb, var(--lp-ink) 12%, transparent);
+  }
+  .lp .page-folio {
+    position: absolute;
+    top: 20px;
+    right: 28px;
+    font-size: 12px;
+    color: var(--lp-muted);
+  }
+  .lp .page-heading {
+    text-align: center;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+  .lp .page-heading + .page-heading {
+    margin-bottom: 18px;
+    text-decoration: underline;
+    text-underline-offset: 4px;
+  }
+  .lp .page-intro {
+    margin-bottom: 14px;
+    text-align: justify;
+    hyphens: auto;
+  }
+  .lp .page-items {
+    display: grid;
+    gap: 12px;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .lp .page-items li {
+    display: grid;
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+  .lp .page-qa {
+    position: relative;
+  }
+  .lp .page-tag {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .lp .margin-note {
+    display: grid;
+    justify-items: start;
+    gap: 6px;
+    padding: 12px 14px;
+    border-radius: 6px;
+    background-color: #fbf7ef;
+    background-image: url("/public/ivory-paper.webp");
+    background-size: 600px 600px;
+    border: 1px solid color-mix(in srgb, var(--lp-rel-conflicts) 40%, transparent);
+    font-family: "Manrope", sans-serif;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--lp-ink);
+  }
+  /* Hangs beside the highlighted answer, joined to it by a fine rule. */
+  .lp .in-margin {
+    position: absolute;
+    top: 2.6em;
+    left: calc(100% + var(--page-pad) + 32px);
+    width: 250px;
+  }
+  .lp .in-margin::before {
+    content: "";
+    position: absolute;
+    top: 18px;
+    right: 100%;
+    width: calc(var(--page-pad) + 32px);
+    border-top: 1px solid var(--lp-rel-conflicts);
+  }
+  .lp .below-page {
+    display: none;
+  }
+  .lp .page-sample {
+    position: absolute;
+    left: var(--page-pad);
+    bottom: 18px;
+    font-family: "Manrope", sans-serif;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--lp-muted);
+  }
+
+  /* Approach: principles as ruled rows, not cards. */
+  .lp .approach {
+    padding: var(--lp-section) 0;
+    border-top: 1px solid var(--lp-line);
+  }
+  .lp .principles {
+    display: grid;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .lp .principles li {
+    display: grid;
+    grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+    gap: 16px clamp(40px, 6vw, 110px);
+    padding: 30px 0;
+    border-top: 1px solid var(--lp-line);
+  }
+  .lp .principles h3 {
+    font-family: "Caslon Display", Georgia, serif;
+    font-weight: 400;
+    font-size: 30px;
+    line-height: 1.2;
+    color: var(--lp-forest);
+  }
+  .lp .principles p {
+    max-width: 36em;
+    font-size: 16px;
+    color: var(--lp-sage-ink);
+  }
+
+  /* Closing: the case file again, as the back cover. */
+  .lp .closing {
+    padding: 0 14px;
+  }
+  .lp .closing-frame {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(280px, 400px);
+    gap: 40px clamp(40px, 6vw, 96px);
+    align-items: end;
+    padding: 0 max(5%, 28px);
+    border-radius: 28px;
+    overflow: hidden;
+    isolation: isolate;
+    background-color: var(--lp-forest-deep);
+    background-image: radial-gradient(125% 95% at 0% 0%, color-mix(in srgb, var(--lp-cloth-light) 30%, transparent), color-mix(in srgb, var(--lp-cloth-light) 10%, transparent) 38%, transparent 68%), radial-gradient(110% 85% at 100% 100%, color-mix(in srgb, var(--lp-desk-shadow) 45%, transparent), transparent 66%), url("/public/case-cloth.webp");
+    background-repeat: no-repeat, no-repeat, repeat;
+    background-size: 100% 100%, 100% 100%, 1300px auto;
+    color: var(--lp-cream);
+  }
+  .lp .closing-copy {
+    display: grid;
+    justify-items: start;
+    gap: 22px;
+    align-self: center;
+    padding: clamp(64px, 9vw, 120px) 0;
+  }
+  .lp .closing-slip {
+    position: relative;
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+    margin-top: 56px;
+    padding: 24px 26px 40px;
+    border-radius: 9px 9px 0 0;
+    box-shadow: 0 -10px 34px color-mix(in srgb, var(--lp-desk-shadow) 32%, transparent);
+  }
+  .lp .closing-done {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--lp-sage-ink);
+  }
+  .lp .closing .headline {
+    color: var(--lp-cream);
+    max-width: 14em;
+  }
+  .lp .closing-copy > p {
+    max-width: 30em;
+    font-size: 19px;
+    color: color-mix(in srgb, var(--lp-cream) 88%, transparent);
+  }
+  .lp .closing .actions {
+    margin-top: 8px;
+  }
+
+  /*
+   * Scroll-driven scenes, only once the script sets .scrolly (motion welcome). On .pinned screens
+   * each scene is a tall track whose stage stays put while its progress moves the material; every
+   * value falls back to the finished state, which is also the static page.
+   */
+  .lp .plate-bg,
+  .lp .step-rule {
+    display: none;
+  }
+  .lp.scrolly .sheet {
+    translate: 0 calc(var(--hv, 0) * -64px);
+  }
+  .lp.scrolly .opening {
+    translate: 0 calc(var(--hv, 0) * -28px);
+    opacity: calc(1 - var(--hv, 0) * 0.5);
+  }
+  /* The finding's slip rises from the band's edge, then is checked. */
+  .lp.scrolly .closing-slip {
+    transform: translateY(calc((1 - var(--cs, 1)) * 85%));
+  }
+  .lp.scrolly .closing-done {
+    opacity: var(--ck, 1);
+    transform: translateY(calc((1 - var(--ck, 1)) * 6px));
+  }
+
+  .lp.pinned .gather-scene {
+    height: calc(280vh / var(--z, 1));
+  }
+  .lp.pinned .steps-scene {
+    height: calc(270vh / var(--z, 1));
+  }
+  .lp.pinned .signal-scene {
+    height: calc(200vh / var(--z, 1));
+  }
+  .lp.pinned .page-scene {
+    height: calc(190vh / var(--z, 1));
+  }
+  .lp.pinned .stage {
+    position: sticky;
+    top: 0;
+    height: calc(100vh / var(--z, 1));
+    display: grid;
+    align-content: safe center;
+  }
+
+  /* The sources come out of the file one at a time, each threaded to the statement as it lands. */
+  /* Each source is drawn out of the case file under the statement and travels to its place. */
+  .lp.pinned .statement {
+    z-index: 2;
+    opacity: var(--g0, 1);
+    transform: scale(calc(0.94 + 0.06 * var(--g0, 1)));
+  }
+  .lp.pinned .source-slip {
+    z-index: 1;
+    opacity: clamp(0, var(--k) * 1.6, 1);
+    transform: translate(calc((1 - var(--k)) * var(--fx)), calc((1 - var(--k)) * var(--fy)))
+      rotate(calc(var(--fr) + (1 - var(--k)) * var(--fs))) scale(calc(0.9 + 0.1 * var(--k)));
+  }
+  .lp.pinned .statement,
+  .lp.pinned .source-slip {
+    will-change: transform, opacity;
+  }
+  /* Offsets from each slip's centre to the statement's (the desk's centre), in the desk's width. */
+  .lp.pinned .source-slip.bap {
+    --k: var(--g1, 1);
+    --fx: 33.3cqi;
+    --fy: 16.5cqi;
+    --fs: -6deg;
+  }
+  .lp.pinned .source-slip.log {
+    --k: var(--g2, 1);
+    --fx: 31.7cqi;
+    --fy: -12.7cqi;
+    --fs: 5deg;
+  }
+  .lp.pinned .source-slip.shift {
+    --k: var(--g3, 1);
+    --fx: -33.3cqi;
+    --fy: 15.7cqi;
+    --fs: 6deg;
+  }
+  .lp.pinned .source-slip.law {
+    --k: var(--g4, 1);
+    --fx: -31.7cqi;
+    --fy: -11.9cqi;
+    --fs: -5deg;
+  }
+  .lp.pinned [data-slip="bap"] {
+    --w: var(--w1, 1);
+  }
+  .lp.pinned [data-slip="log"] {
+    --w: var(--w2, 1);
+  }
+  .lp.pinned [data-slip="shift"] {
+    --w: var(--w3, 1);
+  }
+  .lp.pinned [data-slip="law"] {
+    --w: var(--w4, 1);
+  }
+  .lp.pinned .wire {
+    stroke-dashoffset: calc(1 - var(--w));
+  }
+  .lp.pinned .wire.suggested {
+    stroke-dashoffset: 0;
+    opacity: var(--w);
+  }
+  .lp.pinned .wire-label {
+    opacity: clamp(0, (var(--w) - 0.6) * 2.5, 1);
+  }
+  .lp.pinned .legend {
+    opacity: var(--gl, 1);
+  }
+
+  /* How it works: one plate; each step's paper rises from its edge while the last one sinks back. */
+  .lp.pinned .stage > .section-head {
+    margin-bottom: 36px;
+  }
+  .lp.pinned .steps-stage {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+    column-gap: clamp(32px, 5vw, 88px);
+  }
+  .lp.pinned .plate-bg {
+    display: block;
+    grid-area: 1 / 2;
+    border-radius: 22px;
+    background-color: var(--lp-forest-deep);
+    background-image: radial-gradient(125% 95% at 0% 0%, color-mix(in srgb, var(--lp-cloth-light) 30%, transparent), color-mix(in srgb, var(--lp-cloth-light) 10%, transparent) 38%, transparent 68%), radial-gradient(110% 85% at 100% 100%, color-mix(in srgb, var(--lp-desk-shadow) 45%, transparent), transparent 66%), url("/public/case-cloth.webp");
+    background-repeat: no-repeat, no-repeat, repeat;
+    background-size: 100% 100%, 100% 100%, 1300px auto;
+  }
+  .lp.pinned .steps {
+    grid-area: 1 / 1 / 2 / 3;
+  }
+  .lp.pinned .step,
+  .lp.pinned .step.flip {
+    grid-area: 1 / 1;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+    align-items: stretch;
+    padding: 0;
+    border-top: 0;
+  }
+  .lp.pinned .step.flip .caption {
+    order: 0;
+  }
+  .lp.pinned .step:nth-child(1) {
+    --in: 1;
+    --out: var(--h1o, 0);
+  }
+  .lp.pinned .step:nth-child(2) {
+    --in: var(--h2, 0);
+    --out: var(--h2o, 0);
+  }
+  .lp.pinned .step:nth-child(3) {
+    --in: var(--h3, 0);
+    --out: 0;
+  }
+  /* Captions hand over in turn (out, then in); the papers overlap as one sinks and the next rises. */
+  .lp.pinned .caption {
+    align-self: center;
+    opacity: calc(clamp(0, var(--in) * 2 - 1, 1) - clamp(0, var(--out) * 2, 1));
+    transform: translateY(calc((1 - var(--in)) * 28px - var(--out) * 28px));
+  }
+  .lp.pinned .plate {
+    min-height: min(360px, calc(50vh / var(--z, 1)));
+    padding-top: 36px;
+    background: none;
+  }
+  .lp.pinned .vignette {
+    width: min(100%, 560px);
+  }
+  .lp.pinned .vignette {
+    transform: translateY(calc((1 - var(--in)) * 112% + var(--out) * 112%));
+    will-change: transform;
+  }
+  .lp.pinned .step-rule {
+    display: block;
+    grid-area: 1 / 1;
+    align-self: end;
+    height: 1px;
+    background: var(--lp-line);
+  }
+  .lp.pinned .step-rule span {
+    display: block;
+    height: 100%;
+    background: var(--lp-forest);
+    transform: scaleX(var(--hp, 1));
+    transform-origin: left center;
+  }
+
+  /* Signal: the hearing fills in line by line, then one line comes forward and the rest go quiet. */
+  .lp.pinned .t-row:nth-child(1) {
+    --r: var(--r1, 1);
+  }
+  .lp.pinned .t-row:nth-child(2) {
+    --r: var(--r2, 1);
+  }
+  .lp.pinned .t-row:nth-child(3) {
+    --r: var(--r3, 1);
+  }
+  .lp.pinned .t-row:nth-child(4) {
+    --r: var(--r4, 1);
+  }
+  .lp.pinned .t-row:nth-child(5) {
+    --r: var(--r5, 1);
+  }
+  .lp.pinned .t-row {
+    opacity: calc(var(--r) * (1 - 0.14 * var(--fw, 1)));
+    transform: translateY(calc((1 - var(--r)) * 14px));
+  }
+  .lp.pinned .t-row.raised {
+    position: relative;
+    opacity: var(--r);
+    transform: translateY(calc((1 - var(--r)) * 14px)) scale(calc(1 + 0.018 * var(--fw, 1)));
+    transform-origin: 0 50%;
+  }
+  .lp.pinned .t-row.raised::before {
+    content: "";
+    position: absolute;
+    inset: 4px -16px;
+    z-index: -1;
+    border-radius: 8px;
+    background-color: #fbf7ef;
+    background-image: url("/public/ivory-paper.webp");
+    background-size: 600px 600px;
+    box-shadow: 0 10px 28px color-mix(in srgb, var(--lp-ink) 12%, transparent);
+    opacity: var(--fw, 1);
+  }
+  .lp.pinned .t-row.raised mark {
+    background-size: calc(var(--mk, 1) * 100%) 100%;
+  }
+  .lp.pinned .t-row.raised .pill,
+  .lp.pinned .t-row.raised .t-note {
+    opacity: var(--nt, 1);
+    transform: translateY(calc((1 - var(--nt, 1)) * 8px));
+  }
+
+  /* The page is laid down, the exact phrase is marked, then the note is pinned beside it. */
+  .lp.pinned .page-sheet {
+    opacity: calc(0.2 + 0.8 * var(--pg, 1));
+    transform: translateY(calc((1 - var(--pg, 1)) * 90px)) rotate(calc((1 - var(--pg, 1)) * -1.4deg));
+    will-change: transform, opacity;
+  }
+  .lp.pinned .page-sheet mark {
+    background-size: calc(var(--hl, 1) * 100%) 100%;
+  }
+  .lp.pinned .in-margin,
+  .lp.pinned .below-page {
+    opacity: var(--nt, 1);
+    transform: translateX(calc((1 - var(--nt, 1)) * 28px));
+  }
+  .lp.pinned .in-margin::before {
+    transform: scaleX(var(--rl, 1));
+    transform-origin: left center;
+  }
+
+  /*
+   * The showpiece: a desk of case papers, dropped every which way and shown off at an angle. Jude
+   * reads them: a light passes over the desk and every time a paper mentions glints as it goes by;
+   * the three lines about the witness's arrival stay lit, their papers lift, threads tie them
+   * together, and beside the desk the same lines come forward flat and readable, then the finding.
+   * Anything meant to be read faces the reader; only the papers are at an angle. Scroll scrubs it
+   * and scrolling back undoes it. Static (no script, reduced motion): the finished desk.
+   */
+  .lp .showcase {
+    padding: 0 14px;
+  }
+  .lp .show-scene {
+    border-radius: 28px;
+    background-color: var(--lp-forest-deep);
+    background-image: url("/public/case-cloth.webp");
+    background-repeat: repeat;
+    background-size: 1300px auto;
+    color: var(--lp-cream);
+    overflow: clip;
+  }
+  .lp .show-stage {
+    position: relative;
+    isolation: isolate;
+    background-image: radial-gradient(125% 95% at 0% 0%, color-mix(in srgb, var(--lp-cloth-light) 30%, transparent), color-mix(in srgb, var(--lp-cloth-light) 10%, transparent) 38%, transparent 68%), radial-gradient(110% 85% at 100% 100%, color-mix(in srgb, var(--lp-desk-shadow) 45%, transparent), transparent 66%);
+    background-repeat: no-repeat;
+    background-size: 100% 100%;
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 7fr);
+    align-items: center;
+    gap: 24px clamp(20px, 3.4vw, 56px);
+    padding: clamp(56px, 7vw, 88px) max(4%, 24px);
+  }
+  .lp .show-copy {
+    grid-area: 1 / 1;
+    display: grid;
+    align-content: center;
+    gap: 16px;
+    max-width: 31em;
+  }
+  .lp .show-head {
+    display: grid;
+    gap: 14px;
+  }
+  .lp .show-head .headline {
+    font-size: clamp(38px, 3.4vw, 54px);
+    color: var(--lp-cream);
+  }
+  .lp .show-lead {
+    font-size: 16.5px;
+    line-height: 1.6;
+    color: color-mix(in srgb, var(--lp-cream) 84%, transparent);
+  }
+  .lp .show-status {
+    display: none;
+  }
+  .lp.scrolly .show-status {
+    display: grid;
+    font-size: 13.5px;
+    font-weight: 600;
+    color: var(--lp-accent);
+  }
+  .lp .show-status > span {
+    grid-area: 1 / 1;
+  }
+  .lp .st-cue {
+    opacity: clamp(0, calc(1 - var(--sc, 1) * 6), 1);
+  }
+  /* The status hands over with a gap: the outgoing words are gone before the next ones appear. */
+  .lp .st-read {
+    opacity: calc(clamp(0, calc(var(--sc, 1) * 8), 1) * clamp(0, calc(1 - var(--fd, 1) * 2.2), 1));
+  }
+  .lp .st-linked {
+    opacity: clamp(0, calc(var(--fd, 1) * 2.2 - 1.2), 1);
+  }
+  .lp .show-lines {
+    display: grid;
+    gap: 9px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .lp .show-lines li,
+  .lp .show-finding {
+    border-radius: 9px;
+    background-color: var(--lp-paper);
+    background-image: url("/public/ivory-paper.webp");
+    background-size: 600px 600px;
+    color: var(--lp-ink);
+    box-shadow: 0 10px 26px color-mix(in srgb, var(--lp-desk-shadow) 30%, transparent);
+  }
+  .lp .show-lines li {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 3px 11px;
+    padding: 10px 14px 11px 11px;
+  }
+  .lp .sl-n {
+    grid-row: span 2;
+    display: grid;
+    place-items: center;
+    width: 23px;
+    height: 23px;
+    border-radius: 50%;
+    background: var(--lp-rel-conflicts);
+    color: #fffaf0;
+    font: 700 12px/1 var(--pub-body);
+  }
+  .lp .sl-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    color: #4f584f;
+    font: 600 12.5px/1.35 var(--pub-body);
+  }
+  .lp .sl-text { font: 400 15px/1.45 var(--pub-body); }
+  .lp .sl-text.typed { font: 400 13.5px/1.5 var(--lp-doc); }
+  .lp .sl-text mark {
+    padding: 0 2px;
+    border-radius: 2px;
+    color: inherit;
+    background: color-mix(in srgb, var(--lp-amber) 55%, transparent);
+  }
+  .lp.scrolly .show-lines li {
+    --in: clamp(0, calc(var(--co, 1) * 2.4 - var(--k) * 0.7), 1);
+    opacity: var(--in);
+    translate: calc((1 - var(--in)) * -16px) 0;
+  }
+  .lp .show-finding {
+    grid-area: 1 / 2;
+    align-self: end;
+    justify-self: start;
+    position: relative;
+    z-index: 2;
+    display: grid;
+    justify-items: start;
+    gap: 7px;
+    width: min(390px, 62%);
+    margin: 0 0 clamp(28px, calc(7vh / var(--z, 1)), 72px) 1%;
+    padding: 13px 16px 14px;
+    box-shadow: 0 16px 36px color-mix(in srgb, var(--lp-desk-shadow) 42%, transparent);
+  }
+  .lp .show-finding .pill {
+    font-family: "Manrope", sans-serif;
+  }
+  .lp .sf-title {
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: 21px;
+    line-height: 1.2;
+  }
+  .lp .sf-ask {
+    display: grid;
+    gap: 2px;
+    font-family: "Caslon Display", Georgia, serif;
+    font-size: 16px;
+    line-height: 1.3;
+    color: var(--lp-ink);
+  }
+  .lp .sf-ask span {
+    font: 600 12px / 1.35 "Manrope", sans-serif;
+    color: var(--lp-muted);
+  }
+  .lp.scrolly .show-finding {
+    opacity: var(--fs, 1);
+    translate: 0 calc((1 - var(--fs, 1)) * 14px);
+  }
+  .lp .show-sample {
+    font-size: 12.5px;
+    font-weight: 600;
+    color: color-mix(in srgb, var(--lp-cream) 60%, transparent);
+  }
+
+  /* The desk, in its own 1000 × 640 space; sizes inside it follow its width (cqi). */
+  .lp .tb-wrap {
+    grid-area: 1 / 2;
+    position: relative;
+    container-type: inline-size;
+    perspective: 1500px;
+    perspective-origin: 50% 0%;
+  }
+  .lp .tb {
+    /* The desk tilts into view and turns a little as the section passes. */
+    --rx: calc(20 + 26 * var(--si, 1));
+    --rz: calc(-12 + 9 * var(--orb, 1));
+    /* Where the reading light is across the desk, from 0 (left edge) to 1 (right edge). */
+    --s: calc(var(--sc, 1) * 1.3 - 0.15);
+    position: relative;
+    aspect-ratio: 1000 / 640;
+    border-radius: 2cqi;
+    transform-style: preserve-3d;
+    transform: translateY(calc((1 - var(--si, 1)) * 14cqi)) rotateX(calc(var(--rx) * 1deg)) rotateZ(calc(var(--rz) * 1deg));
+    background-color: var(--lp-forest-deep);
+    background-image: url("/public/case-cloth.webp");
+    background-size: 900px auto;
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--lp-cream) 8%, transparent),
+      inset 0 0 8cqi rgb(2 10 6 / 0.6),
+      0 3cqi 7cqi rgb(2 10 6 / 0.5);
+  }
+  .lp .tb-paper {
+    /* Each paper's own fall, one after another; the ones that belong together lift at the end. */
+    --pd: clamp(0, calc(var(--dr, 1) * 1.9 - var(--i) * 0.16), 1);
+    --lift: 0px;
+    position: absolute;
+    display: grid;
+    align-content: start;
+    gap: 0.6cqi;
+    padding: 2cqi 2.2cqi;
+    border-radius: 0.35cqi;
+    background-color: var(--lp-paper);
+    background-image: url("/public/ivory-paper.webp");
+    background-size: 600px 600px;
+    color: var(--lp-ink);
+    font-size: 1.05cqi;
+    line-height: 1.45;
+    overflow: hidden;
+    transform: translateZ(calc(var(--i) * 0.5px + var(--lift) + (1 - var(--pd)) * 30cqi)) rotateZ(calc(var(--r) + (1 - var(--pd)) * 16deg));
+    opacity: calc(var(--pd) * (1 - 0.45 * var(--fd, 1)));
+    box-shadow: 0 0.5cqi 1.4cqi color-mix(in srgb, var(--lp-desk-shadow) 38%, transparent);
+  }
+  .lp .tb-paper.key {
+    --lift: calc(var(--fd, 1) * 2.4cqi);
+    opacity: var(--pd);
+    box-shadow: 0 1.6cqi 3cqi color-mix(in srgb, var(--lp-desk-shadow) 45%, transparent);
+  }
+  .lp .pp-folio {
+    position: absolute;
+    top: 1.4cqi;
+    right: 1.8cqi;
+    font-family: var(--lp-doc);
+    font-size: 0.9cqi;
+    color: var(--lp-muted);
+  }
+  .lp .pp-heading,
+  .lp .pp-head {
+    font-family: var(--lp-doc);
+    font-weight: 700;
+    font-size: 1.05cqi;
+    letter-spacing: 0.06em;
+  }
+  .lp .pp-heading {
+    text-align: center;
+  }
+  .lp .pp-heading + .pp-heading {
+    text-decoration: underline;
+    text-underline-offset: 0.3cqi;
+  }
+  .lp .pp-sub {
+    font-size: 0.95cqi;
+    color: #5d655c;
+  }
+  .lp .pp-typed {
+    font-family: var(--lp-doc);
+    font-size: 1cqi;
+  }
+  .lp .pp-intro {
+    margin-top: 1cqi;
+  }
+  .lp .pp-key {
+    position: absolute;
+    left: 4.2cqi;
+    right: 2.2cqi;
+    top: 66%;
+  }
+  .lp .pp-lines {
+    display: grid;
+    gap: 1cqi;
+    margin-top: 1cqi;
+  }
+  .lp .pp-lines i {
+    height: 0.5cqi;
+    border-radius: 0.2cqi;
+    background-color: color-mix(in srgb, var(--lp-carbon) 14%, transparent);
+  }
+  .lp .pp-lines i:nth-child(3n) {
+    width: 72%;
+  }
+  .lp .pp-wave {
+    display: flex;
+    align-items: center;
+    gap: 0.3cqi;
+    height: 3cqi;
+  }
+  .lp .pp-wave i {
+    flex: 1;
+    height: calc(var(--h) * 9%);
+    border-radius: 0.2cqi;
+    background-color: color-mix(in srgb, var(--lp-forest) 40%, transparent);
+  }
+  .lp .pp-line {
+    color: var(--lp-muted);
+  }
+  .lp .pp-line b {
+    font-weight: 700;
+    color: var(--lp-ink);
+  }
+  .lp .p-talk .pp-key {
+    color: var(--lp-ink);
+  }
+  .lp .pp-row {
+    position: absolute;
+    left: 2.2cqi;
+    right: 2.2cqi;
+    display: flex;
+    align-items: baseline;
+    gap: 1.6cqi;
+  }
+  .lp .p-roster .pp-row {
+    top: calc(38% + var(--row) * 17%);
+    justify-content: space-between;
+    font-size: 1.1cqi;
+  }
+  .lp .p-log .pp-row {
+    top: calc(44% + var(--row) * 16%);
+    left: 4.2cqi;
+  }
+  .lp .p-log .pp-row span:last-child {
+    margin-left: auto;
+  }
+  .lp .p-cctv {
+    padding: 0;
+  }
+  .lp .cc-frame {
+    position: absolute;
+    inset: 0.9cqi;
+    border-radius: 0.2cqi;
+    background: linear-gradient(160deg, var(--lp-ink), var(--lp-carbon) 60%, var(--lp-desk-shadow));
+    overflow: hidden;
+  }
+  .lp .cc-frame::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(0deg, rgb(255 255 255 / 0.05) 0 1px, transparent 1px 3px);
+  }
+  .lp .cc-cam,
+  .lp .cc-stamp {
+    position: absolute;
+    font-family: var(--lp-doc);
+    font-size: 0.9cqi;
+    letter-spacing: 0.04em;
+    color: color-mix(in srgb, var(--lp-cream) 86%, transparent);
+  }
+  .lp .cc-cam {
+    left: 1cqi;
+    bottom: 0.8cqi;
+  }
+  .lp .cc-stamp {
+    right: 1cqi;
+    top: 0.8cqi;
+  }
+  /* A time on a paper: it glints as the reading light passes and fades again, unless it belongs
+     with the testimony, in which case it stays lit. */
+  .lp .tb-c {
+    position: relative;
+    padding: 0 0.15em;
+    background: none;
+    color: inherit;
+  }
+  .lp .tb-c::before {
+    --d: calc(var(--s) - var(--mx));
+    content: "";
+    position: absolute;
+    inset: -0.1em -0.05em;
+    z-index: -1;
+    border-radius: 0.2em;
+    background-color: var(--lp-amber);
+    opacity: clamp(0, calc(1 - max(var(--d), calc(var(--d) * -1)) * 7), 1);
+    will-change: opacity;
+  }
+  .lp .tb-c.key::before {
+    opacity: clamp(0, calc(1 + var(--d) * 7), 1);
+  }
+  .lp .cc-stamp.tb-c {
+    position: absolute;
+  }
+  .lp .tb-light {
+    position: absolute;
+    top: -6%;
+    bottom: -6%;
+    left: -20%;
+    width: 40%;
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--lp-button) 12%, transparent) 40%, color-mix(in srgb, var(--lp-button) 30%, transparent) 50%, color-mix(in srgb, var(--lp-button) 12%, transparent) 60%, transparent);
+    transform: translateZ(4cqi) translateX(calc(var(--s) * 250%));
+    opacity: clamp(0, calc(min(var(--sc, 1), 1 - var(--sc, 1)) * 10), 1);
+  }
+  .lp .tb-threads {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+    pointer-events: none;
+    transform: translateZ(3.2cqi);
+  }
+  .lp .tb-threads path {
+    --tp: clamp(0, calc(var(--th, 1) * 1.8 - var(--k) * 0.8), 1);
+    fill: none;
+    stroke: var(--lp-amber);
+    stroke-width: 3.2;
+    stroke-linecap: round;
+    stroke-dasharray: 1;
+    stroke-dashoffset: calc(1 - var(--tp));
+  }
+  /* The numbers stand up off the paper to face the reader, matching the lines beside the desk. */
+  .lp .tb-pin {
+    position: absolute;
+    display: grid;
+    place-items: center;
+    width: 3.4cqi;
+    height: 3.4cqi;
+    margin: -1.7cqi 0 0 -1.7cqi;
+    border-radius: 50%;
+    background-color: var(--lp-rel-conflicts);
+    color: var(--lp-bg);
+    font: 700 1.7cqi / 1 "Manrope", sans-serif;
+    box-shadow:
+      0 0 0 0.4cqi rgb(255 250 240 / 0.92),
+      0 0.6cqi 1.4cqi color-mix(in srgb, var(--lp-desk-shadow) 40%, transparent);
+    transform: translateZ(4.4cqi) rotateZ(calc(var(--rz) * -1deg)) rotateX(calc(var(--rx) * -1deg)) scale(var(--fd, 1));
+    opacity: var(--fd, 1);
+  }
+  .lp.pinned .show-scene {
+    height: calc(340vh / var(--z, 1));
+  }
+  .lp.pinned .show-stage {
+    padding-block: 0;
+  }
+  .lp.pinned .tb {
+    will-change: transform;
+  }
+  /* A wide, short window would make the desk taller than the screen: it keeps to the height. */
+  .lp.pinned .tb-wrap {
+    justify-self: center;
+    width: min(100%, calc((100vh / var(--z, 1) - 160px) * 1.7));
+  }
+
+  /* Narrow or short screens: no pinning; each piece moves with its own pass through the view. */
+  .lp.scrolly:not(.pinned) .slip[data-rise] {
+    opacity: calc(0.15 + 0.85 * var(--p, 1));
+    transform: translateX(calc((1 - var(--p, 1)) * var(--from, -24px)));
+  }
+  .lp.scrolly:not(.pinned) .shift[data-rise],
+  .lp.scrolly:not(.pinned) .law[data-rise] {
+    --from: 24px;
+  }
+  .lp.scrolly:not(.pinned) .plate[data-rise] .vignette {
+    transform: translateY(calc((1 - var(--p, 1)) * 70%));
+  }
+  .lp.scrolly:not(.pinned) .t-row[data-rise] {
+    opacity: calc(0.2 + 0.8 * var(--p, 1));
+    transform: translateX(calc((1 - var(--p, 1)) * -16px));
+  }
+  .lp.scrolly:not(.pinned) .t-row.raised[data-rise] mark,
+  .lp.scrolly:not(.pinned) mark[data-rise] {
+    background-size: calc(var(--p, 1) * 100%) 100%;
+  }
+  .lp.scrolly:not(.pinned) .below-page[data-rise] {
+    opacity: calc(0.15 + 0.85 * var(--p, 1));
+    transform: translateX(calc((1 - var(--p, 1)) * 20px));
+  }
+
+  @media (min-width: 1600px) {
+    .lp .opening {
+      padding-top: 110px;
+      padding-bottom: 120px;
+    }
+  }
+  @media (max-width: 1100px) {
+    .lp .page-row {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .lp .in-margin {
+      display: none;
+    }
+    .lp .below-page {
+      display: grid;
+      max-width: 520px;
+    }
+    .lp .display {
+      font-size: 7vw;
+    }
+    .lp .sheet {
+      width: 90%;
+    }
+  }
+  /* Narrower, the nav keeps one line: tighter gaps, a smaller mark and action, no wrapping. */
+  @media (max-width: 899px) {
+    .lp .show-stage {
+      grid-template-columns: 1fr;
+      padding: 56px 20px 60px;
+    }
+    /* One column: the copy, the desk, then the lines and the finding. */
+    .lp .show-copy {
+      display: contents;
+    }
+    .lp .show-head {
+      order: 1;
+    }
+    .lp .show-status {
+      order: 2;
+    }
+    .lp .tb-wrap {
+      order: 3;
+      grid-area: auto;
+      margin-block: 6px;
+    }
+    .lp .show-lines { order: 4; }
+    .lp .sl-text { font-size: 14px; }
+    .lp .sl-text.typed { font-size: 12.5px; }
+    .lp .show-finding {
+      order: 5;
+      grid-area: auto;
+      justify-self: stretch;
+      width: auto;
+      margin: 0;
+    }
+    .lp .show-sample {
+      order: 6;
+    }
+    .lp .sf-title {
+      font-size: 19px;
+    }
+    .lp .show-head .headline {
+      font-size: clamp(32px, 8.6vw, 40px);
+    }
+    .lp.show-pin .show-scene { height: calc(320svh / var(--z, 1)); }
+    .lp.show-pin .show-stage {
+      position: sticky;
+      top: 0;
+      height: calc(100svh / var(--z, 1));
+      grid-template-rows: auto minmax(0, 1fr) auto;
+      align-items: start;
+      gap: 10px;
+      padding: 44px 18px 18px;
+    }
+    .lp.show-pin .show-head, .lp.show-pin .show-status { grid-area: 1 / 1; }
+    .lp.show-pin .show-head { opacity: clamp(0, calc(1 - var(--sc, 1) * 5), 1); }
+    .lp.show-pin .show-status { align-self: end; }
+    .lp.show-pin .st-cue { display: none; }
+    .lp.show-pin .st-read { opacity: calc(clamp(0, calc(var(--sc, 1) * 8 - 2), 1) * clamp(0, calc(1 - var(--fd, 1) * 2.2), 1)); }
+    .lp.show-pin .tb-wrap {
+      grid-area: 2 / 1;
+      align-self: center;
+      margin: 0 -18px;
+      scale: 1.12;
+      transform-origin: 50% 30%;
+    }
+    .lp.show-pin .tb { --rx: calc(14 + 20 * var(--si, 1)); }
+    .lp.show-pin .show-lines, .lp.show-pin .show-finding { grid-area: 3 / 1; }
+    .lp.show-pin .show-lines { gap: 7px; opacity: clamp(0, calc(1 - var(--fs, 1) * 2.2), 1); }
+    .lp.scrolly.show-pin .show-finding { opacity: clamp(0, calc(var(--fs, 1) * 2.2 - 1.2), 1); }
+    .lp.show-pin .show-lines li { padding: 8px 12px 9px 9px; }
+    .lp.show-pin .sl-text {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .lp.show-pin .show-sample { position: absolute; top: 16px; right: 18px; }
+    .lp .desk {
+      aspect-ratio: auto;
+      display: grid;
+      gap: 12px;
+    }
+    .lp .wires,
+    .lp .wire-label,
+    .lp .file {
+      display: none;
+    }
+    .lp .slip {
+      position: static;
+      width: auto !important;
+      height: auto !important;
+      padding: 14px 16px;
+      gap: 6px;
+      transform: none;
+    }
+    .lp .slip-meta {
+      font-size: 12.5px;
+    }
+    .lp .slip-text {
+      font-size: 15px;
+      -webkit-line-clamp: unset;
+      line-clamp: none;
+    }
+    .lp .slip-rel {
+      display: block;
+    }
+    .lp .statement-text {
+      font-size: 26px;
+    }
+  }
+  @media (max-width: 899px) and (max-height: 740px) {
+    .lp.show-pin .show-lead { display: none; }
+    .lp.show-pin .show-lines li { padding: 7px 10px 8px 8px; }
+    .lp.show-pin .sl-meta { font-size: 11.5px; }
+    .lp.show-pin .sl-text { font-size: 13px; }
+    .lp.show-pin .sl-text.typed { font-size: 12px; }
+  }
+  /* Short laptop screens: a tighter cover, so the comparison's sources sit above the fold. */
+  @media (min-width: 1100px) and (max-height: 820px) {
+    .lp .opening {
+      padding: 26px 0 44px;
+    }
+    .lp .display {
+      font-size: clamp(52px, 5.4vw, 84px);
+    }
+    .lp .lead {
+      margin-top: 20px;
+    }
+    .lp .actions {
+      margin-top: 28px;
+    }
+  }
+  @media (max-width: 760px) {
+    .lp {
+      --lp-section: 55px;
+    }
+    .lp .wrap {
+      width: auto;
+      margin-inline: 20px;
+    }
+    .lp .cover {
+      padding: 8px 8px 0;
+    }
+    .lp .frame {
+      border-radius: 18px 18px 0 0;
+      padding: 0 20px;
+    }
+    .lp .display {
+      font-size: clamp(44px, 8.4vw, 63px);
+      line-height: 1.03;
+    }
+    .lp .lead {
+      font-size: 17.5px;
+      margin-top: 20px;
+    }
+    .lp .actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .lp .button {
+      min-height: 50px;
+      font-size: 21px;
+    }
+    .lp .sheet {
+      width: 100%;
+      padding: 14px 18px 28px;
+    }
+    .lp .compare {
+      grid-template-columns: 1fr;
+      gap: 22px;
+    }
+    .lp .side,
+    .lp .side.earlier {
+      padding: 0;
+    }
+    .lp .finding {
+      order: 3;
+      justify-items: start;
+      text-align: left;
+      border: 0;
+      border-top: 1px solid color-mix(in srgb, var(--lp-carbon) 14%, transparent);
+      padding: 18px 0 0;
+    }
+    .lp .thread {
+      display: none;
+    }
+    .lp .quote {
+      font-size: 33px;
+    }
+    .lp .quote.typed {
+      font-size: 25px;
+    }
+    .lp .source {
+      min-height: 44px;
+    }
+    .lp .intro,
+    .lp .section-head,
+    .lp .principles li {
+      grid-template-columns: 1fr;
+    }
+    .lp .page-row {
+      grid-template-columns: 1fr;
+      gap: 14px;
+    }
+    .lp .in-margin {
+      display: none;
+    }
+    .lp .below-page {
+      display: grid;
+    }
+    .lp .page-intro {
+      text-align: left;
+      hyphens: manual;
+    }
+    .lp .closing-frame {
+      grid-template-columns: 1fr;
+      gap: 0;
+    }
+    .lp .closing-copy {
+      padding: 56px 0 8px;
+    }
+    .lp .closing-slip {
+      margin-top: 32px;
+    }
+    .lp .rufina {
+      font-size: 42px;
+    }
+    .lp .headline {
+      font-size: 43px;
+    }
+    .lp .step,
+    .lp .step.flip {
+      grid-template-columns: 1fr;
+      gap: 22px;
+      padding: 32px 0;
+    }
+    .lp .step.flip .caption {
+      order: 0;
+    }
+    .lp .caption h3 {
+      font-size: 28px;
+    }
+    .lp .plate {
+      min-height: 0;
+      padding: 32px 16px 0;
+      border-radius: 16px;
+    }
+    .lp .sheet-bar {
+      flex-wrap: wrap;
+      gap: 4px 12px;
+    }
+    .lp .replay {
+      margin-left: -10px;
+    }
+    .lp .vignette {
+      padding: 18px 18px 28px;
+    }
+    .lp .vignette.reading li {
+      grid-template-columns: 18px minmax(0, 1fr) auto;
+    }
+    .lp .vignette.reading .v-pages {
+      display: none;
+    }
+    .lp .t-row {
+      grid-template-columns: 1fr;
+      gap: 4px;
+    }
+    .lp .t-note {
+      grid-column: 1;
+    }
+    .lp .page-sheet {
+      --page-pad: 22px;
+      font-size: 13.5px;
+      padding: 40px 22px 48px;
+    }
+    .lp .closing {
+      padding: 0 8px;
+    }
+    .lp .closing-frame {
+      border-radius: 18px;
+      padding: 0 20px;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lp *,
+    .lp *::before,
+    .lp *::after {
+      animation: none !important;
+      transition: none !important;
+    }
+  }
+
+  /* Clay pieces: the product's own marks (finding, page, said, connections, a close look,
+     judgement) cast in glossy clay, set only in space the page leaves empty. They move with the
+     scroll and never loop: a scene's piece arrives with its moment, the others drift with their
+     own pass through the view. Reduced motion leaves them still; narrow screens leave them out. */
+  .lp .clay {
+    position: absolute;
+    display: block;
+    height: auto;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    filter: drop-shadow(0 18px 20px rgb(66 52 26 / 0.2));
+  }
+  .lp .clay[data-drift] {
+    transform: translate3d(0, calc(var(--d, 0) * var(--speed, -60px)), 0) rotate(calc(var(--tilt, 0deg) + var(--d, 0) * var(--spin, 6deg)));
+    will-change: transform;
+  }
+  /* Beside the hearing: the finding mark arrives as the one line comes forward. */
+  .lp .clay-finding {
+    right: -86px;
+    top: 27%;
+    width: 112px;
+    opacity: var(--fw, 1);
+    transform: translateY(calc((1 - var(--fw, 1)) * 36px)) rotate(calc(10deg - (1 - var(--fw, 1)) * 24deg)) scale(calc(0.72 + 0.28 * var(--fw, 1)));
+  }
+  /* Beside the page: the magnifier comes to the phrase as it is marked. */
+  .lp .clay-magnifier {
+    right: 1%;
+    top: 40%;
+    width: clamp(150px, 15%, 210px);
+    opacity: var(--hl, 1);
+    transform: translateX(calc((1 - var(--hl, 1)) * 70px)) rotate(calc(-6deg + (1 - var(--hl, 1)) * 22deg));
+  }
+  /* Between the headline and its lead: the scales of judgement. */
+  .lp .clay-scales {
+    left: 40%;
+    top: -34px;
+    width: 176px;
+    --speed: -46px;
+    --spin: 5deg;
+    --tilt: -3deg;
+  }
+  /* The hearing, beside the opening: the gavel lifts a little and sinks back as the cover scrolls away. */
+  .lp .clay-gavel {
+    right: 8.2%;
+    top: 112px;
+    width: clamp(136px, 12vw, 184px);
+    transform: translateY(calc(var(--hv, 0) * 130px)) rotate(calc(var(--hv, 0) * -10deg));
+  }
+  /* Under the opening statement: the case file the sources come out of, and the exact words. */
+  .lp .clay-folder {
+    left: -2%;
+    bottom: -178px;
+    width: clamp(150px, 12.5vw, 196px);
+    --speed: -96px;
+    --spin: -7deg;
+    --tilt: -5deg;
+  }
+  .lp .clay-quote {
+    right: 6%;
+    bottom: -150px;
+    width: clamp(100px, 8.4vw, 130px);
+    --speed: -160px;
+    --spin: 10deg;
+    --tilt: 7deg;
+  }
+  /* Between how it works and its lead: keeping one's place. */
+  .lp .clay-book {
+    left: 44%;
+    top: -26px;
+    width: clamp(84px, 6.6vw, 100px);
+    --speed: -54px;
+    --spin: -6deg;
+    --tilt: 9deg;
+  }
+  /* Under the desk: the one thread, still on its spool. */
+  .lp .clay-spool {
+    right: 2.5%;
+    bottom: 3%;
+    width: clamp(160px, 13.5vw, 214px);
+    filter: drop-shadow(0 20px 24px rgb(2 12 8 / 0.45));
+    --speed: -70px;
+    --spin: 5deg;
+    --tilt: -3deg;
+  }
+  /* The page's own clip, at its corner: close to the paper, so its shadow is short. */
+  .lp .clay-clip {
+    z-index: 1;
+    left: clamp(18px, 3.6vw, 44px);
+    top: -44px;
+    width: clamp(46px, 4.4vw, 64px);
+    filter: drop-shadow(0 3px 3px rgb(66 52 26 / 0.26));
+  }
+  /* The closing band: what was said, what was written, and what connects them. */
+  .lp .clay-set {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+  }
+  .lp .clay-set .clay {
+    filter: drop-shadow(0 22px 26px rgb(2 12 8 / 0.45));
+  }
+  .lp .clay-speech {
+    left: 51%;
+    top: 7%;
+    width: 158px;
+    --speed: -70px;
+    --spin: 7deg;
+    --tilt: -7deg;
+  }
+  .lp .clay-page {
+    right: 7%;
+    top: 6%;
+    width: 132px;
+    --speed: -120px;
+    --spin: -10deg;
+    --tilt: 9deg;
+  }
+  .lp .clay-connect {
+    left: 58%;
+    top: 49%;
+    width: 128px;
+    --speed: -42px;
+    --spin: 12deg;
+    --tilt: -4deg;
+  }
+  @media (max-width: 1239px) {
+    .lp .clay-finding {
+      display: none;
+    }
+  }
+  /* Below this the opening's type steps up and would reach the gavel. */
+  @media (max-width: 1100px) {
+    .lp .clay-magnifier,
+    .lp .clay-set,
+    .lp .clay-spool,
+    .lp .clay-gavel {
+      display: none;
+    }
+  }
+  @media (max-width: 960px) {
+    .lp .clay-scales,
+    .lp .clay-book,
+    .lp .clay-folder,
+    .lp .clay-quote {
+      display: none;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lp .clay,
+    .lp .clay[data-drift] {
+      transform: none;
+      opacity: 1;
+    }
+  }
+
+  /* Line art on the green: hairline rings spreading from beyond a corner, under everything the
+     surface holds. The cover's widen a little as it scrolls away. */
+  .lp .rings {
+    position: absolute;
+    z-index: -1;
+    width: clamp(900px, 92vw, 1440px);
+    height: auto;
+    aspect-ratio: 1;
+    fill: none;
+    stroke: var(--lp-cream);
+    pointer-events: none;
+  }
+  .lp .rings circle {
+    stroke-width: 1;
+    vector-effect: non-scaling-stroke;
+  }
+  .lp .rings-hero {
+    top: 0;
+    right: 0;
+    translate: calc(50% + 24px) calc(-50% - 70px);
+    scale: calc(1 + var(--hv, 0) * 0.14);
+  }
+  .lp .rings-show {
+    left: 0;
+    bottom: 0;
+    translate: calc(-50% - 40px) calc(50% + 110px);
+    scale: calc(1 - var(--d, 0) * 0.06);
+  }
+  .lp .rings-closing {
+    top: 0;
+    right: 0;
+    opacity: 0.8;
+    translate: calc(50% - 220px) calc(-50% + 30px);
+    scale: calc(1 - var(--d, 0) * 0.08);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .lp .rings {
+      scale: none;
+    }
+  }
+.lp .frame { padding-top:104px; }
+.lp .outline { background:transparent; }
+.lp button { cursor:pointer; }
+.lp .replay { background:transparent;border:0;min-height:44px; }
+.lp .cover-finding { color:var(--lp-amber-ink);text-decoration:none; }
+.lp .cover-finding:hover,.lp .linked-source:hover,.lp .source:hover { text-decoration:underline; }
+.lp .linked-source { color:inherit; }
+.lp .slip-meta.linked-source { position:relative; width:fit-content; gap:5px; text-decoration:underline; text-decoration-color:var(--lp-line); }
+.lp .t-note.linked-source,.lp .page-sample.linked-source { display:inline-flex;align-items:center;gap:.35rem; }
+.lp .t-note.linked-source { position:relative; }
+@media (pointer:coarse) {
+  .lp :is(.slip-meta,.t-note,.page-sample).linked-source::after { content:""; position:absolute; inset:50% 0 auto; height:44px; transform:translateY(-50%); }
+}
+.lp .source-disc { flex:none;display:inline-grid;place-items:center;width:var(--disc-size);height:var(--disc-size);border-radius:50%;background:var(--lp-sage-ink);color:var(--lp-paper);font:600 calc(var(--disc-size)*.44)/1 var(--pub-body); }
+.lp .source-disc[data-role="pu"] { background:var(--pub-plum);font-size:calc(var(--disc-size)*.36); }
+.lp .button { border-color:transparent; }
+.lp .button.outline { border-color:color-mix(in srgb,var(--lp-cream) 70%,transparent); }
+.lp .actions { align-items:stretch; }
+.lp .sample { font-family:var(--pub-body); }
+.lp .t-text { text-wrap:pretty; }
+@media(max-width:760px) { .lp .frame { padding-top:84px; } }
+
+.lp { -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale; text-rendering:optimizeLegibility; }
+.lp .button { font-weight:400; }
+.lp .v-line.quiet { opacity:1; color:var(--lp-muted); }
+.lp .replay { position:relative; min-height:32px; }
+.lp .replay::after { content:"";position:absolute;inset:-6px 0; }
+.lp.pinned .gather-scene:has(.linked-source:focus-visible) {
+	--g0:1!important;--g1:1!important;--g2:1!important;--g3:1!important;--g4:1!important;
+	--w1:1!important;--w2:1!important;--w3:1!important;--w4:1!important;--gl:1!important;
+}
+.lp.pinned .signal-scene:has(.linked-source:focus-visible) {
+	--r4:1!important;--nt:1!important;--mk:1!important;--fw:1!important;
+}

@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import Dialog from '$lib/workspace/Dialog.svelte';
+  import FindingLink from './FindingLink.svelte';
   import SourceAvailability from './SourceAvailability.svelte';
   import {
     ArrowUpRight,
-    BookOpen,
-    FileText,
     MessagesSquare,
-    X,
     Network,
     PanelsTopLeft
   } from '@lucide/svelte';
@@ -20,7 +18,6 @@
     target,
     close
   }: { workspace: Workspace; lang: Lang; target: InspectTarget; close: () => void } = $props();
-  let dialog: HTMLDialogElement;
   let id = $derived(lang === 'id');
   let base = $derived(casePath(w));
   let law = $derived(target.kind === 'legal' ? w.legal.find((l) => l.id === target.id) : undefined);
@@ -41,23 +38,11 @@
             : false
     )
   );
-  onMount(() => {
-    if (!dialog.open) dialog.showModal();
-  });
+  const title = $derived(law ? (id ? 'Rujukan hukum' : 'Legal reference') : p ? (id ? 'Kutipan berkas' : 'Document passage') : (id ? 'Sumber perkara' : 'Case source'));
 </script>
 
-<dialog bind:this={dialog} class="ev-panel inspector" onclose={close} aria-labelledby="source-title">
-  <div class="ev-inline top">
-    <span class="ev-cap"
-      >{#if law}<BookOpen size={18} />{id ? 'Rujukan hukum' : 'Legal reference'}{:else if p}<FileText
-          size={18}
-        />{id ? 'Kutipan berkas' : 'Document passage'}{:else}<MessagesSquare size={18} />{id
-          ? 'Sumber perkara'
-          : 'Case source'}{/if}</span
-    ><button class="ev-icon" aria-label={id ? 'Tutup' : 'Close'} onclick={() => dialog.close()}
-      ><X size={18} /></button
-    >
-  </div>
+<Dialog sheet {title} {lang} {close}>
+  <div class="ev-panel inspector">
   {#if law}
     <h2 id="source-title" class="ev-title">{law.article}</h2>
     <p>{law.regulation}</p>
@@ -104,36 +89,17 @@
       <h3>{id ? 'Temuan terkait' : 'Related findings'}</h3>
       <ul class="ev-list">
         {#each related as f (f.id)}<li>
-            <a class="ev-link" href={base + '/findings/' + encodeURIComponent(f.id)} onclick={close}
-              >{local(f.title, lang)}</a
-            >
+            <FindingLink workspace={w} finding={f} {lang} showHearing onFollow={close}/>
           </li>{/each}
       </ul>
     </section>{/if}
-</dialog>
+  </div>
+</Dialog>
 
 <style>
   .inspector {
-    position: fixed;
-    margin: auto 0 auto auto;
-    inset: 0 0 0 auto;
-    max-height: 100dvh;
-    height: 100%;
-    width: min(30rem, 100%);
-    max-width: 100%;
-    border: 0;
-    border-inline-start: 1px solid var(--line);
-    padding: 1.5rem;
-    background: var(--surface);
-    color: var(--ink);
-    overflow: auto;
-  }
-  .inspector::backdrop {
-    background: color-mix(in srgb, var(--ink) 36%, transparent);
-  }
-  .top {
-    justify-content: space-between;
-    margin-bottom: 1.75rem;
+    padding:clamp(16px,3vw,26px);
+    overflow-wrap:anywhere;
   }
   .inspector blockquote {
     background: var(--paper);

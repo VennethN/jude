@@ -8,7 +8,6 @@
     Search,
     Upload,
     FileText,
-    ChevronRight,
     MessageSquare,
     BookOpenText,
     Trash2
@@ -16,7 +15,6 @@
   import type { PageData } from './$types';
   import { apiPath, assistantPath, casePath, dateLabel, local } from '$lib/evidence/records';
   import type { CaseDocument } from '@jude/core/domain';
-  import { needsReview } from '@jude/core/domain';
   import Match from '$lib/evidence/Match.svelte';
   import '$lib/evidence/evidence.css';
 
@@ -35,16 +33,17 @@
   let ready = $state<CaseDocument[]>([]);
   let failed = $state<{ file: File; key: string; message: string }[]>([]);
   const requestKeys = new WeakMap<File, string>();
-  let pendingFinding = $derived(
-    w.findings.find(
-      (f) => needsReview(f) && f.sources.some((s) => w.passages.some((p) => p.id === s.passageId))
-    )
-  );
-  let citedPassage = $derived(
-    w.passages.find((p) => pendingFinding?.sources.some((s) => s.passageId === p.id))
-  );
-  let citedDocument = $derived(w.documents.find((d) => d.id === citedPassage?.docId));
-  let citedPhrase = $derived(pendingFinding?.sources.find((s) => s.passageId === citedPassage?.id)?.match);
+  const documentCounts = $derived.by(() => {
+    const cited = new Set(w.findings.flatMap(finding => finding.sources.map(source => source.passageId)));
+    const counts = new Map<string, { passages: number; cited: number }>();
+    for (const passage of w.passages) {
+      const row = counts.get(passage.docId) ?? { passages: 0, cited: 0 };
+      row.passages++;
+      if (cited.has(passage.id)) row.cited++;
+      counts.set(passage.docId, row);
+    }
+    return counts;
+  });
   type RemovedDocument = { caseId: string; id: string; title: string; citedFindings: number };
   let deleting = $state<CaseDocument>();
   let undoBusy = $state(false),
@@ -234,69 +233,6 @@
     >
     <span class="ev-meta">{w.documents.length} {id ? 'dokumen' : 'documents'}</span>
   </div>
-  {#if docs.length}
-    <div class="archive-layout" class:with-citation={!!citedDocument && !term}>
-      <ul class="ev-list files" data-tour="docs-list">
-        {#each docs as doc (doc.id)}
-          <li>
-            <a href={casePath(w) + '/documents/' + encodeURIComponent(doc.id)}>
-              <span class="doc-tab" aria-hidden="true"><FileText size={22} /></span>
-              <span class="name"
-                ><strong><Match text={doc.title} term={query} /></strong><span class="ev-meta"
-                  >{local(doc.kind, data.lang)}</span
-                ></span
-              >
-              <span class="file-info"
-                >{doc.file}<span class="ev-meta">{doc.pages} {id ? 'halaman' : 'pages'}</span></span
-              >
-              <span class="ev-meta date">{dateLabel(doc.added, data.lang)}</span>
-            </a>
-            <button
-              class="file-action"
-              aria-label={(id ? 'Hapus dokumen ' : 'Remove document ') + doc.title}
-              title={id ? 'Hapus dokumen' : 'Remove document'}
-              disabled={!interactive || busy}
-              onclick={() => (deleting = doc)}><Trash2 size={16} /></button
-            >
-          </li>
-        {/each}
-      </ul>
-      {#if citedDocument && citedPassage && pendingFinding && !term}
-        <aside class="cited-slip" aria-labelledby="cited-title">
-          <div class="slip-head">
-            <BookOpenText size={19} />
-            <h2 id="cited-title">{id ? 'Dikutip dalam pemeriksaan' : 'Cited in review'}</h2>
-          </div>
-          <div class="slip-text">
-            <p class="folio-label">{citedDocument.title}</p>
-            <blockquote class="ev-record">“<Match text={citedPassage.text} term={citedPhrase} />”</blockquote>
-            <a
-              class="ev-link"
-              href={casePath(w) +
-                '/documents/' +
-                encodeURIComponent(citedDocument.id) +
-                '?p=' +
-                encodeURIComponent(citedPassage.id)}
-              >{id ? 'Baca halaman' : 'Read page'} {citedPassage.page}<ChevronRight size={14} /></a
-            >
-          </div>
-          <a class="slip-finding" href={casePath(w) + '/findings/' + encodeURIComponent(pendingFinding.id)}
-            >{local(pendingFinding.title, data.lang)}<ChevronRight size={15} /></a
-          >
-        </aside>
-      {/if}
-    </div>
-  {:else if !term}
-    <div class="ev-empty">
-      <FileText size={26} />
-      <h2 class="ev-title">{id ? 'Belum ada dokumen' : 'No documents yet'}</h2>
-      <p>
-        {id
-          ? 'Unggah PDF, DOCX, Markdown, atau teks untuk membuka berkas pertama.'
-          : 'Upload a PDF, DOCX, Markdown or text file to open your first record.'}
-      </p>
-    </div>
-  {/if}
   {#if term.length >= 2}
     <section class="matches" aria-live="polite">
       <h2 class="ev-title">{id ? 'Kutipan yang cocok' : 'Matching passages'}</h2>
@@ -338,74 +274,70 @@
         ? 'Ketik sekurangnya dua karakter untuk mencari kutipan.'
         : 'Enter at least two characters to search passages.'}
     </p>{/if}
+  {#if docs.length}
+    <ul class="files" data-tour="docs-list">
+      {#each docs as doc (doc.id)}
+        {@const counts = documentCounts.get(doc.id)}
+        <li>
+          <span class="doc-tab" aria-hidden="true"><FileText size={20}/><small>{doc.file}</small></span>
+          <div class="doc-body">
+            <a class="doc-title" href={casePath(w) + '/documents/' + encodeURIComponent(doc.id)}>
+              <Match text={doc.title} term={query}/>
+            </a>
+            <span class="ev-meta">{local(doc.kind, data.lang)}</span>
+            <div class="doc-stats">
+              <span>{doc.pages} {id ? 'halaman' : doc.pages === 1 ? 'page' : 'pages'}</span>
+              <span>{counts?.passages ?? 0} {id ? 'kutipan' : counts?.passages === 1 ? 'passage' : 'passages'}</span>
+              {#if counts?.cited}
+                <a class="doc-citations" href={casePath(w) + '/findings?doc=' + encodeURIComponent(doc.id)}>
+                  {counts.cited} {id ? 'dirujuk temuan' : 'cited by findings'}
+                </a>
+              {/if}
+            </div>
+            <span class="ev-meta">{id ? 'Ditambahkan' : 'Added'} {dateLabel(doc.added, data.lang)} · {doc.size}</span>
+          </div>
+          <button class="file-action" aria-label={(id ? 'Hapus dokumen ' : 'Remove document ') + doc.title}
+            title={id ? 'Hapus dokumen' : 'Remove document'} disabled={!interactive || busy}
+            onclick={() => (deleting = doc)}><Trash2 size={16}/></button>
+        </li>
+      {/each}
+    </ul>
+  {:else if !term}
+    <div class="ev-empty">
+      <FileText size={26} />
+      <h2 class="ev-title">{id ? 'Belum ada dokumen' : 'No documents yet'}</h2>
+      <p>
+        {id
+          ? 'Unggah PDF, DOCX, Markdown, atau teks untuk membuka berkas pertama.'
+          : 'Upload a PDF, DOCX, Markdown or text file to open your first record.'}
+      </p>
+    </div>
+  {/if}
+
 </div>
 
 <style>
   .ev-search {
     width: min(100%, 30rem);
   }
-  .files li {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 2.5rem;
-    align-items: center;
-    gap: 0.2rem;
-  }
-  .file-action {
-    justify-self: end;
-    width: 36px;
-    min-height: 40px;
-    display: grid;
-    place-items: center;
-    background: transparent;
-    color: var(--muted);
-    border: 0;
-    border-radius: 0.3rem;
-    cursor: pointer;
-  }
-  .file-action:hover,
-  .file-action:focus-visible {
-    background: var(--wash);
-    color: var(--accent);
-  }
-  .removed {
-    justify-content: space-between;
-  }
-  .files a {
-    color: var(--ink);
-    display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) minmax(5rem, 10%) minmax(6.5rem, 12%);
-    gap: 1rem;
-    align-items: center;
-    padding: 1rem 0.55rem;
-    text-decoration: none;
-  }
-  .files a:hover .name strong {
-    color: var(--accent);
-    text-decoration: underline;
-    text-underline-offset: 0.2em;
-  }
-  .name,
-  .file-info {
-    display: grid;
-    gap: 0.15rem;
-  }
-  .name strong {
-    font-size: 1rem;
-    overflow-wrap: anywhere;
-  }
-  .file-info {
-    font-size: 0.82rem;
-    font-weight: 600;
-  }
-  .doc-tab {
-    display: grid;
-    place-items: center;
-    width: 37px;
-    height: 44px;
-    color: var(--forest);
-    background: color-mix(in srgb, var(--forest) 9%, var(--surface));
-    border-radius: 4px 9px 4px 4px;
-  }
+  .files { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill,minmax(min(100%,300px),1fr)); gap: 12px; }
+  .files li { position: relative; display: grid; grid-template-columns: 42px minmax(0,1fr) 28px; align-content: start;
+    gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
+  .files li:hover, .files li:focus-within { border-color: var(--muted); }
+  .doc-tab { align-self: start; display: grid; justify-items: center; gap: 3px; padding: 7px 2px;
+    border-radius: 6px; background:var(--wash); color: var(--ink); }
+  .doc-tab small { font: 600 .69rem/1.2 var(--sans); }
+  .doc-body { display: grid; align-content: start; gap: 4px; }
+  .doc-title { font-weight: 600; line-height: 1.4; text-decoration: none; color: var(--ink); }
+  .doc-title::after { content: ''; position: absolute; inset: 0; border-radius: 12px; }
+  .doc-title:hover { text-decoration: underline; }
+  .doc-stats { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; color:var(--muted); font-size: .8rem; }
+  .doc-citations, .file-action { position: relative; z-index: 1; }
+  .doc-citations { padding-block: 3px; font-weight: 600; color: var(--accent); text-underline-offset: 3px; }
+  .file-action { align-self: start; justify-self: end; min-height: 32px; width: 32px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); }
+  .file-action:hover,.file-action:focus-visible { background: var(--wash); color: var(--accent); }
+  .removed { justify-content: space-between; }
+  @media (pointer: coarse) { .doc-citations, .file-action { min-height: 44px; } .doc-citations { display:inline-flex; align-items:center; } }
   .matches {
     margin-top: 2rem;
   }
@@ -416,62 +348,6 @@
     margin: 0.45rem 0 0;
     max-width: 80ch;
   }
-  .archive-layout {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr);
-    align-items: start;
-    gap: 1.5rem;
-  }
-  .archive-layout.with-citation {
-    grid-template-columns: minmax(0, 1fr) minmax(16rem, 29%);
-  }
-  .cited-slip {
-    min-width: 0;
-    background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 0.5rem;
-    overflow: hidden;
-  }
-  .slip-head {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    background: var(--wash);
-    padding: 0.9rem 1rem;
-    color: var(--ink);
-  }
-  .slip-head h2 {
-    margin: 0;
-    font: 400 1.4rem/1.1 var(--display);
-  }
-  .slip-text,
-  .slip-finding {
-    padding: 0.9rem 1rem;
-  }
-  .folio-label {
-    font: 600 0.8rem/1.45 var(--sans);
-    color: var(--muted);
-    margin: 0;
-  }
-  .slip-text blockquote {
-    font-size: 0.93rem;
-    line-height: 1.53;
-    margin: 0.7rem 0 0.2rem;
-  }
-  .slip-finding {
-    border-top: 1px solid var(--line);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.7rem;
-    font: 600 0.83rem/1.5 var(--sans);
-    color: var(--ink);
-    text-decoration: none;
-  }
-  .slip-finding:hover {
-    text-decoration: underline;
-    text-underline-offset: 0.18em;
-  }
   .drop-notice {
     display: flex;
     align-items: center;
@@ -481,30 +357,5 @@
     padding: 1rem;
     margin-bottom: 0.65rem;
   }
-  @container (max-width:930px) {
-    .archive-layout.with-citation {
-      grid-template-columns: 1fr;
-    }
-    .cited-slip {
-      max-width: 45rem;
-    }
-  }
-  @container (max-width:680px) {
-    .files a {
-      grid-template-columns: 30px minmax(0, 1fr);
-      gap: 0.65rem;
-      padding: 0.9rem 0;
-    }
-    .doc-tab {
-      width: 29px;
-      height: 38px;
-    }
-    .files .date,
-    .files .file-info {
-      display: none;
-    }
-    .ev-search {
-      width: 100%;
-    }
-  }
+  @container (max-width:680px) { .ev-search { width:100%; } }
 </style>

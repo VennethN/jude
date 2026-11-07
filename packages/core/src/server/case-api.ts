@@ -36,6 +36,7 @@ import {
   conflict,
   invalid,
   missing,
+  object,
   required,
   string,
   unavailable,
@@ -415,6 +416,16 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
   const voiceReady = startingHearing && !session.user.guest && (await transcriptionAvailable());
   return transaction((db) =>
     idempotent(db, org, caseId + '/' + path.join('/') + '/' + method, key, async () => {
+      if (resource === 'boards' && id === 'first' && !act && method === 'POST') {
+        await orgLock(db, org);
+        const current = await workspaceIn(db, org, caseId, true);
+        if (!current.boards.length) await checkQuota(db, org, 'boards', 1);
+        const card = f.card === undefined ? undefined : object(f.card, 'card');
+        return changeIn(db, org, caseId, (workspace) => {
+          const board = workspace.boards[0] ?? addBoard(workspace, { name: f.name });
+          return card ? addBoardCard(workspace, board.id, card) : board;
+        });
+      }
       if (resource === 'boards' && !id && method === 'POST') await checkQuota(db, org, 'boards', 1);
       if (startingHearing) {
         await orgLock(db, org);

@@ -15,6 +15,7 @@
     workspace: w,
     lang,
     compact = false,
+    initialQuestion = '',
     context,
     threadId,
     draft: initialDraft = '',
@@ -23,6 +24,7 @@
     workspace: Workspace;
     lang: Lang;
     compact?: boolean;
+    initialQuestion?: string;
     context?: ContextRef;
     threadId?: string;
     draft?: string;
@@ -39,7 +41,7 @@
     untrack(() => initialDraft || (!compact ? (page.state as {judeDraft?: string}).judeDraft : '') || '')
   );
   let extra = $state<ContextRef[]>([]),
-    ignoreContext = $state(false),
+    removedInitial = $state<string[]>([]),
     pick = $state(false),
     search = $state(''),
     busy = $state(false),
@@ -69,10 +71,12 @@
       if (sourceOf(w, ref, lang)) return ref;
     }
   }
-  let scope = $derived(context ?? parse(page.url.searchParams.get('context')) ?? ({ kind: 'case' } as const));
+  let initialContexts = $derived(
+    context ? [context] : page.url.searchParams.getAll('context').map(parse).filter((ref) => ref !== undefined)
+  );
   const key = (c: ContextRef) => ('id' in c ? evidenceKey(c) : c.kind);
   let contexts = $derived.by(() => {
-    const all = !ignoreContext && scope.kind !== 'case' ? [scope, ...extra] : extra;
+    const all = [...initialContexts.filter((c) => c.kind !== 'case' && !removedInitial.includes(key(c))), ...extra];
     const seen = new Set<string>();
     return all
       .filter((c) => {
@@ -159,7 +163,7 @@
     }
   }
   function remove(ref: ContextRef) {
-    if (key(ref) === key(scope)) ignoreContext = true;
+    if (initialContexts.some((c) => key(ref) === key(c))) removedInitial = [...removedInitial, key(ref)];
     extra = extra.filter((c) => key(c) !== key(ref));
   }
   function toggle(ref: ContextRef) {
@@ -229,7 +233,7 @@
     currentId = '';
     result = undefined;
     extra = [];
-    ignoreContext = false;
+    removedInitial = [];
     draft = '';
     problem = '';
     retry = '';
@@ -266,13 +270,19 @@
       void send(judeAsk.text, true);
     }
     if (compact) {
+      composer?.focus({ preventScroll: true });
+      if (initialQuestion.trim()) {
+        currentId = '';
+        remember('');
+        void send(initialQuestion, true);
+        return;
+      }
       try {
         const saved = sessionStorage.getItem(storeKey);
         if (saved && w.threads.some((t) => t.id === saved)) currentId = saved;
       } catch {
         /* Storage is optional. */
       }
-      composer?.focus();
     }
     if (currentId) {
       remember(currentId);
@@ -304,6 +314,7 @@
           >{/if}
       </div>
     </header>{/if}
+  <div class="conversation-flow">
   {#if thread?.messages.length}
     <header class="thread-title">
       <h2 class="ev-title">{local(thread.title, lang)}</h2>
@@ -352,6 +363,7 @@
           >{id ? 'Coba lagi' : 'Try again'}</button
         >{/if}
     </div>{/if}
+  </div>
   <form
     class="composer"
     data-tour="assistant-composer"
@@ -590,6 +602,14 @@
   .log {
     margin-bottom: 1rem;
   }
+  .compact { display:flex; flex-direction:column; height:100%; min-height:0; padding:0; border:0; border-radius:0; background:var(--surface); }
+  .compact .panel-head { flex:none; padding:12px 10px 10px 16px; }
+  .compact .panel-head h2 { font:600 15px/1.4 var(--sans); letter-spacing:-.01em; }
+  .compact .conversation-flow { flex:1; min-height:0; overflow:auto; padding:16px; overscroll-behavior:contain; }
+  .compact .welcome { padding:0 0 12px; }
+  .compact .suggestions { gap:6px; }
+  .compact .suggestions button { padding:11px 14px; border:1px solid var(--line); border-radius:8px; }
+  .compact .composer { flex:none; max-height:55%; overflow:auto; padding:12px 16px max(14px,env(safe-area-inset-bottom)); border:0; border-top:1px solid var(--line); border-radius:0; }
   .compact .welcome h2 {
     font-size: 1.75rem;
   }
