@@ -65,7 +65,7 @@ LABEL org.opencontainers.image.revision=$JUDE_REVISION
 ENV VOICE_HOST=0.0.0.0 VOICE_PORT=3001 PYTHONPATH=/app/apps/voice JUDE_MIGRATIONS_DIR=/app/migrations
 COPY --chown=jude:jude apps/voice/jude_voice ./apps/voice/jude_voice
 COPY --chown=jude:jude migrations ./migrations
-COPY --chown=jude:jude packages/core/src/plan-quotas.json ./packages/core/src/plan-quotas.json
+COPY --chown=jude:jude packages/core/src/plan-quotas.json packages/core/src/guest-practice.json ./packages/core/src/
 USER jude
 EXPOSE 3001
 CMD ["python", "-m", "jude_voice"]
