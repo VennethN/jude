@@ -45,7 +45,7 @@ async function setup(
   silent = false,
   beforeStart?: () => Promise<void>,
 ) {
-  const file = await readFile('apps/web/src/lib/workspace/microphone.ts', 'utf8');
+  const file = await readFile(new URL('../../src/lib/workspace/microphone.ts', import.meta.url), 'utf8');
   const compiled = ts.transpileModule(file, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;

@@ -1,2 +1,7 @@
 import { defineConfig } from 'vitest/config';
-export default defineConfig({test:{ include:['packages/core/tests/**/*.test.ts'],testTimeout:30_000 }});
+import { fileURLToPath } from 'node:url';
+
+export default defineConfig({
+  root: fileURLToPath(new URL('.', import.meta.url)),
+  test: { include: ['tests/**/*.test.ts'], testTimeout: 30_000 },
+});
