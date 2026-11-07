@@ -1,47 +1,17 @@
 .cx-page {
-  --ink-strong: var(--ink);
-  --line-strong: color-mix(in srgb, var(--ink) 32%, var(--line));
-  --surface-2: var(--paper);
-  --sunken: var(--wash);
   --radius-surface: 12px;
   --radius-control: 6px;
-  --radius-action: 7px;
-  --dur-fast: 150ms;
-  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
-  --focus: var(--accent);
-  --selected: #e6ede0;
-  --selected-line: #87a482;
-  --sand-ink: #865b10;
+  --radius-action: 8px;
   --hit: 36px;
   --font-serif: var(--display);
-  --rel-conflicts: #d9622b;
-  --rel-conflicts-ink: #a8481c;
-  --rel-context: #6a52cf;
-  --rel-context-ink: #5a43c0;
-  --rel-supports: #0f9a83;
-  --rel-supports-ink: #0a6c5c;
-  --rel-related: #55584f;
   --map-h: clamp(440px, calc(100dvh - 341px), 880px);
   --map-h-phone: clamp(340px, 60dvh, 620px);
-  --shadow-float: 0 8px 25px color-mix(in srgb, var(--ink) 15%, transparent);
   width: 100%;
   max-width: 1600px;
   margin-inline: auto;
   color: var(--ink);
   font: 400 14px/1.5 var(--sans);
   -webkit-font-smoothing: antialiased;
-}
-[data-theme='night'] .cx-page {
-  --selected: var(--wash);
-  --selected-line: #6a967b;
-  --sand-ink: #76500e;
-  --rel-conflicts: #e06a2c;
-  --rel-conflicts-ink: #f4a274;
-  --rel-context: #9085e9;
-  --rel-context-ink: #c4bdf6;
-  --rel-supports: #17a088;
-  --rel-supports-ink: #6fd6bf;
-  --rel-related: #c0c4bc;
 }
 .cx-title {
   margin-bottom: 26px;

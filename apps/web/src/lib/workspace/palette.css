@@ -1,0 +1,193 @@
+/* Hearing rooms, exhibits, and account billing share the same paper and light. */
+:is(.desk, .billing-page)[data-theme='paper'] {
+  --paper: #f3f2eb;
+  --surface: #fcfbf7;
+  --surface-2: #f7f6ef;
+  --sunken: #ebeae1;
+  --ink: #24372c;
+  --ink-strong: #173a2c;
+  --muted: #657164;
+  --line: #dedfd6;
+  --line-strong: #cbd0c1;
+  --nav: #183b2d;
+  --nav-ink: #f6f0e4;
+  --nav-muted: #b4c3b5;
+  --nav-hover: #21483a;
+  --nav-line: #2c5243;
+  --primary: #173a2c;
+  --primary-ink: #f6f0e4;
+  --primary-hover: #0f2c20;
+  --focus: #a66e27;
+  --mark: #f0deb4;
+  --mark-ink: #34402a;
+  --selected: #e6ede0;
+  --selected-line: #8fae96;
+  --live: #b4472f;
+  --live-soft: #f6e1d9;
+  --sand: #f3ead8;
+  --sand-ink: #5b4520;
+  --scrim: rgb(18 32 25 / 0.36);
+  --shadow-raise: 0 1px 2px rgb(16 33 25 / 0.05), 0 6px 16px -8px rgb(16 33 25 / 0.14);
+  --shadow-float: 0 16px 36px -12px rgb(16 33 25 / 0.28), 0 4px 10px -4px rgb(16 33 25 / 0.1);
+  --shadow-overlay: 0 36px 90px -20px rgb(16 33 25 / 0.38), 0 12px 28px -12px rgb(16 33 25 / 0.16);
+  --material: rgb(243 242 235 / 0.78);
+  --material-raised: rgb(252 251 247 / 0.82);
+  --hairline: rgb(36 55 44 / 0.11);
+  --edge-light: rgb(255 255 255 / 0.4);
+  --st-supported-bg: #deeadc;
+  --st-supported-ink: #245037;
+  --st-supported-dot: #5f8a69;
+  --st-inconsistency-bg: #f2dcae;
+  --st-inconsistency-ink: #4a3311;
+  --st-inconsistency-dot: #b47a2e;
+  --st-context-bg: #e4e5ed;
+  --st-context-ink: #484763;
+  --st-context-dot: #7d7a99;
+  --st-insufficient-bg: #e9e8e0;
+  --st-insufficient-ink: #5d5848;
+  --st-insufficient-dot: #97917f;
+  --rel-supports: #0f9a83;
+  --rel-supports-ink: #0a6c5c;
+  --rel-conflicts: #d9622b;
+  --rel-conflicts-ink: #a8481c;
+  --rel-context: #6a52cf;
+  --rel-context-ink: #5a43c0;
+  --rel-related: #55584f;
+  --rel-related-ink: #4f524a;
+  --role-judge: #4c5b92;
+  --role-judge-soft: #e2e5f1;
+  --role-opposing: #a24e3d;
+  --role-opposing-soft: #f4e1db;
+  --role-counsel: #2e6c4b;
+  --role-counsel-soft: #dbeae0;
+  --role-witness: #a8731c;
+  --role-witness-soft: #f4e5c4;
+  --role-party: #6b6658;
+  --role-party-soft: #e8e5da;
+  --role-unknown: #868b83;
+  --role-unknown-soft: #ebeae3;
+  --role-judge-ink: #4c5b92;
+  --role-opposing-ink: #a24e3d;
+  --role-counsel-ink: #2e6c4b;
+  --role-witness-ink: #82580f;
+  --role-party-ink: #6b6658;
+  --role-unknown-ink: #646960;
+  --alert: #c4622d;
+  --alert-soft: #fbe7d6;
+  --on-accent: #fff;
+}
+
+:is(.desk, .billing-page)[data-theme='night'] {
+  --paper: #0d1612;
+  --surface: #121d18;
+  --surface-2: #16231d;
+  --sunken: #0a110e;
+  --ink: #dde2d6;
+  --ink-strong: #eef0e5;
+  --muted: #92a092;
+  --line: #22322a;
+  --line-strong: #2f4237;
+  --nav: #09110d;
+  --nav-ink: #e6e2d4;
+  --nav-muted: #8b998b;
+  --nav-hover: #14211b;
+  --nav-line: #1c2b23;
+  --primary: #cfe0c8;
+  --primary-ink: #0d1612;
+  --primary-hover: #e2ecdc;
+  --focus: #e0a957;
+  --mark: #4b3b16;
+  --mark-ink: #f5e3b8;
+  --selected: #1b2c23;
+  --selected-line: #5f8a69;
+  --live: #e2775f;
+  --live-soft: #3b1f17;
+  --sand: #2e2716;
+  --sand-ink: #e9d4a6;
+  --scrim: rgb(0 0 0 / 0.55);
+  --shadow-raise: 0 1px 2px rgb(0 0 0 / 0.35), 0 6px 16px -8px rgb(0 0 0 / 0.5);
+  --shadow-float: 0 16px 36px -12px rgb(0 0 0 / 0.7), 0 4px 10px -4px rgb(0 0 0 / 0.45);
+  --shadow-overlay: 0 36px 90px -20px rgb(0 0 0 / 0.8), 0 12px 28px -12px rgb(0 0 0 / 0.55);
+  --material: rgb(13 22 18 / 0.8);
+  --material-raised: rgb(18 29 24 / 0.84);
+  --hairline: rgb(221 226 214 / 0.1);
+  --edge-light: rgb(255 255 255 / 0.05);
+  --st-supported-bg: #1c3527;
+  --st-supported-ink: #b7dbbf;
+  --st-supported-dot: #7fae8c;
+  --st-inconsistency-bg: #44310f;
+  --st-inconsistency-ink: #f1cf8f;
+  --st-inconsistency-dot: #d79a4c;
+  --st-context-bg: #272a3c;
+  --st-context-ink: #cbcbe9;
+  --st-context-dot: #a59fd0;
+  --st-insufficient-bg: #2a2a25;
+  --st-insufficient-ink: #cbc6b5;
+  --st-insufficient-dot: #a7a08c;
+  --rel-supports: #17a088;
+  --rel-supports-ink: #6fd6bf;
+  --rel-conflicts: #e06a2c;
+  --rel-conflicts-ink: #f4a274;
+  --rel-context: #9085e9;
+  --rel-context-ink: #c4bdf6;
+  --rel-related: #c0c4bc;
+  --rel-related-ink: #cdd0c9;
+  --role-judge: #93a1e2;
+  --role-judge-soft: #222a45;
+  --role-opposing: #e48b74;
+  --role-opposing-soft: #3c231c;
+  --role-counsel: #6fc596;
+  --role-counsel-soft: #1a3326;
+  --role-witness: #e9b552;
+  --role-witness-soft: #3a2b10;
+  --role-party: #c0baa8;
+  --role-party-soft: #2b2a24;
+  --role-unknown: #a5aaa2;
+  --role-unknown-soft: #252a26;
+  --role-judge-ink: #93a1e2;
+  --role-opposing-ink: #e48b74;
+  --role-counsel-ink: #6fc596;
+  --role-witness-ink: #e9b552;
+  --role-party-ink: #c0baa8;
+  --role-unknown-ink: #a5aaa2;
+  --alert: #f08a4e;
+  --alert-soft: #3d2516;
+  --on-accent: #120b07;
+}
+
+:is(.desk, .billing-page)[data-theme] {
+  --forest: var(--nav);
+  --on-forest: var(--nav-ink);
+  --wash: var(--selected);
+  --muted-on-fill: color-mix(in srgb, var(--muted) 86%, var(--ink-strong));
+}
+
+:is(.desk, .billing-page) :is(.button, .ev-button).primary {
+  background: var(--primary);
+  color: var(--primary-ink);
+  border-color: var(--primary);
+}
+:is(.desk, .billing-page) :is(.button, .ev-button).primary:hover {
+  background: var(--primary-hover);
+}
+
+:is(.desk, .billing-page) :focus-visible {
+  outline-color: var(--focus);
+}
+
+.billing-page[data-theme] :is(.billing-tag, .ribbon) {
+  color: var(--sand-ink);
+  background: var(--sand);
+}
+.billing-page[data-theme] .plan-card.selected {
+  border-color: var(--selected-line);
+}
+.billing-page[data-theme] .cycle-switch {
+  background: var(--sunken);
+  border-color: var(--line);
+  color: var(--muted);
+}
+.billing-page[data-theme] .cycle-switch a[aria-current] {
+  background: var(--surface);
+  color: var(--ink-strong);
+}

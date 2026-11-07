@@ -41,12 +41,25 @@
     width: var(--size);
     height: var(--size);
     border-radius: 50%;
-    background: var(--forest);
-    color: var(--on-forest);
+    background: var(--role-unknown-ink);
+    color: var(--on-accent);
     font: 600 calc(var(--size) * 0.45)/1 var(--sans);
   }
   .disc[data-role='witness'] {
-    background: var(--sand-ink);
-    color: var(--on-forest);
+    background: var(--role-witness-ink);
+    color: var(--on-accent);
+  }
+  .disc[data-role='opposing'] {
+    background: var(--role-opposing-ink);
+  }
+  .disc[data-role='judge'],
+  .disc[data-role='judge_member'] {
+    background: var(--role-judge-ink);
+  }
+  .disc[data-role='counsel'] {
+    background: var(--role-counsel-ink);
+  }
+  .disc[data-role='party'] {
+    background: var(--role-party-ink);
   }
 </style>

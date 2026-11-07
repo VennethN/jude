@@ -1,18 +1,10 @@
 <script lang="ts">
-  import {
-    ArrowLeftRight,
-    ArrowRight,
-    Check,
-    Dot,
-    LayoutDashboard,
-    Link2,
-    MessageSquare,
-    Unlink
-  } from '@lucide/svelte';
+  import { ArrowLeftRight, ArrowRight, Check, LayoutDashboard, Link2, MessageSquare, Unlink } from '@lucide/svelte';
   import type { Lang, Relation, Workspace } from '@jude/core/domain';
-  import { casePath, clock, meaningful, statuses } from '../records';
+  import { casePath, clock, statuses } from '../records';
   import { type Pairing, type Kind as EvidenceKind } from '../graph';
   import { idOf, kindOf, mapRecords, relationOrder as relations, type IconKind as Kind } from './map-records';
+  import ReviewMark from '../ReviewMark.svelte';
   import KindIcon from './GraphIcon.svelte';
   let {
     workspace,
@@ -174,16 +166,7 @@
                     href={findingPath(f.id)}
                     aria-current={picked.includes(key) ? 'true' : undefined}
                   >
-                    <span
-                      class="finding-mark"
-                      data-status={f.status}
-                      class:quiet={f.reviewed || !meaningful(f.status)}
-                      aria-hidden="true"
-                    >
-                      {#if f.reviewed}<Check size={12} />{:else if meaningful(f.status)}!{:else}<Dot
-                          size={13}
-                        />{/if}
-                    </span>
+                    <ReviewMark status={f.status} reviewed={f.reviewed} size={20} />
                     <span class="finding-body">
                       <span class="finding-meta"
                         >{statuses[f.status][lang]}<span>·</span>{clock(statement(f.statementId)?.t ?? 0)}</span
@@ -328,23 +311,6 @@
   }
   .finding-link:hover {
     background: var(--sunken);
-  }
-  .finding-mark {
-    display: grid;
-    place-items: center;
-    width: 20px;
-    height: 20px;
-    flex: none;
-    border-radius: 50%;
-    background: var(--rel-context-ink);
-    color: var(--surface);
-    font: 700 12px/1 var(--sans);
-  }
-  .finding-mark[data-status='potential_inconsistency'] {
-    background: var(--rel-conflicts-ink);
-  }
-  .finding-mark.quiet {
-    background: var(--muted);
   }
   .finding-body {
     flex: 1;

@@ -15,6 +15,24 @@ colors:
   night-conflicts: "#ef9b72"
   night-context: "#b49cde"
   night-supports: "#75bc9d"
+  workspace-paper: "#f3f2eb"
+  workspace-surface: "#fcfbf7"
+  workspace-ink: "#24372c"
+  workspace-muted: "#657164"
+  workspace-selected: "#e6ede0"
+  night-paper: "#0d1612"
+  night-surface: "#121d18"
+  night-ink: "#dde2d6"
+  night-muted: "#92a092"
+  night-selected: "#1b2c23"
+  status-supported: "#deeadc"
+  status-inconsistency: "#f2dcae"
+  status-context: "#e4e5ed"
+  status-insufficient: "#e9e8e0"
+  night-status-supported: "#1c3527"
+  night-status-inconsistency: "#44310f"
+  night-status-context: "#272a3c"
+  night-status-insufficient: "#2a2a25"
 typography:
   display: { fontFamily: "Caslon Display", fontWeight: 400 }
   body: { fontFamily: "Manrope", fontWeight: 400 }
@@ -43,6 +61,12 @@ Use deep green-grey paper with lighter text. Keep written sources and testimony 
 ## Comparing testimony
 
 Show the testimony and filed phrase together wherever space permits. Give each its own source link. On the overview a running hearing sits in the page flow above the case title. A tablet or phone keeps the assistant available in the top bar.
+
+## Finding status and review
+
+Each status chip pairs its label with a distinct shape. Supported uses a filled sage circle, a potential inconsistency an amber diamond, context needed a hollow violet ring, and insufficient evidence a grey dash. The queue uses round attention marks for open findings and a check once counsel has reviewed a finding. Group rows by hearing and order them by testimony time. A sage fill and border hold the selection as keyboard focus moves.
+
+The workspace and billing pages share the paper and night palettes in `src/lib/workspace/palette.css`. Keep written sources in Courier Prime and spoken testimony in Manrope. Mark the cited words with a tinted background and underline so the phrase stays identifiable in both themes.
 
 ## Public cover and motion
 
