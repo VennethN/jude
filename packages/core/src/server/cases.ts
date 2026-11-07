@@ -295,7 +295,7 @@ export function patchCase(workspace: Workspace, fields: Fields) {
 }
 export async function listCases(db: Database, orgId: string, userId: string, term = '') {
   const records = await db.query<CaseRow>(
-    'SELECT c.id,c.record,c.version,c.archived FROM cases c JOIN case_members cm ON c.id=cm.case_id WHERE c.org_id=$1 AND cm.user_id=$2 AND c.deleted_at IS NULL ORDER BY c.updated_at DESC,c.id ASC',
+    'SELECT c.id,c.record,c.version,c.archived FROM cases c JOIN workspace_case_members cm ON c.id=cm.case_id WHERE c.org_id=$1 AND cm.user_id=$2 AND c.deleted_at IS NULL ORDER BY c.updated_at DESC,c.id ASC',
     [orgId, userId],
   );
   const summaries: CaseSummary[] = [];

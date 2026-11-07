@@ -288,7 +288,8 @@ class Repository:
             row = tx.one(
                 "SELECT c.id,c.record,c.synthetic,c.archived,m.role FROM cases c "
                 "JOIN case_members m ON m.case_id=c.id JOIN memberships om ON om.org_id=c.org_id AND om.user_id=m.user_id "
-                "WHERE c.id=? AND c.org_id=? AND m.user_id=? AND c.deleted_at IS NULL"
+                "WHERE c.id=? AND c.org_id=? AND m.user_id=? AND c.deleted_at IS NULL "
+                "AND EXISTS (SELECT 1 FROM workspace_case_members visible WHERE visible.case_id=c.id AND visible.user_id=m.user_id)"
                 + (" FOR UPDATE OF c FOR SHARE OF m,om" if write and tx.postgres else ""),
                 (case_id, current.org_id, current.user_id),
             )

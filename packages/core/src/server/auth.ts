@@ -42,13 +42,13 @@ function projectSession(row: UserRow): SessionInfo {
     role: row.role,
     plan: { id: row.plan_id },
     prefs: JSON.parse(row.prefs),
-    demo: row.demo_id ? { caseId: row.demo_id, refs: JSON.parse(row.demo_refs) } : null,
+    demo: row.guest && row.demo_id ? { caseId: row.demo_id, refs: JSON.parse(row.demo_refs) } : null,
   };
 }
 const profile =
   'SELECT u.id,u.name,u.email,u.guest,u.prefs,m.org_id,m.role,o.name AS organization,' +
   "CASE WHEN o.plan_status='trialing' AND o.trial_ends<=$2 THEN 'basic' ELSE o.plan_id END AS plan_id," +
-  'cm.case_id AS demo_id,o.demo_refs FROM users u JOIN memberships m ON m.user_id=u.id JOIN organizations o ON m.org_id=o.id LEFT JOIN cases c ON c.id=o.demo_id AND c.deleted_at IS NULL LEFT JOIN case_members cm ON cm.case_id=c.id AND cm.user_id=u.id';
+  "cm.case_id AS demo_id,CASE WHEN u.guest=1 THEN o.demo_refs ELSE '{}' END AS demo_refs FROM users u JOIN memberships m ON m.user_id=u.id JOIN organizations o ON m.org_id=o.id LEFT JOIN cases c ON u.guest=1 AND c.id=o.demo_id AND c.deleted_at IS NULL LEFT JOIN case_members cm ON cm.case_id=c.id AND cm.user_id=u.id";
 async function byUser(db: Database, userId: string, orgId?: string) {
   const args: (string | number)[] = [userId, Date.now()];
   if (orgId) args.push(orgId);
@@ -187,7 +187,7 @@ async function createOrganization(
   );
   if (!result.length) throw new ApiError(409, 'email_in_use', 'This email is already registered.');
   await db.query("INSERT INTO memberships(org_id,user_id,role) VALUES($1,$2,'owner')", [orgId, userId]);
-  await seedOrganization(db, orgId);
+  if (details.guest) await seedOrganization(db, orgId);
   return makeSession(db, userId, orgId);
 }
 export async function beginDemo(event: CoreRequest) {
@@ -445,10 +445,6 @@ export async function acceptInvite(event: CoreRequest, fields: Fields) {
         userId,
         ticket.role,
       ]);
-      await db.query(
-        "INSERT INTO case_members(case_id,user_id,role) SELECT id,$1,'editor' FROM cases WHERE org_id=$2 AND synthetic=1 AND deleted_at IS NULL ON CONFLICT(case_id,user_id) DO NOTHING",
-        [userId, ticket.subject],
-      );
     }
     return makeSession(db, userId, ticket.subject);
   });

@@ -128,7 +128,7 @@ async function eventStream(event: CoreRequest, org: string, caseId: string) {
             first ??
             (await transaction(async (db) => {
               const [row] = await db.query<{ version: number }>(
-                'SELECT c.version FROM cases c JOIN case_members cm ON cm.case_id=c.id JOIN sessions s ON s.user_id=cm.user_id WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3 AND c.deleted_at IS NULL AND s.token_hash=$4 AND s.expires_at>$5',
+                'SELECT c.version FROM cases c JOIN workspace_case_members cm ON cm.case_id=c.id JOIN sessions s ON s.user_id=cm.user_id WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3 AND c.deleted_at IS NULL AND s.token_hash=$4 AND s.expires_at>$5',
                 [caseId, org, event.locals.session!.user.id, tokenHash, Date.now()],
               );
               return row?.version;
