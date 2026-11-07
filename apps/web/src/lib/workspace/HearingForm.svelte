@@ -7,13 +7,27 @@
  import SheetHandle from './SheetHandle.svelte';
  import { timecode } from './format';
  type Flow='schedule'|'import'|'live'|'audio';
- let {workspace:w,lang,close,initial='',scheduled,transcription,guest=false}:{workspace:Workspace;lang:Lang;close:()=>void;initial?:string;scheduled?:Hearing;transcription:boolean;guest?:boolean}=$props();
+ let {workspace:w,lang,close,initial='',scheduled,transcription,guest=false,livePlan}:{workspace:Workspace;lang:Lang;close:()=>void;initial?:string;scheduled?:Hearing;transcription:boolean;guest?:boolean;livePlan:boolean}=$props();
  const en=$derived(lang==='en'), demo=$derived(w.caseRecord.label==='synthetic'), prefix=$derived('/api/cases/'+w.caseRecord.id+'/hearings');
  let uploadKey = '';
  let flow=$state<Flow|''>(''),title=$state(''),date=$state(''),time=$state('09:00'),permission=$state(false),closed=$state(false),busy=$state(false),message=$state(''),file=$state<File>(),draft=$state<{speaker:string;time:number;text:string}[]>([]),language=$state('id');
  $effect(()=>{flow=scheduled?'live':['live','schedule','import','audio'].includes(initial)?initial as Flow:'';title=scheduled?.title[lang]??'';date=scheduled?.date??new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta'}).format(new Date())});
  const otherLive=$derived(w.hearings.find(item=>item.mode==='live' && item.id!==scheduled?.id));
- const choices=$derived([{id:'live' as const,icon:Mic,title:en?'Record live':'Rekam langsung',hint:en?'Transcribe an open hearing with permission.':'Transkripsikan sidang terbuka dengan izin.'},{id:'audio' as const,icon:FileAudio,title:en?'Upload audio':'Unggah audio',hint:en?'Transcribe a saved recording.':'Transkripsikan rekaman yang tersimpan.'},{id:'import' as const,icon:FileUp,title:en?'Import transcript':'Impor transkrip',hint:en?'Review speaker turns before filing.':'Periksa giliran pembicara sebelum disimpan.'},{id:'schedule' as const,icon:CalendarDays,title:en?'Schedule hearing':'Jadwalkan sidang',hint:en?'Set a hearing date and time.':'Tetapkan tanggal dan waktu sidang.'}]);
+ const privateAudio = $derived(!demo && !guest && transcription);
+ const canRecord = $derived(demo || (privateAudio && livePlan));
+ const serviceHint = $derived(en ? 'The voice service has not enabled transcription.' : 'Transkripsi belum aktif pada layanan suara.');
+ const signInHint = $derived(en ? 'Sign in to use audio in a private case.' : 'Masuk untuk menggunakan audio dalam perkara privat.');
+ const recordHint = $derived(demo ? (en ? 'Replay the example hearing.' : 'Putar ulang sidang contoh.')
+   : guest ? signInHint : !livePlan ? (en ? 'Live recording requires Advocate Pro or higher.' : 'Rekam langsung tersedia mulai paket Advokat Pro.')
+   : !transcription ? serviceHint : (en ? 'Transcribe an open hearing with permission.' : 'Transkripsikan sidang terbuka dengan izin.'));
+ const uploadHint = $derived(demo || guest ? signInHint : !transcription ? serviceHint
+   : (en ? 'Transcribe a saved recording.' : 'Transkripsikan rekaman yang tersimpan.'));
+ const choices = $derived([
+   { id: 'live' as const, icon: Mic, title: en ? 'Record live' : 'Rekam langsung', hint: recordHint, disabled: !canRecord },
+   { id: 'audio' as const, icon: FileAudio, title: en ? 'Upload audio' : 'Unggah audio', hint: uploadHint, disabled: !privateAudio },
+   { id: 'import' as const, icon: FileUp, title: en ? 'Import transcript' : 'Impor transkrip', hint: en ? 'Review speaker turns before filing.' : 'Periksa giliran pembicara sebelum disimpan.', disabled: false },
+   { id: 'schedule' as const, icon: CalendarDays, title: en ? 'Schedule hearing' : 'Jadwalkan sidang', hint: en ? 'Set a hearing date and time.' : 'Tetapkan tanggal dan waktu sidang.', disabled: false }
+ ]);
  function fail(e:unknown){message=e instanceof Error?e.message:(en?'Could not complete this action.':'Tindakan belum selesai.')}
  async function preview(f?:File){if(!f)return;file=f;uploadKey=crypto.randomUUID();if(flow!=='import')return;const body=new FormData();body.append('file',f);busy=true;message='';try{const r=await api<{title:string;date:string;turns:typeof draft}>(prefix+'/import/preview','POST',body);draft=r.turns;title=r.title;date=r.date}catch(e){fail(e)}finally{busy=false}}
  async function submit(e:SubmitEvent){e.preventDefault();if(busy)return;busy=true;message='';try{let h:Hearing;
@@ -25,8 +39,9 @@
 <Dialog title={flow?choices.find(x=>x.id===flow)!.title:(en?'New hearing':'Sidang baru')} {lang} {close} wide={flow==='import'&&draft.length>0}>
 <div class="hearing-intake" class:choosing={!flow}>
   <SheetHandle dismiss={close}/>
-{#if !flow}<p class="lead">{en?'Choose how testimony comes into the case.':'Pilih cara keterangan masuk ke perkara.'}</p><div class="flow-choices">{#each choices as c}<button disabled={c.id==='live'&&!demo&&(!transcription||guest)||c.id==='audio'&&(!transcription||guest||demo)} onclick={()=>{flow=c.id;message=''}}><span class="choice-icon" class:live={c.id==='live'}><c.icon size={20}/></span><span class="choice-text"><strong>{c.title}</strong><small>{c.hint}</small></span><ChevronRight size={15} class="choice-arrow" aria-hidden="true"/></button>{/each}</div>{#if !transcription||guest}<p class="small muted">{en?'Private audio transcription requires a configured account. Transcript import is available.':'Transkripsi audio pribadi memerlukan akun terkonfigurasi. Impor transkrip tersedia.'}</p>{/if}<div class="choice-foot"><button class="button" onclick={close}>{en?'Cancel':'Batal'}</button></div>
+{#if !flow}<p class="lead">{en?'Choose how testimony comes into the case.':'Pilih cara keterangan masuk ke perkara.'}</p><div class="flow-choices">{#each choices as c}<button disabled={c.disabled} onclick={()=>{flow=c.id;message=''}}><span class="choice-icon" class:live={c.id==='live'}><c.icon size={20}/></span><span class="choice-text"><strong>{c.title}</strong><small>{c.hint}</small></span><ChevronRight size={15} class="choice-arrow" aria-hidden="true"/></button>{/each}</div>{#if !guest && !demo && !livePlan}<p class="small muted"><a href="/billing">{en ? 'View plans and billing' : 'Lihat paket dan tagihan'}</a></p>{/if}<div class="choice-foot"><button class="button" onclick={close}>{en?'Cancel':'Batal'}</button></div>
 {:else}<form class="stack" onsubmit={submit}>
+ {#if flow==='live' && !canRecord}<p class="small muted">{recordHint}</p>{:else if flow==='audio' && !privateAudio}<p class="small muted">{uploadHint}</p>{/if}
  {#if flow==='live' && otherLive}<p class="existing-live">{en?'Another hearing is already in progress.':'Sidang lain sedang berlangsung.'} <a href={'/case/'+w.caseRecord.id+'/hearings/'+otherLive.id}>{en?'Return to hearing':'Kembali ke sidang'} {otherLive.number}</a></p>{/if}
  {#if flow==='import'||flow==='audio'}<label class="field">{flow==='import'?(en?'Transcript file':'Berkas transkrip'):(en?'Audio file, up to 25 MB':'Berkas audio, hingga 25 MB')}<input type="file" accept={flow==='import'?'.txt,.vtt,.srt,.json,.csv,.docx,.pdf,.jude':'.wav,.m4a,.mp3,.mp4,.webm,.mpeg'} onchange={e=>preview(e.currentTarget.files?.[0])}/></label>{/if}
  {#if flow==='import'&&demo&&!draft.length}<button type="button" class="button" onclick={()=>preview(new File(['[00:00:00] Hakim Ketua: Sidang dibuka.\n[00:00:08] Saksi: Saya tiba di Gerbang Timur.'],'Risalah contoh.txt',{type:'text/plain'}))}>{en?'Use sample transcript':'Pakai contoh risalah'}</button>{/if}
@@ -38,7 +53,7 @@
  <label><input type="checkbox" bind:checked={closed}/> {en?'Closed hearing':'Sidang tertutup'}</label>
  <label><input type="checkbox" required bind:checked={permission}/> {en?'The presiding judge permitted recording in this open hearing.':'Hakim ketua mengizinkan perekaman dalam sidang terbuka ini.'}</label>{/if}
  {#if message}<p class="error-text" role="alert">{message}</p>{/if}
- <div class="actions"><button type="submit" class="button primary" disabled={busy||flow==='import'&&!draft.length||flow==='audio'&&(!file||!permission||closed)||flow==='live'&&(!!otherLive||!permission||closed||(!demo&&(!transcription||guest)))}>{busy?(en?'Processing…':'Memproses…'):flow==='schedule'?(en?'Schedule hearing':'Jadwalkan sidang'):flow==='import'?(en?'Confirm and import':'Konfirmasi dan impor'):flow==='audio'?(en?'Transcribe audio':'Transkripsikan audio'):(en?'Start hearing':'Mulai sidang')}</button>
+ <div class="actions"><button type="submit" class="button primary" disabled={busy||flow==='import'&&!draft.length||flow==='audio'&&(!privateAudio||!file||!permission||closed)||flow==='live'&&(!canRecord||!!otherLive||!permission||closed)}>{busy?(en?'Processing…':'Memproses…'):flow==='schedule'?(en?'Schedule hearing':'Jadwalkan sidang'):flow==='import'?(en?'Confirm and import':'Konfirmasi dan impor'):flow==='audio'?(en?'Transcribe audio':'Transkripsikan audio'):(en?'Start hearing':'Mulai sidang')}</button>
  {#if !scheduled}<button class="button subtle" type="button" onclick={()=>{flow='';draft=[];file=undefined;message=''}}>{en?'Back':'Kembali'}</button>{/if}</div>
  </form>{/if}</div></Dialog>
 <style>
@@ -51,7 +66,9 @@
   .flow-choices { display:grid; gap:8px; }
   .flow-choices button { display:flex; align-items:center; gap:14px; min-height:70px; padding:13px 14px; text-align:left; border:1px solid var(--line-strong,var(--line)); border-radius:8px; background:var(--surface); color:var(--ink-strong,var(--ink)); }
   .flow-choices button:hover:not(:disabled) { border-color:var(--ink-strong,var(--ink)); background:var(--surface-2,var(--wash)); }
-  .flow-choices button:disabled { opacity:.56; }
+  .flow-choices button:disabled { cursor:not-allowed; }
+  .flow-choices button:disabled strong,.flow-choices button:disabled :global(.choice-arrow) { color:var(--muted); }
+  .flow-choices button:disabled .choice-icon { opacity:.64; }
   .choice-icon { display:grid; flex:none; place-items:center; width:40px; height:40px; background:var(--selected,var(--wash)); border-radius:50%; }
   .choice-icon.live { background:var(--st-inconsistency-bg,var(--wash)); color:var(--alert,var(--accent)); }
   .choice-text { display:grid; gap:2px; }

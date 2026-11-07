@@ -24,7 +24,8 @@ test('a live finding arrives with its testimony and opens the cited comparison i
 
   await page.goto(path);
   const attention = page.locator('[data-tour="live-attention"]');
-  await expect(attention.locator('.calm')).toBeVisible();
+  await expect(page.locator('.hear-reading .finding-index')).toBeVisible();
+  await expect(attention).toHaveCount(0);
   const lead = attention.locator('.lead');
   await expect(lead).toBeVisible({ timeout: 18000 });
   await page.getByRole('button', { name: 'Jeda', exact: true }).click();

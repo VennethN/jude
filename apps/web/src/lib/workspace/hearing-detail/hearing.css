@@ -16,15 +16,19 @@
 .hearing-detail h1 { margin:0; min-width:0; max-width:none; font:400 32px/1.16 var(--display); letter-spacing:-.022em; overflow-wrap:anywhere; }
 .hearing-detail .hearing-heading h1 span { display:inline-block; margin-right:6px; vertical-align:middle; color:var(--muted); font:600 13px/1.35 var(--sans); letter-spacing:0; white-space:nowrap; }
 .hearing-detail.live-view h1 { font-size:30px; }
+.hearing-detail.running .hearing-heading { flex-wrap:nowrap; align-items:baseline; border-bottom:1px solid var(--ink-strong); padding-bottom:5px; }
+.hearing-detail.running .hearing-heading h1 { flex:1; font-size:clamp(28px,3cqi,35px); }
 .hearing-detail .head-actions, .hearing-detail .session-control, .hearing-detail .control-actions, .hearing-detail .session-label { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
 .hearing-detail .head-actions .button, .hearing-detail .head-actions .icon-button { min-height:36px; height:36px; border-radius:6px; font:600 13px/1.35 var(--sans); }
 .hearing-detail .head-actions .icon-button { width:36px; min-width:36px; background:transparent; border-color:transparent; }
 .hearing-detail .hearing-meta { margin:6px 0 16px; color:var(--muted); font:400 13px/1.5 var(--sans); }
 .hearing-detail .hearing-meta span { font-size:12px; }
-.hearing-detail .session-label { padding:7px 11px; min-height:34px; border-radius:999px; background:var(--st-inconsistency-bg,var(--wash)); color:var(--alert,var(--accent)); font:600 12px/1.5 var(--sans); }
-.hearing-detail .session-label span { color:var(--ink-strong,var(--ink)); font-variant-numeric:tabular-nums; }
-.hearing-detail .session-label svg { width:12px; height:12px; }
-.hearing-detail .end { color:var(--alert,var(--accent)); border-color:color-mix(in srgb,var(--alert,var(--accent)) 55%,var(--line)); }
+.hearing-detail .session-control { min-height:72px; justify-content:space-between; padding-block:12px; border-bottom:1px solid var(--line); }
+.hearing-detail .session-label { min-width:0; color:var(--ink); font:600 14px/1.5 var(--sans); }
+.hearing-detail .session-label span { color:var(--muted); font:400 13px/1.4 var(--mono); font-variant-numeric:tabular-nums; }
+.hearing-detail .session-label svg { width:19px; height:19px; color:var(--accent); }
+.hearing-detail .control-actions .button { min-height:44px; padding-inline:15px; font:600 14px/1.35 var(--sans); }
+.hearing-detail .end { color:var(--accent); }
 .hearing-detail .text-notice { display:flex; gap:9px; align-items:center; min-height:38px; margin-bottom:16px; padding:7px 12px; color:var(--muted); background:var(--surface-2,var(--wash)); border-radius:8px; font:400 12px/1.5 var(--sans); }
 .hearing-detail .text-notice input { margin-left:auto; width:clamp(44px,9vw,110px); height:22px; accent-color:var(--muted); }
 .hearing-detail .hearing-audio { display:none; }
@@ -42,7 +46,7 @@
 .hearing-detail .participant small { color:var(--muted); font-size:12px; font-variant-numeric:tabular-nums; }
 .hearing-detail .share-bar { height:5px; background:var(--surface-2,var(--wash)); display:block; margin-top:5px; overflow:hidden; border-radius:3px; }
 .hearing-detail .share-bar i { display:block; height:100%; background:var(--tone); }
-.hearing-detail .turn { display:flex; align-items:center; gap:8px; min-height:38px; padding:6px 12px; margin-top:12px; border:1px solid var(--line); border-radius:6px; background:var(--selected,var(--wash)); color:var(--ink); font:600 13px var(--sans); }
+.hearing-detail .turn { display:flex; align-items:center; gap:8px; min-height:42px; padding:6px 13px; margin-top:16px; border:1px solid var(--line); border-radius:7px; background:var(--selected,var(--wash)); color:var(--ink); font:600 14px var(--sans); }
 .hearing-detail .appointment { margin-top:20px; }
 .hearing-detail .appointment section { display:grid; justify-items:start; gap:10px; }
 .hearing-detail .appointment h2 { font:400 26px/1.45 var(--display); }
@@ -82,5 +86,26 @@
 }
 
 .hearing-detail .lines .words { max-inline-size:80ch; }
+.hearing-detail.running .hear-reading .transcript-panel { height:auto; max-height:var(--log-height,62dvh); border-radius:8px; }
+.hearing-detail.running .hear-reading .lines { flex:0 1 auto; }
+.hearing-detail.running .hear-reading .panel-head { min-height:60px; padding:8px 16px; }
+.hearing-detail.running .hear-reading .panel-head h2 { font:400 25px/1.15 var(--display); letter-spacing:-.015em; }
+.hearing-detail.running .hear-reading .panel-head .count { margin-left:7px; color:var(--muted); font:400 12px/1.4 var(--mono); }
+.hearing-detail.running .hear-reading .lines article { padding-block:13px 15px; }
+.hearing-detail.running .hear-reading .meta .name { font:600 14px/1.5 var(--sans); }
+.hearing-detail.running .hear-reading .meta .when { font:400 12px/1.5 var(--mono); }
+.hearing-detail.running .hear-reading .lines .words { font-size:calc(var(--live-size) + 1px); line-height:1.52; }
+.hearing-detail.running .hear-reading .finding-index { margin-top:4px; }
+.hearing-detail.running .hear-reading .lines .disc { width:34px; height:34px; }
 .content:has(.hearing-detail.running) { padding-bottom:28px; }
-@media(max-width:719px) { .content:has(.hearing-detail.running) { padding-bottom:92px; } }
+@media(max-width:719px) {
+  .content:has(.hearing-detail.running) { padding-bottom:92px; }
+  .hearing-detail.running .hearing-heading h1 { flex-basis:auto; font-size:25px; }
+  .hearing-detail.running .head-actions { flex:none; width:auto; }
+  .hearing-detail.running .session-control { min-height:60px; padding-block:6px; }
+  .hearing-detail.running .session-label { padding:0; }
+  .hearing-detail.running .control-actions .button { padding-inline:10px; font-size:12px; }
+  .hearing-detail.running .hear-reading .panel-head { min-height:52px; padding:5px 10px; }
+  .hearing-detail.running .hear-reading .panel-head h2 { font-size:23px; }
+  .hearing-detail.running .hear-reading .lines .words { font-size:var(--live-size); }
+}

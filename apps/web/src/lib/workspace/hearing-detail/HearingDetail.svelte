@@ -512,7 +512,6 @@
   <header class="hearing-heading">
     <h1><span>{en ? 'Hearing' : 'Sidang'} {h.number}</span> {h.title[lang]}</h1>
     {#if !scheduled}<div class="head-actions">
-      {#if live}{@render liveControls()}{/if}
       {#if !live}<a class="button ask-hearing" href={assistantPath(w, {kind:'hearing', id:h.id})} onclick={askHearing}>
         <MessageSquare size={15}/>{en ? 'Ask assistant' : 'Tanya asisten'}
       </a>{/if}
@@ -522,6 +521,7 @@
       </button>
     </div>{/if}
   </header>
+  {#if live}{@render liveControls()}{/if}
   {#if !live && !scheduled}<p class="hearing-meta">
     {new Intl.DateTimeFormat(en ? 'en-GB' : 'id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'Asia/Jakarta'}).format(new Date(h.date))}
     · {modeName}{h.duration ? ' · ' + Math.round(h.duration / 60) + (en ? ' min' : ' mnt') : ''}{#if synthetic}
@@ -599,7 +599,6 @@
     <div class="hearing-stage" class:open={quick} class:has-context={!live && !quick && hasContext} class:inline={stageWidth >= 850} bind:clientWidth={stageWidth}>
       <div class="hear-reading">
         {#if live}<LiveFindingCallout workspace={w} {lang} {alerts} hearingId={h.id} selected={brief}
-          paused={synthetic ? replayPaused || replayDone : capture?.state === 'paused'}
           onPreview={(finding) => showFinding(finding.id)} />{/if}
         <Transcript
           bind:this={transcript}
@@ -623,6 +622,8 @@
           chooseCounsel={() => (dialog = 'counsel')}
           {jump}
         />
+        {#if live}<HearingFindings {findings} {times} {lang} {live} casePath={base} hearingId={h.id}
+          onPreview={(item) => showFinding(item.id)} />{/if}
       </div>
       {#if quick && stageWidth}<QuickLook
           inline={stageWidth >= 850}
@@ -662,6 +663,7 @@
     {transcription}
     scheduled={h}
     guest={account.user.guest}
+    livePlan={account.plan.id !== 'basic'}
     close={() => (dialog = '')}
   />
 {:else if dialog === 'end'}<Dialog

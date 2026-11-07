@@ -5,13 +5,12 @@
   import ReviewMark from '$lib/evidence/ReviewMark.svelte';
   import { casePath, local } from '$lib/evidence/records';
 
-  let { workspace, lang, alerts, hearingId, selected = '', paused = false, onPreview }: {
+  let { workspace, lang, alerts, hearingId, selected = '', onPreview }: {
     workspace: Workspace;
     lang: Lang;
     alerts: Finding[];
     hearingId: string;
     selected?: string;
-    paused?: boolean;
     onPreview: (finding: Finding) => void;
   } = $props();
 
@@ -29,8 +28,8 @@
   });
 </script>
 
-<section class="attention" aria-label={title} data-tour="live-attention">
-  {#if top}
+{#if top}
+  <section class="attention" aria-label={en ? 'Latest finding' : 'Temuan terbaru'} data-tour="live-attention">
     {#key top.id}
       <div class="featured">
         <FindingLink {workspace} finding={top} {lang} variant="lead" selected={selected === top.id} {onPreview}/>
@@ -44,23 +43,12 @@
         <span class="more-text">{en ? 'See all in Findings' : 'Lihat semua di Temuan'}</span><ArrowRight size={14} aria-hidden="true"/>
       </a>
     {/if}
-  {:else}
-    <p class="calm" class:paused>
-      <span class="breath" aria-hidden="true"></span>
-      {paused ? (en ? 'Listening paused.' : 'Mendengarkan dijeda.') :
-        (en ? 'Jude is listening. Anything worth a look will show up here.' : 'Jude mendengarkan. Yang perlu dicek akan muncul di sini.')}
-    </p>
-  {/if}
-  <span class="sr-only" role="status" aria-atomic="true">{announcement}</span>
-</section>
+  </section>
+{/if}
+<span class="sr-only" role="status" aria-atomic="true">{announcement}</span>
 
 <style>
   .attention { display:grid; align-content:start; gap:8px; min-width:0; }
-  .calm { display:flex; align-items:center; gap:10px; padding:11px 16px; margin:0; border-radius:12px;
-    background:color-mix(in srgb,var(--st-supported-dot) 8%,var(--surface)); box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--st-supported-dot) 16%,transparent);
-    color:var(--muted); font:400 13.5px/1.5 var(--sans); }
-  .breath { flex:none; width:8px; height:8px; border-radius:50%; background:var(--st-supported-dot); }
-  .paused .breath { background:var(--muted); }
   .more { display:flex; align-items:center; gap:10px; min-height:44px; padding:8px 14px 8px 12px; border:1px solid var(--line); border-radius:8px;
     background:var(--surface); color:var(--ink-strong); text-decoration:none; font:600 13.5px/1.4 var(--sans); transition:border-color var(--dur-fast) var(--ease-out),box-shadow var(--dur) var(--ease-out); }
   .more:hover { border-color:var(--line-strong); box-shadow:var(--shadow-raise); }
@@ -71,8 +59,6 @@
   @media(max-width:560px) { .more-text { display:none; } }
   @media(prefers-reduced-motion:no-preference) {
     .featured { animation:arrive 280ms cubic-bezier(.22,1,.36,1) both; }
-    .calm:not(.paused) .breath { animation:breathe 2.4s ease-in-out infinite; }
   }
   @keyframes arrive { from { opacity:0; transform:translateY(-14px); } to { opacity:1; transform:translateY(0); } }
-  @keyframes breathe { 0%,100% { opacity:.55; } 50% { opacity:1; } }
 </style>

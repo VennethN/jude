@@ -177,6 +177,7 @@
     {close}
     transcription={data.transcription}
     guest={data.account.user.guest}
+    livePlan={data.account.plan.id !== 'basic'}
   />{/if}
 {#if removing}<Dialog
     title={en ? 'Remove this hearing?' : 'Hapus sidang ini?'}
