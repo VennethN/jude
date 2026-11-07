@@ -11,6 +11,7 @@ interface CaptureFixture {
   current?: ClientTurn;
   received: number;
   status: string;
+  states: string[];
   stream: MediaStream;
   mediaRequests: number;
   recover: () => Promise<void>;
@@ -26,7 +27,7 @@ const harness = `<!doctype html><meta charset="utf-8">
 <script type="importmap">{"imports":{"$app/navigation":"/__capture-test__/navigation.js"}}</script>
 <script type="module">
 import {capture} from '/__capture-test__/microphone.js';
-const f = window.captureFixture = { received:0, status:'idle', mediaRequests:0 };
+const f = window.captureFixture = { received:0, status:'idle', states:[], mediaRequests:0 };
 Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {value:async () => {
   f.mediaRequests++;
   const audio = new AudioContext({sampleRate:24000});
@@ -37,13 +38,13 @@ Object.defineProperty(navigator.mediaDevices, 'getUserMedia', {value:async () =>
 }});
 f.recover=async()=>{
   const retry=await capture('case-1','hearing-1','member-1',false,undefined,
-    (state)=>{f.status=state;document.querySelector('#status').textContent=state},()=>{},'id',true);
+    (state)=>{f.status=state;document.querySelector('#status').textContent=state},()=>{},'id',false,true);
   await retry.stop();
 };
 start.onclick=async()=>{
   f.began=performance.now();
   f.recorder=await capture('case-1','hearing-1','member-1',true,undefined,
-    (state)=>{f.status=state; document.querySelector('#status').textContent=state},
+    (state)=>{f.status=state; f.states.push(state); document.querySelector('#status').textContent=state},
     (turn)=>{f.current=turn;if(turn){f.received=performance.now()-f.began}},'id');
 };
 </script>`;
@@ -58,6 +59,10 @@ async function setup(
   const compiled = ts.transpileModule(file, {
     compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext },
   }).outputText;
+  const worklet = await readFile(new URL('../../static/voice-capture.js', import.meta.url), 'utf8');
+  await page.route('**/voice-capture.js', route =>
+    route.fulfill({ contentType: 'application/javascript', body: worklet }),
+  );
   await page.route('**/__capture-test__/microphone.js', (route) =>
     route.fulfill({ contentType: 'application/javascript', body: compiled }),
   );
@@ -71,7 +76,8 @@ async function setup(
   await page.goto('/__capture-test__/index' + (silent ? '?silent' : ''));
   await beforeStart?.();
   await page.getByRole('button', { name: 'Start' }).click();
-  await expect.poll(() => page.evaluate(() => window.captureFixture.status)).toBe('recording');
+  // A rejection can follow the first 200 ms block before a polling tick sees recording.
+  await expect.poll(() => page.evaluate(() => window.captureFixture.states)).toContain('recording');
 }
 
 async function stored(page: Page) {
@@ -97,7 +103,7 @@ function acknowledge(ws: WebSocketRoute, packet: Packet) {
   ws.send(JSON.stringify({ type: 'ack', id: packet.id, statementId: 'mic-hearing-1-' + packet.id }));
 }
 
-test('live speech reaches the provider in 2.4 seconds and an unacknowledged turn survives a reconnect', async ({
+test('live speech streams in 200 ms blocks and an unacknowledged turn survives a reconnect', async ({
   page,
 }) => {
   let first: Packet | undefined;
@@ -127,14 +133,14 @@ test('live speech reaches the provider in 2.4 seconds and an unacknowledged turn
     .poll(() => page.evaluate(() => window.captureFixture.current?.text), { timeout: 6000 })
     .toBe('Saya melihat dokumen itu.');
   expect(first).toBeDefined();
-  expect(duration(first!)).toBeCloseTo(2.4, 3);
+  expect(duration(first!)).toBeCloseTo(0.2, 3);
   const caption = await page.evaluate(() => ({
     turn: window.captureFixture.current,
     elapsed: window.captureFixture.received,
   }));
   expect(caption.turn?.id).toBe('mic-hearing-1-' + first!.id);
   expect(caption.turn?.speakerId).toBeUndefined();
-  expect(caption.elapsed).toBeLessThan(4500);
+  expect(caption.elapsed).toBeLessThan(1800);
   await page.evaluate(() => window.captureFixture.recorder.paused(true));
   expect(await stored(page)).toContain(first!.id);
   firstSocket!.close({ code: 1011 });
@@ -152,7 +158,7 @@ test('live speech reaches the provider in 2.4 seconds and an unacknowledged turn
   });
 });
 
-test('idle silence avoids short turns, a pause drains the worklet tail and resume keeps a continuous timeline', async ({
+test('silence streams promptly so AWS can finish turns, while pause and resume preserve every sample', async ({
   page,
 }) => {
   const packets: Packet[] = [];
@@ -169,17 +175,14 @@ test('idle silence avoids short turns, a pause drains the worklet tail and resum
     },
     true,
   );
-  await expect
-    .poll(() => page.evaluate(() => performance.now() - window.captureFixture.began))
-    .toBeGreaterThan(2600);
-  expect(packets).toHaveLength(0);
+  await expect.poll(() => packets.length, { timeout: 1800 }).toBeGreaterThanOrEqual(2);
+  expect(duration(packets[0])).toBeCloseTo(0.2, 3);
+  expect(Buffer.from(packets[0].pcm, 'base64').every(byte => byte === 0)).toBe(true);
   await page.evaluate(() => {
     window.captureFixture.tone.gain.value = 0.18;
   });
-  await expect.poll(() => packets.length, { timeout: 5000 }).toBe(1);
-  const original = Buffer.from(packets[0].pcm, 'base64');
-  expect(original.subarray(0, 96_000).every((byte) => byte === 0)).toBe(true);
-  expect(original.subarray(-48_000).some((byte) => byte !== 0)).toBe(true);
+  await expect.poll(() => packets.some(p => Buffer.from(p.pcm, 'base64').some(byte => byte !== 0)),
+    { timeout: 1800 }).toBe(true);
   await page.evaluate(() => window.captureFixture.recorder.paused(true));
   await expect.poll(() => stored(page)).toEqual([]);
   const boundary = packets.length;
@@ -197,7 +200,7 @@ test('idle silence avoids short turns, a pause drains the worklet tail and resum
   }
 });
 
-test('a server without maxInFlight receives one turn while later speech is saved in eight-second windows', async ({
+test('provider backpressure keeps one turn in flight while later speech stays durable', async ({
   page,
 }) => {
   let connection: WebSocketRoute | undefined;
@@ -213,13 +216,13 @@ test('a server without maxInFlight receives one turn while later speech is saved
     ws.send(JSON.stringify({ type: 'ready', protocol: 2 }));
   });
   await expect.poll(() => packets.length, { timeout: 6000 }).toBe(1);
-  await expect.poll(() => stored(page), { timeout: 12_000, intervals: [250] }).toHaveLength(2);
+  await expect.poll(async () => (await stored(page)).length, { timeout: 3000 }).toBeGreaterThanOrEqual(2);
   expect(packets).toHaveLength(1);
   acknowledge(connection!, packets[0]);
-  await expect.poll(() => packets.length).toBe(2);
-  expect(duration(packets[0])).toBeCloseTo(2.4, 3);
-  expect(duration(packets[1])).toBeCloseTo(8, 3);
-  expect(packets[1].t).toBeCloseTo(2.4, 3);
+  await expect.poll(() => packets.length).toBeGreaterThanOrEqual(2);
+  expect(duration(packets[0])).toBeCloseTo(0.2, 3);
+  expect(duration(packets[1])).toBeCloseTo(0.2, 3);
+  expect(packets[1].t).toBeCloseTo(0.2, 3);
   await page.evaluate(() => window.captureFixture.recorder.stop());
 });
 
@@ -240,15 +243,15 @@ test('three turns reach recognition before the first ACK and further speech stay
 
   await expect.poll(() => packets.length, { timeout: 12_000 }).toBe(3);
   for (const [index, packet] of packets.entries()) {
-    expect(packet.t).toBeCloseTo(index * 2.4, 3);
-    expect(duration(packet)).toBeCloseTo(2.4, 3);
+    expect(packet.t).toBeCloseTo(index * 0.2, 3);
+    expect(duration(packet)).toBeCloseTo(0.2, 3);
   }
   const [first, second, third] = packets;
   socket.send(JSON.stringify({ type: 'partial', id: 'mic-hearing-1-' + third.id, t: third.t, text: 'Turn three is audible.' }));
   await expect.poll(() => page.evaluate(() => window.captureFixture.current?.text)).toBe('Turn three is audible.');
 
-  // With every slot occupied, the next eight seconds still reach durable storage.
-  await expect.poll(() => stored(page), { timeout: 12_000 }).toHaveLength(4);
+  // With every slot occupied, subsequent audio still reaches durable storage.
+  await expect.poll(async () => (await stored(page)).length, { timeout: 3000 }).toBeGreaterThanOrEqual(4);
   expect(packets).toHaveLength(3);
   await expect(page.locator('#status')).toHaveText('recording');
   await page.evaluate(() => window.captureFixture.recorder.paused(true));
@@ -256,8 +259,8 @@ test('three turns reach recognition before the first ACK and further speech stay
   acknowledge(socket, second);
   await expect.poll(() => packets.length).toBe(4);
   const fourth = packets[3];
-  expect(fourth.t).toBeCloseTo(7.2, 3);
-  expect(duration(fourth)).toBeCloseTo(8, 3);
+  expect(fourth.t).toBeCloseTo(0.6, 3);
+  expect(duration(fourth)).toBeCloseTo(0.2, 3);
   const pending = await stored(page);
   expect(pending).toEqual(expect.arrayContaining([first.id, third.id, fourth.id]));
   expect(pending).not.toContain(second.id);
@@ -312,7 +315,7 @@ test('a previous recorder version drains the current hearing in timestamp order'
         }
       }),
   );
-  await expect.poll(() => attempts.map((p) => p.id)).toEqual(['z-earlier', 'a-later']);
+  await expect.poll(() => attempts.slice(0, 2).map((p) => p.id)).toEqual(['z-earlier', 'a-later']);
   await page.evaluate(() => window.captureFixture.recorder.stop());
   const remaining = await stored(page);
   expect(remaining).toEqual(['separate']);

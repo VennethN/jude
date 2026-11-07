@@ -15,10 +15,9 @@ interface CapturedTurn {
   keep: boolean;
 }
 const sampleRate = 24_000;
-const liveCaptionSamples = 2.4 * sampleRate;
+// Amazon needs continuous audio, including silence, to finalize a speaker turn.
+const liveCaptionSamples = 0.2 * sampleRate;
 const queuedTurnSamples = 8 * sampleRate;
-const minimumVoicedWindow = 1.2 * sampleRate;
-const speechEndSilence = 0.55 * sampleRate;
 export interface Recorder {
   stop: () => Promise<void>;
   paused: (value: boolean) => Promise<void>;
@@ -159,8 +158,6 @@ export async function capture(
   let refreshing = false, refreshNeeded = false, latestCaptionTime = -1;
   let chunks: Int16Array<ArrayBuffer>[] = [],
     samples = 0,
-    silent = 0,
-    firstVoicedSample = -1,
     turnStart = 0;
   let storageError = false;
   let boundaryNumber = 0;
@@ -346,8 +343,6 @@ export async function capture(
     const turn = { scope, id: crypto.randomUUID(), t: turnStart, keep, pcm: pcm.buffer };
     chunks = [];
     samples = 0;
-    silent = 0;
-    firstVoicedSample = -1;
     saveChain = saveChain
       .then(() => storeTurn(db, turn))
       .then(() => pump())
@@ -384,24 +379,12 @@ export async function capture(
     if (stopped || storageError || inputClosed) return;
     const a = new Int16Array(e.data);
     if (!samples) turnStart = elapsed;
-    let peak = 0;
-    for (let i = 0; i < a.length; i += 8) peak = Math.max(peak, Math.abs(a[i]));
-    if (peak >= 280 && firstVoicedSample < 0) firstVoicedSample = samples;
     chunks.push(a);
     samples += a.length;
     elapsed += a.length / sampleRate;
-    silent = peak < 280 ? silent + a.length : 0;
-    if (firstVoicedSample < 0) {
-      if (samples >= queuedTurnSamples) flush();
-      return;
-    }
-    const voicedWindow = samples - firstVoicedSample;
-    const limit = ready && inFlight.size < windowSize ? liveCaptionSamples : queuedTurnSamples;
-    if (
-      voicedWindow >= limit ||
-      (voicedWindow >= minimumVoicedWindow && (silent >= speechEndSilence || samples >= queuedTurnSamples))
-    )
-      flush();
+    // Provider backpressure controls pump(), not microphone batching. Waiting for
+    // a voice threshold here holds silence and delays AWS's final speaker result.
+    if (samples >= (ready ? liveCaptionSamples : queuedTurnSamples)) flush();
   };
   let inputShutdown: Promise<void> | undefined;
   function stopInput() {

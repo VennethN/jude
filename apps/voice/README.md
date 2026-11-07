@@ -30,7 +30,7 @@ Confirm permission for an open hearing before recording or uploading audio. Uplo
 
 Live audio uses one ordered Amazon Transcribe stream per connection. Final word items are split at every speaker change, preserving an A → B → A conversation as three statements. With the voiceprint model enabled, acoustic matching links returning voices to the same case speaker even if Amazon changes its label or a new hearing starts. Names remain human-assigned; similarity is an inference, not proof of identity.
 
-The browser keeps pending audio until transcript completion is acknowledged. Stop drains the provider's final results before closing. Uploaded recordings use one stream for the file and retain the provider's speaker transitions. File processing is paced at audio speed.
+The connected browser sends uniform 200 ms PCM blocks, including silence, so Amazon can detect pauses promptly. Offline capture uses larger durable buffers. The browser keeps pending audio until transcript completion is acknowledged. Stop drains the provider's final results before closing. Uploaded recordings use one stream for the file and retain the provider's speaker transitions. File processing is paced at audio speed.
 
 The optional pyannote Community-1 worker remains available for unresolved recordings created by the previous service. Its model and deployment instructions are in the [AWS guide](docs/aws.md#local-speaker-diarization); it is not required for new Amazon Transcribe recordings.
 
