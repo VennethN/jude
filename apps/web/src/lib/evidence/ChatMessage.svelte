@@ -2,6 +2,7 @@
   import { AudioLines, BookOpenText, ChevronRight, FileText, Headphones, ListChecks } from '@lucide/svelte';
   import type { ChatMessage, Citation, InspectTarget, Lang, Workspace } from '@jude/core/domain';
   import ContextChip from './ContextChip.svelte';
+  import { answerBlocks, inlines, type Inline } from './answer-markdown';
   import { local, sourceOf } from './records';
 
   let {
@@ -9,11 +10,13 @@
     lang,
     message: m,
     inspect,
+    streaming = false,
   }: {
     workspace: Workspace;
     lang: Lang;
     message: ChatMessage;
     inspect: (target: InspectTarget) => void;
+    streaming?: boolean;
   } = $props();
 
   const id = $derived(lang === 'id');
@@ -48,16 +51,14 @@
         .map(({ ref, source }, i) => (source?.label ?? missingLabel(ref)) + ' [' + (i + 1) + ']')
         .join('\n'),
   );
-  const segments = $derived.by(() => {
-    // Bracketed numbers inside an original quotation are part of the evidence.
-    const pieces = bodyContainsAllQuotes
-      ? cited.flatMap((c, i) => [(i ? '\n\n' : '') + '“' + c.quote + '” ', '[' + (i + 1) + ']'])
-      : answer.split(/(“[^”]*”|"[^"\n]*"|\[\d+\])/);
-    return pieces.map((value) => {
-      const marker = /^\[(\d+)\]$/.exec(value);
-      const number = marker ? Number(marker[1]) : 0;
-      return { value, number, entry: number > 0 ? cited[number - 1] : undefined };
-    });
+  const blocks = $derived(m.mode === 'ai' ? answerBlocks(answer, streaming) : []);
+  const plain = $derived.by((): Inline[] => {
+    if (m.mode === 'ai') return [];
+    if (!bodyContainsAllQuotes) return inlines(answer);
+    return cited.flatMap((entry, i): Inline[] => [
+      { kind: 'quote', text: (i ? '\n\n' : '') + '“' + entry.quote + '” ' },
+      { kind: 'citation', number: i + 1, text: '[' + (i + 1) + ']' },
+    ]);
   });
   const laws = $derived((m.legal ?? []).flatMap((lawId) => w.legal.filter((law) => law.id === lawId)));
   function missingLabel(ref: Citation) {
@@ -65,6 +66,39 @@
     return id ? 'Sumber tidak tersedia' : 'Source unavailable';
   }
 </script>
+
+{#snippet citation(number: number, original: string)}
+  {@const entry = cited[number - 1]}
+  {#if entry?.source}
+    {@const label = (id ? 'Sumber ' : 'Source ') + number + ' · ' + entry.source.label}
+    {@const target = entry.target}
+    {#if target}
+      <button class="citation" title={entry.source.label} aria-label={label} onclick={() => inspect(target)}>{number}</button>
+    {:else}
+      <a class="citation" href={entry.source.href} title={entry.source.label} aria-label={label}>{number}</a>
+    {/if}
+  {:else if entry}
+    <span class="missing-marker" title={missingLabel(entry.ref)}>{original}</span>
+  {:else}
+    {original}
+  {/if}
+{/snippet}
+
+{#snippet renderInline(nodes: Inline[])}
+  {#each nodes as node}
+    {#if node.kind === 'citation'}
+      {@render citation(node.number, node.text)}
+    {:else if node.kind === 'strong'}
+      <strong>{@render renderInline(node.children)}</strong>
+    {:else if node.kind === 'em'}
+      <em>{@render renderInline(node.children)}</em>
+    {:else if node.kind === 'quote'}
+      <span class="verbatim">{node.text}</span>
+    {:else if node.kind === 'text'}
+      {node.text}
+    {/if}
+  {/each}
+{/snippet}
 
 {#if m.role === 'user'}
   <article class="message question">
@@ -93,22 +127,22 @@
       {/if}
     </header>
     {#if answer}
-      <p class="answer">
-        {#each segments as { value, number, entry }}{#if entry?.source}{@const label =
-              (id ? 'Sumber ' : 'Source ') + number + ' · ' + entry.source.label}{@const target =
-              entry.target}{#if target}<button
-                class="citation"
-                title={entry.source.label}
-                aria-label={label}
-                onclick={() => inspect(target)}>{number}</button
-              >{:else}<a
-                class="citation"
-                href={entry.source.href}
-                title={entry.source.label}
-                aria-label={label}>{number}</a
-              >{/if}{:else if entry}<span class="missing-marker" title={missingLabel(entry.ref)}>{value}</span
-            >{:else}{value}{/if}{/each}
-      </p>
+      {#if m.mode === 'ai'}
+        <div class="answer formatted">
+          {#each blocks as block}
+            {#if block.kind === 'heading'}<h3>{@render renderInline(block.content)}</h3>
+            {:else if block.kind === 'subheading'}<h4>{@render renderInline(block.content)}</h4>
+            {:else if block.kind === 'paragraph'}<p>{@render renderInline(block.content)}</p>
+            {:else if block.kind === 'ordered'}
+              <ol start={block.start}>{#each block.items as item}<li>{@render renderInline(item)}</li>{/each}</ol>
+            {:else if block.kind === 'bullets'}
+              <ul>{#each block.items as item}<li>{@render renderInline(item)}</li>{/each}</ul>
+            {/if}
+          {/each}
+        </div>
+      {:else}
+        <p class="answer">{@render renderInline(plain)}</p>
+      {/if}
     {:else}
       <p class="answer">
         {id ? 'Tidak ada sumber yang cocok dengan pertanyaan ini.' : 'No case sources matched this question.'}
@@ -237,6 +271,28 @@
     font: 400 0.94rem/1.6 var(--sans);
     color: var(--ink-strong);
   }
+  .formatted {
+    display: grid;
+    gap: 0.6rem;
+    white-space: normal;
+  }
+  .formatted p,
+  .formatted h3,
+  .formatted h4,
+  .formatted ul,
+  .formatted ol { margin: 0; }
+  .formatted h3 {
+    font: 400 1.4rem/1.2 var(--display);
+    color: var(--ink-strong);
+  }
+  .formatted h4 { font: 600 0.96rem/1.5 var(--sans); }
+  .formatted :is(h3, h4):not(:first-child) { margin-top: 0.45rem; }
+  .formatted :is(ul, ol) { padding-inline-start: 1.35em; }
+  .formatted li + li { margin-top: 0.3rem; }
+  .formatted li::marker { color: var(--muted); }
+  .formatted strong { font-weight: 650; }
+  .formatted em { font-style: italic; font-synthesis: style; }
+  .verbatim { white-space: pre-wrap; }
   .citation,
   .num {
     border-radius: 4px;
@@ -275,7 +331,7 @@
   details[open] summary :global(svg) {
     transform: rotate(90deg);
   }
-  ol,
+  details > ol,
   .legal ul {
     display: grid;
     gap: 4px;

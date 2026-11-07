@@ -63,6 +63,8 @@ export async function retrieve(w:Workspace,query:string,refs:ContextRef[],lang:L
 }
 const citationInstructions = [
   'Write clear paragraphs in the requested interface language. Keep the original language of the evidence quotes.',
+  'Use plain prose for short answers. When a longer answer benefits from structure, use concise Markdown headings in the requested language, selective bold or italic emphasis, and short bulleted or numbered lists.',
+  'Place a heading on its own line at the start of a summary that also contains supported prose. Give each distinct list item its own cited summary. Do not include Markdown links or HTML.',
   'Give each material assertion a citation to a numbered source and a short exact substring from that source.',
   'When comparing accounts, cite each side. Prefer the original testimony and documents over derivative findings.',
   'Write the summary in your own words, without quote marks or citation markers. The application formats the citations.',

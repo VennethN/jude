@@ -414,6 +414,7 @@
             {lang}
             workspace={w}
             message={m}
+            streaming={m === partial}
             inspect={(t) => (inspect = t)}
           />{/each}
         {#if pending && !partial}

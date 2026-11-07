@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import type { AnswerStreamEvent, ChatMessage, Thread } from '@jude/core/domain';
 
-type Stage = 'fragment' | 'paragraph' | 'all' | 'complete' | 'lost';
+type Stage = 'fragment' | 'paragraph' | 'formatting' | 'formatted' | 'all' | 'complete' | 'lost';
 interface Gate {
   keys: string[];
   path: string;
@@ -45,6 +45,12 @@ async function holdResponse(page: Page) {
             const partial = events.find(event => event.type === 'partial')?.message;
             if (!partial?.citations?.length || typeof partial.text !== 'string') throw new Error('Missing verified source');
             const first: ChatMessage = { ...partial, text: partial.text.split('\n\n')[0], citations: partial.citations.slice(0, 1) };
+            if (stage === 'formatting' || stage === 'formatted') {
+              const summary = '## Waktu akses\n\n- **Keterangan saksi';
+              const text = stage === 'formatting' ? summary : summary + '** [1]\n- Periksa _catatan asli_.';
+              controller.enqueue(encode({ type: 'partial', message: { ...first, mode: 'ai', text } }));
+              return text;
+            }
             if (stage === 'fragment') {
               const bytes = encode({ type: 'partial', message: first });
               // Split inside the UTF-8 encoding of the opening quotation mark.
@@ -115,6 +121,17 @@ for (const { name, width, height, drawer } of [
     await expect.poll(() => answer.locator('details[open] li').count()).toBeGreaterThan(1);
     await expect(log.locator('.message.question')).toHaveCount(1);
     await page.screenshot({ path: info.outputPath('checked-paragraphs.png') });
+    // Format a checked preview in place, including an unfinished emphasis span.
+    await release(page, 'formatting');
+    await expect(answer.getByRole('heading', { name: 'Waktu akses' })).toBeVisible();
+    await expect(answer.locator('.answer li strong')).toHaveText('Keterangan saksi');
+    await release(page, 'formatted');
+    await expect(answer.locator('.answer li')).toHaveCount(2);
+    await expect(answer.locator('.answer em')).toHaveText('catatan asli');
+    await expect(answer.locator('.answer li').first().getByRole('button', { name: /^Sumber 1/ }).or(
+      answer.locator('.answer li').first().getByRole('link', { name: /^Sumber 1/ }),
+    )).toBeVisible();
+    await page.screenshot({ path: info.outputPath('formatted-answer.png') });
     await release(page, 'complete');
     await expect(root.getByRole('button', { name: 'Kirim pertanyaan' })).toBeDisabled();
     await expect(log.locator('.message.question')).toHaveCount(1);
