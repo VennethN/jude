@@ -39,7 +39,7 @@
     <button name="lang" value="en" lang="en" aria-pressed={!isId} aria-label="EN · English">EN</button>
   </form>
 {/snippet}
-<header class="pub-header" class:cover={['/', '/pricing', '/login'].includes(page.url.pathname)}>
+<header class="pub-header" class:cover={['/', '/pricing', '/login', '/signup'].includes(page.url.pathname)}>
   <nav class="pub-frame pub-nav" aria-label={isId ? 'Navigasi utama' : 'Main navigation'}>
     <Wordmark />
     <div class="middle">{@render navlinks()}</div>
