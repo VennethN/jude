@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Workspace } from '../domain';
-import { transaction, type Database } from './db';
+import { insertRows, transaction, type Database } from './db';
 import { workspaceIn } from './cases';
 import { embedEvidence, embeddingModel, embeddingsConfigured } from './providers/embeddings';
 import { semanticSources, type SemanticKind } from './semantic-sources';
@@ -59,15 +59,12 @@ export async function syncSemanticIndexIn(db: Database, orgId: string, w: Worksp
   for (const row of prior) if (!wanted.has(row.kind + ':' + row.source_id))
     await db.query('DELETE FROM semantic_evidence WHERE case_id=$1 AND kind=$2 AND source_id=$3', [w.caseRecord.id, row.kind, row.source_id]);
   const existing = new Map(prior.map((s) => [s.kind + ':' + s.source_id, s]));
-  for (const source of sources) {
-    const prev = existing.get(source.kind + ':' + source.id);
-    if (prev?.fingerprint === source.fingerprint && prev.model === model) continue;
-    await db.query(
-      'INSERT INTO semantic_evidence(case_id,kind,source_id,fingerprint,model,updated_at) VALUES($1,$2,$3,$4,$5,$6) ' +
-      "ON CONFLICT(case_id,kind,source_id) DO UPDATE SET fingerprint=excluded.fingerprint,model=excluded.model,status='pending',attempts=0,available_at=0,lease=NULL,lease_until=0,updated_at=excluded.updated_at",
-      [w.caseRecord.id, source.kind, source.id, source.fingerprint, model, now],
-    );
-  }
+  const changed = sources.filter(source => {
+    const previous = existing.get(source.kind + ':' + source.id);
+    return previous?.fingerprint !== source.fingerprint || previous.model !== model;
+  }).map(source => [w.caseRecord.id, source.kind, source.id, source.fingerprint, model, now]);
+  await insertRows(db, 'semantic_evidence(case_id,kind,source_id,fingerprint,model,updated_at)', changed,
+    "ON CONFLICT(case_id,kind,source_id) DO UPDATE SET fingerprint=excluded.fingerprint,model=excluded.model,status='pending',attempts=0,available_at=0,lease=NULL,lease_until=0,updated_at=excluded.updated_at");
   await db.query(
     'INSERT INTO semantic_case_state(case_id,version,model,synced_at) VALUES($1,$2,$3,$4) ' +
     'ON CONFLICT(case_id) DO UPDATE SET version=excluded.version,model=excluded.model,synced_at=excluded.synced_at',

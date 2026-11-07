@@ -111,7 +111,13 @@ const summaryInstructions = [
   'Use two to four concise paragraphs as the record warrants. Prefer synthesis across sources to a list of quotes.',
 ].join(' ');
 
-export interface AnswerOptions { history?: ChatMessage[]; signal?: AbortSignal; progress?: (stage: AssistantStage) => void }
+export interface AnswerOptions {
+  history?: ChatMessage[];
+  signal?: AbortSignal;
+  progress?: (stage: AssistantStage) => void;
+  /** The legal research flow has already selected the in-scope case exhibits and testimony. */
+  legalEvidence?: Source[];
+}
 function selectedHistory(w: Workspace, contexts: ContextRef[], history: ChatMessage[]) {
   const recent = history.slice(-8);
   if (!contexts.length || contexts.some(ref => ref.kind === 'case')) return recent;
@@ -150,26 +156,34 @@ export async function answerQuestion(
   const history = previous.map(m => ({ role: m.role, text: (typeof m.text === 'string' ? m.text : m.text[lang]).slice(0, 1500) }));
   const query = conversationQuery(question, previous, lang);
   let retrieval: ChatMessage['retrieval'] = 'lexical';
-  const overview = isCaseSummary(question, contexts) ? summaryEvidence(w, caseSources(w, lang), lang) : undefined;
-  const sources = overview?.sources ?? await retrieve(w, query, contexts, lang, allowModel ? orgId : undefined, { signal, minimumScore: 0, status: value => { retrieval = value; } });
+  const overview = !options.legalEvidence && isCaseSummary(question, contexts) ? summaryEvidence(w, caseSources(w, lang), lang) : undefined;
+  const sources = options.legalEvidence ?? overview?.sources ?? await retrieve(w, query, contexts, lang, allowModel ? orgId : undefined, { signal, minimumScore: 0, status: value => { retrieval = value; } });
   const first = sources.slice(0, 5);
   const fallback: ChatMessage = {
     id: randomUUID(), role: 'assistant', mode: 'sources-only',
     text: first.map((s, i) => '“' + s.text + '” [' + (i + 1) + ']').join('\n\n'),
     citations: first.map(({kind, id}) => ({kind, id})),
   };
-  if (!overview && w.caseRecord.label === 'private') fallback.retrieval = retrieval;
+  if (!overview && !options.legalEvidence && w.caseRecord.label === 'private') fallback.retrieval = retrieval;
   if (!allowModel || w.caseRecord.label === 'synthetic') return fallback;
   if (!process.env.OPENAI_API_KEY) return { ...fallback, issue: 'not_configured' };
   if (!sources.length) return { ...fallback, issue: 'insufficient' };
+  const verified = (value: unknown): value is AnswerParagraph => {
+    if (!checkedParagraph(value, sources)) return false;
+    if (!options.legalEvidence) return true;
+    // A model may identify an article named in a quotation. Discovery links are added separately.
+    const articles = [...value.summary.matchAll(/\b(?:pasal|articl(?:e|es))\s+(\d{1,4}[a-z]?)\b/gi)];
+    return articles.every(([, number]) => value.citations.some(citation =>
+      new RegExp('\\b(?:pasal|article)\\s+' + number + '\\b', 'i').test(citation.quote)));
+  };
   const partials: AnswerParagraph[] = [];
   let validPrefix = true;
   const acceptDelta = onPartial && readParagraphs(value => {
-    if (!validPrefix || partials.length >= 8 || !checkedParagraph(value, sources)) { validPrefix = false; return; }
+    if (!validPrefix || partials.length >= 8 || !verified(value)) { validPrefix = false; return; }
     partials.push(value);
     onPartial(composeAnswer(fallback.id, partials, sources));
   }, value => {
-    if (validPrefix && partials.length < 8 && checkedParagraph(value, sources)) {
+    if (validPrefix && partials.length < 8 && verified(value)) {
       onPartial(composeAnswer(fallback.id, [...partials, value], sources, true));
     }
   });
@@ -178,6 +192,11 @@ export async function answerQuestion(
     const instructions = [
       'Answer in ' + (lang === 'id' ? 'Indonesian.' : 'English.'),
       overview ? summaryInstructions : 'Answer the specific question directly, within the selected context.',
+      ...(options.legalEvidence ? [
+        'Explain what the selected case record actually establishes about the legal question in one or two short paragraphs. Attribute any charging provision to the exact document or speaker who named it.',
+        'Distinguish the alleged offence, evidence bearing on it and a sentencing factor. A discrepancy by itself does not establish an offence or an aggravating factor. Cite the concrete facts and say which charge or element is still unverified. If needed ask for the indictment or the particular missing evidence, rather than asking the user to name a topic already in the record.',
+        'Use only the supplied exhibits and testimony. Do not introduce article numbers, legal rules, penalties or conclusions from memory. An independent section will give public research links.',
+      ] : []),
       citationInstructions,
       'Use conversation history only to interpret the question, never as evidence.',
     ].join(' ');
@@ -192,7 +211,7 @@ export async function answerQuestion(
     if (!answer || typeof answer !== 'object' || !('paragraphs' in answer) || !Array.isArray(answer.paragraphs)) return { ...fallback, issue: answer === null ? 'incomplete' : 'unverified' };
     const { paragraphs } = answer;
     if (!paragraphs.length) return { ...fallback, text: '', citations: [], issue: 'insufficient' };
-    if (paragraphs.length > 8 || !paragraphs.every(p => checkedParagraph(p, sources))) return { ...fallback, issue: 'unverified' };
+    if (paragraphs.length > 8 || !paragraphs.every(verified)) return { ...fallback, issue: 'unverified' };
     return { ...fallback, ...composeAnswer(fallback.id, paragraphs, sources) };
   } catch (error) {
     signal?.throwIfAborted();

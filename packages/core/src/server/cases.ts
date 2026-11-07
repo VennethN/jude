@@ -1,12 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { CaseRecord, CaseSummary, Thread, Workspace } from '../domain';
+import type { CaseRecord, CaseSummary, Workspace } from '../domain';
 import { needsReview } from '../domain';
 import { numberGroupedVoices } from '../speakers';
 import { queueStatementIn } from './queue';
 import { syncSemanticIndexIn } from './semantic-index';
 import { preserveHidden, retainedMarker, withoutRemoved, type RemovedSource } from './retained-evidence';
-import * as seed from './seed';
-import { transaction, type Database } from './db';
+import { insertRows, transaction, type Database } from './db';
 import { ApiError, bilingual, missing, string, type Fields } from './validation';
 
 const groups = [
@@ -46,101 +45,6 @@ export function emptyWorkspace(caseRecord: CaseRecord): Workspace {
     legal: [],
     replies: [],
   };
-}
-
-function samples(caseId: string): Thread[] {
-  const prompts = [
-    ['th-differences', 'Di mana keterangan saksi berbeda?', 'Where do the accounts differ?', 'd1p4'],
-    ['th-keys', 'Siapa yang memegang kunci gudang?', 'Who held the warehouse keys?', 'd2p2'],
-    ['th-timeline', 'Kapan truk meninggalkan gerbang?', 'When did the truck leave the gate?', 'd3p3'],
-    ['th-patrol', 'Kapan patroli dicatat?', 'When were the patrols logged?', 'd3p4'],
-  ];
-  return prompts.map(([id, idTitle, enTitle, passageId], index) => {
-    const title = { id: idTitle, en: enTitle };
-    const passage = seed.passages.find((p) => p.id === passageId)!;
-    return {
-      id,
-      caseId,
-      title,
-      updated: Date.parse(seed.TODAY) - index * 60000,
-      sample: true,
-      messages: [
-        { id: id + '-q', role: 'user', text: title, contexts: [{ kind: 'case' }] },
-        {
-          id: id + '-a',
-          role: 'assistant',
-          text: '“' + passage.text + '” [1]',
-          mode: 'sources-only',
-          citations: [{ kind: 'passage', id: passageId }],
-        },
-      ],
-    };
-  });
-}
-function demoWorkspace(template: CaseRecord) {
-  const id = randomUUID();
-  const workspace = emptyWorkspace({ ...structuredClone(template), id });
-  const hearingIds = new Set(seed.hearings.filter((h) => h.caseId === template.id).map((h) => h.id));
-  workspace.hearings = seed.hearings.filter((h) => hearingIds.has(h.id)).map((h) => ({ ...h, caseId: id }));
-  workspace.documents = seed.documents
-    .filter((d) => d.caseId === template.id)
-    .map((d) => ({
-      ...d,
-      caseId: id,
-      original: d.file === 'DOCX' ? '/api/cases/' + id + '/documents/' + d.id + '/original' : d.pdf,
-      status: 'ready',
-    }));
-  workspace.passages = seed.passages.filter((p) => workspace.documents.some((d) => d.id === p.docId));
-  workspace.statements = seed.statements.filter((s) => hearingIds.has(s.hearingId));
-  if (template.id === 'c1') {
-    workspace.findings = seed.findings;
-    workspace.connections = seed.connections;
-    workspace.speakers = seed.speakers;
-    workspace.legal = seed.legal;
-    workspace.threads = samples(id);
-  }
-  return workspace;
-}
-
-// Keep each insert within SQLite's portable bound-parameter limit as well as PostgreSQL's.
-async function insertSeedRows(db: Database, columns: string, rows: (string | number)[][]) {
-  for (let offset = 0; offset < rows.length; offset += 100) {
-    const batch = rows.slice(offset, offset + 100);
-    const tuples = batch.map((row, rowIndex) => {
-      const placeholders = row.map((_, columnIndex) => '$' + (rowIndex * row.length + columnIndex + 1));
-      return '(' + placeholders.join(',') + ')';
-    });
-    await db.query('INSERT INTO ' + columns + ' VALUES ' + tuples.join(','), batch.flat());
-  }
-}
-
-export async function seedOrganization(db: Database, orgId: string) {
-  const workspaces = seed.cases.map(demoWorkspace);
-  const refs: Record<string, string> = {};
-  const entities: (string | number)[][] = [];
-  const now = Date.now();
-  const records = workspaces.map((workspace, index) => {
-    const record = workspace.caseRecord;
-    refs[seed.cases[index].id] = record.id;
-    for (const entry of entries(workspace).values()) {
-      refs[entry.id] = entry.id;
-      entities.push([record.id, entry.kind, entry.id, entry.ordinal, entry.body]);
-    }
-    return [record.id, orgId, JSON.stringify(record), workspace.version, now, 1];
-  });
-  await insertSeedRows(db, 'cases(id,org_id,record,version,updated_at,synthetic)', records);
-  const ids = workspaces.map(workspace => workspace.caseRecord.id);
-  await db.query(
-    "INSERT INTO case_members(case_id,user_id,role) SELECT c.id,m.user_id,'owner' " +
-    "FROM cases c JOIN memberships m ON m.org_id=c.org_id WHERE c.org_id=$1 AND m.role='owner' " +
-    'AND c.id IN (' + ids.map((_, index) => '$' + (index + 2)).join(',') + ')',
-    [orgId, ...ids],
-  );
-  // These newly created synthetic records have no private analysis or indexing jobs.
-  await insertSeedRows(db, 'case_entities(case_id,kind,id,ordinal,body)', entities);
-  await db.query('UPDATE organizations SET demo_id=$1,demo_refs=$2 WHERE id=$3', [
-    refs.c1, JSON.stringify(refs), orgId,
-  ]);
 }
 
 function entries(workspace: Workspace) {
@@ -204,7 +108,12 @@ export async function insertWorkspace(db: Database, orgId: string, workspace: Wo
     "INSERT INTO case_members(case_id,user_id,role) SELECT $1,user_id,'owner' FROM memberships WHERE org_id=$2 AND (role='owner' OR user_id=$3) ON CONFLICT(case_id,user_id) DO NOTHING",
     [record.id, orgId, creator ?? ''],
   );
-  await saveEntries(db, record.id, new Map(), workspace);
+  const rows = [...entries(workspace).values()].map(entry => [record.id, entry.kind, entry.id, entry.ordinal, entry.body]);
+  await insertRows(db, 'case_entities(case_id,kind,id,ordinal,body)', rows);
+  if (record.label === 'private') {
+    for (const line of workspace.statements) if (line.phase === 'queued') await queueStatementIn(db, record.id, line.id);
+    await syncSemanticIndexIn(db, orgId, workspace);
+  }
 }
 export async function orgLock(db: Database, orgId: string) {
   const rows = await db.query('SELECT id FROM organizations WHERE id=$1' + db.forUpdate, [orgId]);

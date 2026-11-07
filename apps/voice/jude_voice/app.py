@@ -352,7 +352,7 @@ async def socket(ws: WebSocket, case_id: str, hearing_id: str):
 async def receive_turns(ws, session, case_id, hearing_id, lease):
     try:
         await stream_turns(ws, repo, session, case_id, hearing_id, lease, decode_turn, TranscribeStream,
-                           voiceprints=getattr(ws.app.state, "voiceprints", None))
+                           voiceprints=None if session.guest else getattr(ws.app.state, "voiceprints", None))
     except WebSocketDisconnect:
         pass
     except VoiceError as exc:
@@ -362,7 +362,7 @@ async def receive_turns(ws, session, case_id, hearing_id, lease):
         logging.getLogger(__name__).warning("voice_stream_rejected code=%s at=%s", exc.code, locations)
         with suppress(RuntimeError, WebSocketDisconnect):
             await ws.send_json({"type": "error", "code": exc.code})
-            await ws.close(code=1008)
+            await ws.close(code=1008, reason="guest_live_limit" if exc.code == "guest_live_limit" else "")
     except (ValueError, binascii.Error, KeyError):
         logging.getLogger(__name__).warning("voice_stream_rejected code=invalid_capture")
         with suppress(RuntimeError):

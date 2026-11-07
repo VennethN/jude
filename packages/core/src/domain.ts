@@ -1,3 +1,5 @@
+import guestPractice from './guest-practice.json' with { type: 'json' };
+
 export type Lang = "id" | "en";
 /** Text shown in the interface language. Verbatim testimony and documents stay plain strings. */
 export type L10n = { id: string; en: string };
@@ -315,6 +317,12 @@ export interface SessionInfo {
   prefs: Preferences;
   plan: { id: 'basic' | 'pro' | 'firm' | 'partner' };
   demo: { caseId: string; refs: Record<string, string> } | null;
+}
+
+export const guestPracticeMinutes = guestPractice.liveMinutes;
+
+export function isGuestPractice(session: SessionInfo | null, record: Pick<CaseRecord, 'id' | 'label'>) {
+  return session?.user.guest === true && record.label === 'private' && session.demo?.caseId === record.id;
 }
 
 export interface Workspace {

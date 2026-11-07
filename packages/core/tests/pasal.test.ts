@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, afterEach, beforeAll, expect, test, vi } from 'vitest';
 import { Client } from 'pg';
 import type { CaseRecord, ContextRef, LegalRef, SessionInfo, Thread, Workspace } from '../src/domain';
-import { mutateWorkspace } from '../src/server/cases';
+import { emptyWorkspace, insertWorkspace, makeCase, mutateWorkspace } from '../src/server/cases';
 import { transaction } from '../src/server/db';
 import { runAnalysisWorker } from '../src/server/jobs';
 import * as model from '../src/server/providers/openai';
@@ -88,9 +88,15 @@ async function caseThread(synthetic = false) {
         email: randomUUID() + '@example.test',
         password: 'Docket-1234',
       });
-  const caseId = synthetic
-    ? session.demo!.caseId
-    : (await client.ok<CaseRecord>('cases', 'POST', { title: 'Riana private docket' })).id;
+  let caseId: string;
+  if (synthetic) {
+    const sample = emptyWorkspace({ ...makeCase({title:'Legacy synthetic sample'}), label:'synthetic' });
+    sample.legal = sampleLaws.map(law => ({ ...law, provider: 'sample' }));
+    await transaction(db => insertWorkspace(db,session.organization.id,sample,session.user.id));
+    caseId = sample.caseRecord.id;
+  } else {
+    caseId = (await client.ok<CaseRecord>('cases', 'POST', { title: 'Riana private docket' })).id;
+  }
   const base = 'cases/' + caseId;
   const thread = await client.ok<Thread>(base + '/threads', 'POST', {});
   const messages = base + '/threads/' + thread.id + '/messages';
@@ -504,4 +510,65 @@ test('zero matches, missing context, and provider outages have different answers
   const failed = (await c.send('Find UU No. 996 Tahun 2025')).messages.at(-1)!;
   expect(failed.text).toContain('unavailable');
   expect(failed.legal).toBeUndefined();
+});
+
+test('both Indonesian sentencing questions use the selected case and keep names out of Pasal.id', async () => {
+  const c = await caseThread();
+  const quote = 'Tanda tangan dicatat pukul 09.40, setelah dua belas peti diterima.';
+  const unrelated = 'An unrelated exhibit outside the selected scope';
+  await mutateWorkspace(c.session.organization.id, c.caseId, w => {
+    for (const [id, title, text] of [['register', 'Register penyerahan', quote], ['other', 'Catatan lain', unrelated]]) {
+      w.documents.push({ id, caseId: c.caseId, title, kind: { id: 'Catatan', en: 'Notes' }, pages: 1, size: '', file: 'TXT', added: '2026-10-07' });
+      w.passages.push({ id: id + '-p1', docId: id, page: 1, text });
+    }
+  });
+  const queries: string[] = [];
+  network(url => {
+    queries.push(url.searchParams.get('q') ?? '');
+    return Response.json({ results: [] });
+  });
+  const sourceCounts: number[] = [];
+  vi.stubEnv('OPENAI_API_KEY', 'local-test');
+  const response = vi.spyOn(model, 'structured').mockImplementation(async (task, _instructions, value, _schema, delta) => {
+    expect(task).toBe('assistant');
+    const { sources } = value as { sources: { number: number; text: string }[] };
+    sourceCounts.push(sources.length);
+    const evidence = sources.find(s => s.text === quote)!.number;
+    const paragraphs = [{ citations: [{ evidence, quote }], summary: 'Register mencatat penyerahan dan waktu tanda tangan. Berkas ini belum membuktikan keadaan yang memberatkan.' }];
+    delta?.(JSON.stringify({ paragraphs }));
+    return { paragraphs };
+  });
+  for (const [index, text] of ['pasal apa yang memberatkan', 'pasal apa yang memberatkan dalam kasus ini'].entries()) {
+    const thread = await c.client.ok<Thread>(c.messages, 'POST', {
+      text, lang: 'id', withLegal: true, contexts: index === 0 ? [{ kind: 'case' }] : [{ kind: 'document', id: 'register' }],
+    });
+    const answer = thread.messages.at(-1)!;
+    expect(answer).toMatchObject({ mode: 'ai', legalStatus: 'no_matches', citations: [{ kind: 'passage', id: 'register-p1' }] });
+    expect(answer.text).toContain('Register mencatat penyerahan');
+    expect(answer.text).toContain('pemberatan pidana');
+    expect(answer.text).not.toContain('Isu hukum apa');
+  }
+  expect(queries).toEqual(['pemberatan pidana']);
+  expect(sourceCounts).toEqual([2, 1]);
+  expect(response).toHaveBeenCalledTimes(2);
+});
+
+test('a charge in the selected indictment takes precedence over a general sentencing search', async () => {
+  const c = await caseThread();
+  const filed = 'Surat dakwaan menyebut Pasal 999 KUHP.';
+  await mutateWorkspace(c.session.organization.id, c.caseId, w => {
+    w.documents.push({ id: 'charge', caseId: c.caseId, title: 'Surat dakwaan latihan', kind: { id: 'Dakwaan', en: 'Indictment' }, pages: 1, size: '', file: 'TXT', added: '2026-10-07' });
+    w.passages.push({ id: 'charge-p1', docId: 'charge', page: 1, text: filed });
+  });
+  const requests: string[] = [];
+  network(url => {
+    requests.push(url.searchParams.get('q') ?? '');
+    return Response.json({ results: [] });
+  });
+  const thread = await c.client.ok<Thread>(c.messages, 'POST', { text: 'pasal apa yang memberatkan dalam kasus ini', lang: 'id' });
+  expect(requests).toEqual(['Pasal 999 KUHP']);
+  const answer = thread.messages.at(-1)!;
+  expect(answer.citations).toEqual([{ kind: 'passage', id: 'charge-p1' }]);
+  expect(answer.text).toContain(filed);
+  expect(answer.legal).toBeUndefined();
 });

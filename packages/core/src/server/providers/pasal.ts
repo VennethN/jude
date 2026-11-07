@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { ChatMessage, Citation, ContextRef, Lang, LegalRef, LegalSearchStatus, Workspace } from '../../domain';
-import { caseSources, contextKeys, type Source } from './assistant';
-import { constitutionalTopic, isLawQuestion, lawCategory, publicLawTerms as searchTerms, type PublicLawSearch as Search } from './legal-query';
+import type { AssistantStage, ChatMessage, Citation, ContextRef, Lang, LegalRef, LegalSearchStatus, Workspace } from '../../domain';
+import { answerQuestion, caseSources, contextKeys, type Source } from './assistant';
+import { summaryEvidence } from './case-summary';
+import { constitutionalTopic, isLawQuestion, lawCategory, publicLawTerms as searchTerms, sentencingTopic, type PublicLawSearch as Search } from './legal-query';
 import { pasalSourceUrl } from '../../legal';
 import { transaction } from '../db';
 import { legal as samples } from '../seed';
@@ -372,7 +373,9 @@ export function retainLegal(w: Workspace, discoveries: LegalRef[]) {
   return [...ids];
 }
 
-function questionContext(w: Workspace, refs: ContextRef[], lang: Lang, direct?: Search, category?: string) {
+const chargeRecord = /\b(?:dakwaan|didakwa|dituntut berdasarkan|indictment|charge sheet|charged (?:with|under))\b/i;
+
+function questionContext(w: Workspace, refs: ContextRef[], lang: Lang, direct?: Search, category?: string, sentencing?: string) {
   const selected = refs.filter(ref => ref.kind !== 'case');
   // An attached line or passage is an exact scope. A selected hearing, document or board includes its own records.
   const keys = contextKeys(w, selected.filter(ref => ref.kind !== 'statement' && ref.kind !== 'passage'));
@@ -391,21 +394,28 @@ function questionContext(w: Workspace, refs: ContextRef[], lang: Lang, direct?: 
   for (const { term } of compatible) counts.set(term.q, (counts.get(term.q) ?? 0) + 1);
   const rank = ({ term }: typeof compatible[number]) =>
     (term.numbered || term.code || term.type === 'UUD' && term.article ? sources.length + 1 : 0) + counts.get(term.q)!;
-  const contextual = compatible.sort((a, b) => rank(b) - rank(a))[0];
+  const ranked = compatible.sort((a, b) => rank(b) - rank(a));
+  // A general procedural citation in testimony is a poor answer to a sentencing question.
+  const contextual = sentencing && !direct
+    ? ranked.find(({ term, source }) => source.kind === 'passage' && chargeRecord.test(source.group + ' ' + source.text) &&
+      (term.article || term.code || term.numbered || term.topic))
+    : ranked[0];
   const generalCharter = direct?.type === 'UUD' && !direct.article && !direct.topic;
   let query = direct;
   if (generalCharter && contextual && (contextual.term.article || constitutionalTopic(contextual.term)))
     query = { ...contextual.term, type: 'UUD' };
   if (!query) {
     query = contextual?.term;
-    if (!query && !selected.length) {
+    if (!query && !selected.length && !sentencing) {
       const description = searchTerms([w.caseRecord.title, w.caseRecord.summary[lang]].join(' '));
       if (description && matchesCategory(description)) query = description;
     }
     if (query && category === 'UU' && !query.numbered) query = { ...query, type: 'UU' };
   }
+  const generalSentencing = !!sentencing && !query;
+  if (generalSentencing) query = { q: sentencing!, topic: sentencing, article: '', type: 'UU', code: 'KUHP' };
   const source = same?.source ?? (!direct || generalCharter ? contextual?.source : undefined) ?? (selected.length ? sources[0] : undefined);
-  return { query, source };
+  return { query, source, sources, generalSentencing };
 }
 
 function lawReply(lookup: Lookup, lang: Lang, query: Search | undefined, category: string | undefined, source?: Source) {
@@ -460,10 +470,34 @@ function lawReply(lookup: Lookup, lang: Lang, query: Search | undefined, categor
     citations: source ? [{ kind: source.kind, id: source.id }] : [] } satisfies ChatMessage;
 }
 
+interface LawAnswerOptions extends DiscoveryOptions {
+  allowModel?: boolean;
+  orgId?: string;
+  history?: ChatMessage[];
+  progress?: (stage: AssistantStage) => void;
+  publish?: (message: ChatMessage) => void;
+}
+
+function recordFallback(evidence: Source[], lang: Lang, sentencing?: string): ChatMessage {
+  const en = lang === 'en';
+  const text = sentencing
+    ? (en ? 'The available case material does not establish which sentencing provision applies. Check the alleged offence in the indictment and the evidence for the circumstances raised.'
+      : 'Berkas yang tersedia belum memastikan pasal pemidanaan yang berlaku. Periksa pasal dalam surat dakwaan dan bukti tentang keadaan yang diajukan.')
+    : (en ? 'The selected records do not identify a verified legal basis. If a party has cited a provision, its filing would help identify the regulation.'
+      : 'Berkas yang dipilih belum memberi dasar hukum yang dapat dipastikan. Jika salah satu pihak mengutip pasal, dokumen yang memuat kutipan itu dapat memperjelas dasar hukumnya.');
+  const excerpts = evidence.slice(0, 2);
+  return {
+    id: randomUUID(), role: 'assistant', mode: 'sources-only',
+    text: [text, ...excerpts.map((s, i) => s.group + ' [' + (i + 1) + ']\n“' + s.text.slice(0, 240) + (s.text.length > 240 ? '…' : '') + '”')].join('\n\n'),
+    citations: excerpts.map(({kind, id}) => ({kind, id})),
+  };
+}
+
 /** Answer explicit legal questions even when the question's words do not occur in case evidence. */
-export async function answerLawQuestion(w: Workspace, text: string, refs: ContextRef[], lang: Lang, enabled: boolean, options: DiscoveryOptions = {}) {
+export async function answerLawQuestion(w: Workspace, text: string, refs: ContextRef[], lang: Lang, enabled: boolean, options: LawAnswerOptions = {}) {
   if (!isLawQuestion(text)) return;
-  const category = lawCategory(text), { query, source } = questionContext(w, refs, lang, searchTerms(text), category);
+  const category = lawCategory(text), sentencing = sentencingTopic(text);
+  const { query, source, sources, generalSentencing } = questionContext(w, refs, lang, searchTerms(text), category, sentencing);
   let lookup: Lookup;
   if (!enabled) lookup = { outcome: 'disabled', refs: [] };
   else if (w.caseRecord.label === 'synthetic') {
@@ -476,5 +510,35 @@ export async function answerLawQuestion(w: Workspace, text: string, refs: Contex
       if (base.refs.length) lookup = { outcome: 'charter-only', refs: base.refs };
     }
   }
-  return { answer: lawReply(lookup, lang, query, category, source), discoveries: lookup.refs };
+  if (!sentencing && (query || !sources.length)) {
+    return { answer: lawReply(lookup, lang, query, category, source), discoveries: lookup.refs };
+  }
+
+  // Reuse the case assistant’s quote validation and streaming on the exact selected scope.
+  const originals = sources.filter(s => s.kind !== 'finding');
+  const pool = originals.length ? originals : sources;
+  const evidence = summaryEvidence(w, pool, lang).sources;
+  if (source && pool.includes(source)) {
+    const index = evidence.indexOf(source);
+    if (index >= 0) evidence.splice(index, 1);
+    evidence.unshift(source);
+  }
+  let answer = recordFallback(evidence, lang, sentencing);
+  if (evidence.length && options.allowModel && process.env.OPENAI_API_KEY) {
+    const analysis = await answerQuestion(w, text, refs, lang, true, options.orgId, options.publish, {
+      legalEvidence: evidence, signal: options.signal, progress: options.progress, history: options.history,
+    });
+    if (analysis.mode === 'ai') answer = analysis;
+    else if (analysis.issue) answer.issue = analysis.issue;
+  }
+  if (lookup.outcome !== 'needs-topic') {
+    const index = lawReply(lookup, lang, query, category);
+    const lead = generalSentencing && lookup.refs.length
+      ? (lang === 'en' ? 'General sentencing research' : 'Rujukan pemidanaan umum') + ' · ' : '';
+    const research = sentencing && lookup.outcome === 'no-results' && query
+      ? (lang === 'en' ? 'Pasal.id returned no verified match for “' : 'Pasal.id belum menemukan rujukan terverifikasi untuk “') + query.q + '”.'
+      : index.text;
+    answer.text = answer.text + '\n\n' + lead + research;
+  }
+  return { answer, discoveries: lookup.refs };
 }

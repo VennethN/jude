@@ -4,7 +4,8 @@ import { retainedMarker } from './retained-evidence';
 import { createHash, randomUUID } from 'node:crypto';
 import type { CoreRequest } from './request';
 import type { ChatMessage, ContextRef, SessionInfo, Thread, Workspace } from '../domain';
-import { needsReview } from '../domain';
+import { isGuestPractice, needsReview } from '../domain';
+import guestPractice from '../guest-practice.json' with { type: 'json' };
 import { billing, checkQuota, meter } from './billing';
 import {
   changeIn,
@@ -304,7 +305,10 @@ async function postMessage(
     let legalStatus: LegalSearchStatus | undefined;
     const options = { signal, status: (value: LegalSearchStatus) => { legalStatus = value; } };
     if (withLegal && isLawQuestion(text)) progress?.('legal');
-    const legalQuestion = await answerLawQuestion(workspace, text, contexts, lang, withLegal, options);
+    const legalQuestion = await answerLawQuestion(workspace, text, contexts, lang, withLegal, {
+      ...options, allowModel: !session.user.guest && workspace.caseRecord.label === 'private',
+      orgId: org, history: before.history, progress, publish,
+    });
     const answer: ChatMessage = legalQuestion?.answer ?? await answerQuestion(
       workspace, text, contexts, lang, !session.user.guest && workspace.caseRecord.label === 'private',
       org, publish, { signal, progress, history: before.history },
@@ -356,8 +360,21 @@ async function postMessage(
     ? answerStream(request.signal, (publish, signal, progress) => sharedAnswer(cacheKey, generate, publish, signal, progress))
     : sharedAnswer(cacheKey, generate, undefined, request.signal);
 }
-async function liveQuota(db: Database, org: string, w: Workspace) {
+async function liveQuota(db: Database, session: SessionInfo, w: Workspace) {
   if (w.caseRecord.label === 'synthetic') return;
+  const org = session.organization.id;
+  if (session.user.guest) {
+    const [grant] = isGuestPractice(session, w.caseRecord) ? await db.query<{ used: number | string }>(
+      `SELECT COALESCE((SELECT amount FROM usage_counts WHERE org_id=o.id AND period='lifetime' AND quota=$4), 0) AS used
+       FROM organizations o JOIN workspace_case_members cm ON cm.case_id=o.demo_id
+       WHERE o.id=$1 AND o.demo_id=$2 AND cm.user_id=$3 AND cm.role='owner'`,
+      [org, w.caseRecord.id, session.user.id, guestPractice.usageKey],
+    ) : [];
+    if (!grant) throw new ApiError(403, 'guest_live_unavailable', 'Guest recording is available in your practice case.');
+    // Voice meters accepted 24 kHz mono PCM16 across all hearings in this guest workspace.
+    if (Number(grant.used) >= guestPractice.liveMinutes * 60 * 24_000 * 2)
+      throw new ApiError(402, 'guest_live_limit', 'Your five minutes of practice audio have been used.');
+  }
   const limits = await checkQuota(db, org, 'hours', 1 / 3600);
   if (limits.planId === 'basic')
     throw new ApiError(402, 'feature_not_in_plan', 'Live transcription needs an eligible plan.', {
@@ -455,7 +472,7 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
     return postMessage(session, caseId, id, f, key, event.request);
   const startingHearing =
     resource === 'hearings' && method === 'POST' && (f.flow === 'live' || act === 'start');
-  const voiceReady = startingHearing && !session.user.guest && (await transcriptionAvailable());
+  const voiceReady = startingHearing && (!session.user.guest || session.demo?.caseId === caseId) && (await transcriptionAvailable());
   return transaction((db) =>
     idempotent(db, org, caseId + '/' + path.join('/') + '/' + method, key, async () => {
       if (resource === 'boards' && id === 'first' && !act && method === 'POST') {
@@ -480,10 +497,10 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
           throw new ApiError(
             422,
             'recording_permission',
-            'Recording requires judicial permission in an open hearing.',
+            isGuestPractice(session, w.caseRecord) ? 'Practice recording needs your consent and an open hearing.' : 'Recording requires judicial permission in an open hearing.',
           );
+        await liveQuota(db, session, w);
         if (w.caseRecord.label === 'private' && !voiceReady) unavailable('transcribe');
-        await liveQuota(db, org, w);
         if (w.caseRecord.label === 'private') {
           const active = await db.query<{ body: string }>(
             "SELECT e.body FROM case_entities e JOIN cases c ON e.case_id=c.id WHERE c.org_id=$1 AND c.synthetic=0 AND c.deleted_at IS NULL AND e.kind='hearings'",
@@ -512,8 +529,8 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
       const result = await changeIn(db, org, caseId, (w) => {
         if (resource === 'hearings') {
           if (method === 'POST' && id === 'import' && !act) return importHearing(w, f, session.user.id);
-          if (method === 'POST' && !id) return addHearing(w, f, session.user.id);
-          if (method === 'POST' && act === 'start') return startHearing(w, id, f, session.user.id);
+          if (method === 'POST' && !id) return addHearing(w, f, session.user.id, isGuestPractice(session, w.caseRecord));
+          if (method === 'POST' && act === 'start') return startHearing(w, id, f, session.user.id, isGuestPractice(session, w.caseRecord));
           if (method === 'POST' && act === 'end') {
             const hearing = required(w.hearings, (h) => h.id === id);
             if (w.caseRecord.label !== 'synthetic' && hearing.recordingPermission?.by !== session.user.id)

@@ -6,7 +6,7 @@ from uuid import uuid4
 from anyio import CancelScope
 
 from .providers import ProviderError
-from .repository import anonymous_id
+from .repository import VoiceError, anonymous_id
 from .transcribe import TranscribeStream
 from .voiceprints import VoiceprintSession
 
@@ -48,6 +48,7 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
     ending = False
     rotate = False
     watermark = 0.0
+    allowance_error = None
 
     async def send(frame):
         async with writer:
@@ -103,7 +104,7 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
 
     async with factory(language) as provider:
         async def receive_audio():
-            nonlocal sent_seconds, last_end, ending, rotate
+            nonlocal sent_seconds, last_end, ending, rotate, allowance_error
             while True:
                 frame = await ws.receive_json()
                 if frame.get("type") == "stop":
@@ -113,8 +114,17 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
                 tid, start, pcm, keep = decode(frame)
                 if tid in pending:
                     raise ValueError("Duplicate in-flight capture")
-                receipt = await write_transaction(repo.begin_capture, *scope,
-                    lease=lease, epoch=epoch, turn_id=tid, start=start, pcm=pcm, keep=keep)
+                try:
+                    receipt = await write_transaction(repo.begin_capture, *scope,
+                        lease=lease, epoch=epoch, turn_id=tid, start=start, pcm=pcm, keep=keep)
+                except VoiceError as exc:
+                    if exc.code != "guest_live_limit" or not captures:
+                        raise
+                    # Drain only audio already admitted to this AWS epoch, including pending finals.
+                    allowance_error = exc
+                    ending = True
+                    await provider.end_audio()
+                    return
                 if receipt is not None:
                     await send({**receipt, "type": "ack"})
                     continue
@@ -172,7 +182,8 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
             if not ending:
                 raise ProviderError("Transcription ended before recording stopped.")
             await complete(float("inf"))
-            await send({"type": "stopped"})
+            if allowance_error is None:
+                await send({"type": "stopped"})
 
         health = asyncio.create_task(heartbeat())
         sender = asyncio.create_task(receive_audio())
@@ -182,12 +193,16 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
             done, _ = await asyncio.wait({health, sender, receiver}, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 task.result()
-            if sender not in done:
+            if sender not in done and allowance_error is None:
                 raise ProviderError("Transcription ended before recording stopped.")
             async with asyncio.timeout(35):
+                if allowance_error is not None:
+                    await sender
                 done, _ = await asyncio.wait({health, receiver}, return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
                     task.result()
+                if allowance_error is not None:
+                    raise allowance_error
         finally:
             with CancelScope(shield=True):
                 for task in (health, sender, receiver):

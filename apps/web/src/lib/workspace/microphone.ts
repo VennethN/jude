@@ -31,6 +31,7 @@ export type CaptureState =
   | 'paused'
   | 'draining'
   | 'stopped'
+  | 'guest_limit'
   | 'error';
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -94,6 +95,7 @@ export async function capture(
   state: (status: CaptureState) => void,
   partial: (turn?: LiveTranscriptTurn) => void,
   language: 'id' | 'en' = 'id',
+  guestPractice = false,
   recoverOnly = false,
 ): Promise<Recorder> {
   if (!recoverOnly && (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode))
@@ -146,6 +148,7 @@ export async function capture(
   let inputClosed = recoverOnly;
   let lastProgress = Date.now();
   let handoffRetries = 0;
+  let guestLimitReached = false;
   let pauseTransition = Promise.resolve();
   function requestDrain() {
     if (!ready || !ws || stopSent || inFlight.size || (!rotating && !captureSettled)) return;
@@ -305,6 +308,12 @@ export async function capture(
       ready = false;
       inFlight.clear();
       if (!stopped) {
+        if (guestPractice && event.code === 1008 && event.reason === 'guest_live_limit') {
+          terminalError = guestLimitReached = true;
+          partial();
+          void (finishing ??= finish()).catch(() => state('error'));
+          return;
+        }
         // A clean pause drain can close just before Python releases its lease.
         // Retry only this bounded handoff, never an explicit policy-error frame.
         if (!terminalError && handoffRetries > 0 && [1006, 1008].includes(event.code)) {
@@ -419,12 +428,23 @@ export async function capture(
     await stopInput();
     await saveChain;
     captureSettled = true;
-    state(terminalError ? 'error' : 'draining');
+    if (!guestLimitReached) state(terminalError ? 'error' : 'draining');
     await pump();
     lastProgress = Date.now();
     const deadline = Date.now() + 120000;
     while (!terminalError && Date.now() < deadline && Date.now() - lastProgress < 45000 && (!providerStopped || (await queuedCount(db, scope)))) {
       await new Promise((r) => setTimeout(r, 160));
+    }
+    if (guestLimitReached) {
+      // The provider has finished admitted audio. Only this guest hearing's rejected or unsent PCM remains.
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('turns', 'readwrite');
+        const store = tx.objectStore('turns');
+        const keys = store.index('scope').getAllKeys(scope);
+        keys.onsuccess = () => { for (const key of keys.result) store.delete(key); };
+        tx.oncomplete = () => resolve();
+        tx.onabort = tx.onerror = () => reject(tx.error);
+      });
     }
     const remaining = await queuedCount(db, scope);
     stopped = true;
@@ -432,6 +452,7 @@ export async function capture(
     ws?.close();
     db.close();
     window.removeEventListener('beforeunload', checkUnload);
+    if (guestLimitReached) { state('guest_limit'); return; }
     state(storageError || terminalError ? 'error' : remaining || !providerStopped ? 'offline' : 'stopped');
     if (storageError) throw new Error('audio_storage_failed');
     if (remaining || !providerStopped) throw new Error('audio_pending');

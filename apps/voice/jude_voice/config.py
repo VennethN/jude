@@ -42,3 +42,8 @@ def files_dir() -> Path:
 @lru_cache(maxsize=1)
 def plan_quotas() -> dict:
     return json.loads((workspace_root() / "packages/core/src/plan-quotas.json").read_text())
+
+
+@lru_cache(maxsize=1)
+def guest_practice() -> dict:
+    return json.loads((workspace_root() / "packages/core/src/guest-practice.json").read_text())

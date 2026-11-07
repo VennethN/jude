@@ -109,3 +109,10 @@
   .hearing-detail.running .hear-reading .panel-head h2 { font-size:23px; }
   .hearing-detail.running .hear-reading .lines .words { font-size:var(--live-size); }
 }
+
+@media(max-width:719px) {
+  .hearing-detail.real-live .session-control { flex-wrap:wrap; }
+  .hearing-detail.real-live .control-actions { flex-wrap:wrap; }
+  .hearing-detail.real-live .session-label .status-word { position:static; width:auto; height:auto; clip-path:none; overflow:visible; }
+}
+.hearing-detail.practice > .practice-prompt { margin-block:12px; }

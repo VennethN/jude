@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { originalsDirectory } from '../workspace-paths';
+import { bundledArchiveFiles, bundledOriginalEntry } from '../bundled-case';
 
 let s3: S3Client | undefined;
 const client = () => (s3 ??= new S3Client({ region: process.env.AWS_REGION ?? 'ap-southeast-3' }));
@@ -41,6 +42,12 @@ export async function putOriginal(key: string, bytes: Uint8Array, contentType: s
   }
 }
 export async function getOriginal(key: string): Promise<Uint8Array> {
+  const entry = bundledOriginalEntry(key);
+  if (entry) {
+    const data = (await bundledArchiveFiles())[entry];
+    if (!data) throw new Error('Missing bundled original.');
+    return data;
+  }
   const path = privatePath(key),
     bucket = process.env.JUDE_S3_BUCKET;
   if (!bucket) return readFile(path);
@@ -49,6 +56,7 @@ export async function getOriginal(key: string): Promise<Uint8Array> {
   return result.Body.transformToByteArray();
 }
 export async function originalURL(key: string) {
+  if (bundledOriginalEntry(key)) return null;
   privatePath(key);
   return process.env.JUDE_S3_BUCKET
     ? getSignedUrl(client(), new GetObjectCommand({ Bucket: process.env.JUDE_S3_BUCKET, Key: key }), {
@@ -57,6 +65,7 @@ export async function originalURL(key: string) {
     : null;
 }
 export async function removeOriginal(key: string) {
+  if (bundledOriginalEntry(key)) return;
   const path = privatePath(key),
     bucket = process.env.JUDE_S3_BUCKET;
   if (bucket) {
