@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayTitle, displaySpeaker, initials, timecode } from '$lib/workspace/format';
+
   import { page } from '$app/state';
   import { afterNavigate, goto, invalidate, replaceState } from '$app/navigation';
   import { onMount, tick } from 'svelte';
@@ -33,7 +35,6 @@
     type Workspace,
   } from '@jude/core/domain';
   import { api, write } from '$lib/client';
-  import { displaySpeaker, initials, timecode } from '$lib/workspace/format';
   import { getCapture, pauseCapture } from '$lib/workspace/hearing-detail/active-recording.svelte';
   import { planById } from '@jude/core/plans';
   import Dialog from '$lib/workspace/Dialog.svelte';
@@ -46,6 +47,8 @@
   const w = $derived(page.data.workspace as Workspace | undefined),
     en = $derived(data.lang === 'en'),
     account = $derived(data.account);
+  const accountName = $derived(account.user.guest && account.user.name === 'Ruang contoh'
+    ? (en ? 'Example workspace' : 'Ruang contoh') : account.user.name);
   const base = $derived(w ? '/case/' + w.caseRecord.id : '');
   const prefs = $derived(account.prefs),
     section = $derived(page.url.pathname.split('/')[3] ?? '');
@@ -360,13 +363,13 @@
         class="switch-case"
         href="/cases"
         title={en ? 'Back to cases' : 'Kembali ke perkara'}
-        aria-label={(en ? 'Back to cases' : 'Kembali ke perkara') + ' · ' + w.caseRecord.title}
+        aria-label={(en ? 'Back to cases' : 'Kembali ke perkara') + ' · ' + displayTitle(w.caseRecord, data.lang)}
       >
         <span class="case-icon"><FolderOpen size={18} /></span><span class="tablet-label"
           >{en ? 'Cases' : 'Perkara'}</span
         >
         <span class="case-identity"
-          ><strong>{w.caseRecord.title}</strong><small
+          ><strong>{displayTitle(w.caseRecord, data.lang)}</strong><small
             >{w.caseRecord.reference ||
               (w.caseRecord.label === 'synthetic'
                 ? en
@@ -451,13 +454,13 @@
       <div class="account-block">
         <button
           class="member"
-          aria-label={(en ? 'Preferences' : 'Preferensi') + ' · ' + account.user.name}
-          title={account.user.name}
+          aria-label={(en ? 'Preferences' : 'Preferensi') + ' · ' + accountName}
+          title={accountName}
           onclick={() => (overlay = 'prefs')}
-          ><span class="avatar">{initials(account.user.name)}</span><span class="tablet-label"
+          ><span class="avatar">{initials(accountName)}</span><span class="tablet-label"
             >{en ? 'Account' : 'Akun'}</span
           ><span class="account-label"
-            ><strong>{account.user.name}</strong><small
+            ><strong>{accountName}</strong><small
               >{account.user.guest
                 ? en
                   ? 'Guest workspace'
@@ -483,7 +486,7 @@
       <nav class="breadcrumbs" aria-label={en ? 'Breadcrumb' : 'Lokasi halaman'}>
         {#if w}<a class="phone-back" href={back.href}><ChevronLeft size={17} />{back.label}</a>
           <a class="desktop-crumb" href={base} aria-current={!section ? 'page' : undefined}
-            ><FolderOpen size={15} /><span>{w.caseRecord.title}</span></a
+            ><FolderOpen size={15} /><span>{displayTitle(w.caseRecord, data.lang)}</span></a
           >
           {#if section}<span class="crumb-section"><ChevronRight size={13} />{active}</span>{/if}
         {:else}<a class="outside-crumb" href="/cases"><FolderOpen size={16} />{en ? 'Cases' : 'Perkara'}</a

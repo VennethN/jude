@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
+
   import { invalidate, invalidateAll } from '$app/navigation';
   import { onMount, tick } from 'svelte';
   import { Archive, ArchiveRestore, ChevronDown, FolderOpen, Plus, Search } from '@lucide/svelte';
@@ -13,7 +15,7 @@
   let restoring = $state(''), announcement = $state(''), restoreError = $state(''), refused = $state(false);
   const en = $derived(data.lang === 'en');
   const term = $derived(query.trim().toLocaleLowerCase(data.lang));
-  const filtered = $derived(data.cases.filter((item) => (item.title + ' ' + item.reference).toLocaleLowerCase(data.lang).includes(term)));
+  const filtered = $derived(data.cases.filter((item) => (displayTitle(item, data.lang) + ' ' + item.title + ' ' + item.reference).toLocaleLowerCase(data.lang).includes(term)));
   const active = $derived(filtered.filter((item) => !item.archived));
   const archived = $derived(filtered.filter((item) => item.archived).sort((a,b) => (b.archivedAt ?? '').localeCompare(a.archivedAt ?? '')));
   const dates = $derived(new Intl.DateTimeFormat(en ? 'en-US' : 'id-ID', { day:'numeric', month:'short', year:'numeric', timeZone:'Asia/Jakarta' }));
@@ -99,7 +101,7 @@
       {/if}
       <ul>
         {#each archived as item (item.id)}
-          <li><FolderOpen size={18}/><div class="archived-name"><a href={'/case/'+encodeURIComponent(item.id)}>{item.title}</a>{#if item.reference}<span>{item.reference}</span>{/if}</div>
+          <li><FolderOpen size={18}/><div class="archived-name"><a href={'/case/'+encodeURIComponent(item.id)}>{displayTitle(item, data.lang)}</a>{#if item.reference}<span>{item.reference}</span>{/if}</div>
             {#if item.archivedAt}<time datetime={item.archivedAt}>{en ? 'Archived' : 'Diarsipkan'} {dateText(item.archivedAt)}</time>{/if}
             <button class="button" disabled={!ready || Boolean(restoring) || (data.casesFull && item.label === 'private')} onclick={() => restore(item)}><ArchiveRestore size={15}/>{restoring === item.id ? (en ? 'Restoring…' : 'Memulihkan…') : (en ? 'Restore from archive' : 'Pulihkan dari arsip')}</button>
           </li>

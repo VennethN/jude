@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
+
   import { tick } from 'svelte';
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
@@ -54,7 +56,7 @@
     )
   );
   let resultDocs = $derived(
-    w.documents.filter((d) => d.title.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
+    w.documents.filter((d) => displayTitle(d, lang).toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
   );
   let hits = $derived(
     graph.nodes.filter((n) =>
@@ -194,7 +196,7 @@
       <div class="pick-list">
         {#each resultDocs as doc (doc.id)}<button onclick={() => choose('document:' + doc.id, true)}
             ><FileText size={17} /><span
-              ><strong>{doc.title}</strong><small>{id ? 'Seluruh dokumen' : 'Entire document'}</small></span
+              ><strong>{displayTitle(doc, lang)}</strong><small>{id ? 'Seluruh dokumen' : 'Entire document'}</small></span
             ><ArrowRight size={15} /></button
           >{/each}
         {#each hits as n (n.key)}<button onclick={() => choose(n.key, true)}

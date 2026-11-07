@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayCourt, speakerLabel } from '$lib/workspace/format';
+
   import { goto, invalidate, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { onMount, tick, untrack } from 'svelte';
@@ -533,7 +535,7 @@
       <section>
         <h2>{en ? 'This hearing has not started.' : 'Sidang ini belum dimulai.'}</h2>
         <p class="schedule-meta"><CalendarDays size={15} /> {formatDate(h.date, lang)}{h.time ? ' · ' + h.time + ' WIB' : ''}
-          {w.caseRecord.court ? ' · ' + w.caseRecord.court : ''}</p>
+          {displayCourt(w.caseRecord, lang) ? ' · ' + displayCourt(w.caseRecord, lang) : ''}</p>
         {#if w.speakers.some(person => !person.alias && ['counsel','opposing'].includes(person.role))}
           <div class="schedule-counsel"><h3>{en ? 'Counsel in this case' : 'Kuasa hukum perkara ini'}</h3>
             <p>{en ? 'Select your side to see responses prepared for your counsel.' : 'Pilih pihak Anda untuk melihat tanggapan yang disiapkan bagi kuasa hukum Anda.'}</p>
@@ -733,7 +735,7 @@
           aria-pressed={p.role === 'counsel'}
           disabled={busy}
           onclick={() => assignCounsel(p.id)}
-          >{p.label}{#if p.role === 'counsel'}<Check size={15} />{/if}</button
+          >{speakerLabel(p, lang)}{#if p.role === 'counsel'}<Check size={15} />{/if}</button
         >{:else}<p class="small muted">
           {en
             ? 'Identify a lawyer from their name in the transcript first.'

@@ -3,7 +3,7 @@
   import { goto } from '$app/navigation';
   import { ArrowDown, ArrowUp, AudioLines, Clock3, CornerDownLeft, FileText, Lightbulb, Quote, Search } from '@lucide/svelte';
   import type { Lang, Workspace } from '@jude/core/domain';
-  import { displaySpeaker, localized, timecode } from './format';
+  import { displayTitle, displaySpeaker, localized, timecode } from './format';
   import SheetHandle from './SheetHandle.svelte';
 
   let { workspace: w, lang, close }: { workspace: Workspace; lang: Lang; close: () => void } = $props();
@@ -47,11 +47,11 @@
       href: base + '/findings/' + encodeURIComponent(f.id)
     })) },
     { name: en ? 'Documents' : 'Dokumen', icon: FileText, limit: 4, records: w.documents.map((d) => ({
-      title: d.title, description: localized(d.kind, lang),
+      title: displayTitle(d, lang), description: localized(d.kind, lang),
       href: base + '/documents/' + encodeURIComponent(d.id)
     })) },
     { name: en ? 'Document passages' : 'Kutipan dokumen', icon: Quote, limit: 4, records: w.passages.map((p) => ({
-      title: p.text, description: (documents.get(p.docId)?.title ?? '') + (en ? ' · p. ' : ' · hal. ') + p.page,
+      title: p.text, description: displayTitle(documents.get(p.docId), lang) + (en ? ' · p. ' : ' · hal. ') + p.page,
       href: base + '/documents/' + encodeURIComponent(p.docId) + '?p=' + encodeURIComponent(p.id)
     })) },
     { name: en ? 'Transcript' : 'Transkrip', icon: AudioLines, limit: 5, records: w.statements.map((line) => ({

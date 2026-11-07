@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
+
   import { ArrowLeftRight, ArrowRight, Check, LayoutDashboard, Link2, MessageSquare, Unlink } from '@lucide/svelte';
   import type { Lang, Relation, Workspace } from '@jude/core/domain';
   import { casePath, clock, statuses } from '../records';
@@ -92,7 +94,7 @@
           out.push({ key: h.id, kind: 'hearing', name: t('common.hearingN', { n: h.number }) });
       } else if (kindOf(k) === 'passage') {
         const d = doc(passage(idOf(k))?.docId ?? '');
-        if (d && !out.some((s) => s.key === d.id)) out.push({ key: d.id, kind: 'document', name: d.title });
+        if (d && !out.some((s) => s.key === d.id)) out.push({ key: d.id, kind: 'document', name: displayTitle(d, lang) });
       }
     }
     return out;

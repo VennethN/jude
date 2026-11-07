@@ -31,6 +31,8 @@ export type Role =
 export interface Speaker {
   id: string;
   label: string;
+  /** Display-only translation for synthetic examples; the stored label stays original. */
+  displayLabel?: L10n;
   role: Role;
   /** Voice matches are suggestions until a person confirms the name. */
   confirmed: boolean;
@@ -41,6 +43,9 @@ export interface Speaker {
 export interface CaseRecord {
   id: string;
   title: string;
+  /** Display-only translations for synthetic examples, never written back to the record. */
+  displayTitle?: L10n;
+  displayCourt?: L10n;
   reference: string;
   label: "synthetic" | "private";
   summary: L10n;
@@ -120,6 +125,8 @@ export interface CaseDocument {
   id: string;
   caseId: string;
   title: string;
+  /** Interface label only; the original document and its title remain unchanged. */
+  displayTitle?: L10n;
   kind: L10n;
   pages: number;
   file: "PDF" | "DOCX" | "TXT" | "MD";

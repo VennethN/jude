@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
+
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import { page } from '$app/state';
   import { api } from '$lib/client';
@@ -77,7 +79,7 @@
   let term = $derived(query.trim().toLowerCase());
   let docs = $derived(
     w.documents.filter(
-      (d) => !term || (d.title + ' ' + local(d.kind, data.lang)).toLowerCase().includes(term)
+      (d) => !term || (displayTitle(d, data.lang) + ' ' + d.title + ' ' + local(d.kind, data.lang)).toLowerCase().includes(term)
     )
   );
   let passages = $derived(
@@ -210,7 +212,7 @@
       {id ? 'Membaca berkas' : 'Reading file'} · {activeFile}
     </p>{/if}
   {#each ready as d (d.id)}<div class="ev-notice ev-inline" role="status">
-      {d.title} · {id ? 'siap dibuka' : 'ready to open'}<a
+      {displayTitle(d, data.lang)} · {id ? 'siap dibuka' : 'ready to open'}<a
         class="ev-link"
         href={casePath(w) + '/documents/' + encodeURIComponent(d.id)}>{id ? 'Buka' : 'Open'}</a
       >
@@ -249,7 +251,7 @@
                     encodeURIComponent(p.id) +
                     '&view=text'}
                   ><span class="ev-cap"
-                    ><BookOpenText size={15} /> {d.title} · {id ? 'hal.' : 'p.'} {p.page}</span
+                    ><BookOpenText size={15} /> {displayTitle(d, data.lang)} · {id ? 'hal.' : 'p.'} {p.page}</span
                   >
                   <p class="ev-record"><Match text={p.text} term={query} /></p></a
                 >
@@ -282,7 +284,7 @@
           <span class="doc-tab" aria-hidden="true"><FileText size={20}/><small>{doc.file}</small></span>
           <div class="doc-body">
             <a class="doc-title" href={casePath(w) + '/documents/' + encodeURIComponent(doc.id)}>
-              <Match text={doc.title} term={query}/>
+              <Match text={displayTitle(doc, data.lang)} term={query}/>
             </a>
             <span class="ev-meta">{local(doc.kind, data.lang)}</span>
             <div class="doc-stats">
@@ -296,7 +298,7 @@
             </div>
             <span class="ev-meta">{id ? 'Ditambahkan' : 'Added'} {dateLabel(doc.added, data.lang)} · {doc.size}</span>
           </div>
-          <button class="file-action" aria-label={(id ? 'Hapus dokumen ' : 'Remove document ') + doc.title}
+          <button class="file-action" aria-label={(id ? 'Hapus dokumen ' : 'Remove document ') + displayTitle(doc, data.lang)}
             title={id ? 'Hapus dokumen' : 'Remove document'} disabled={!interactive || busy}
             onclick={() => (deleting = doc)}><Trash2 size={16}/></button>
         </li>

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
+
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
   import {
@@ -184,7 +186,7 @@
   </div>
 {/snippet}
 
-<svelte:head><title>{doc.title} · Jude</title></svelte:head>
+<svelte:head><title>{displayTitle(doc, lang)} · Jude</title></svelte:head>
 <svelte:document onselectionchange={readSelection} />
 <div class="ev-page" data-tour="reader">
   <a class="ev-link" href={casePath(w) + '/documents'}
@@ -192,7 +194,7 @@
   >
   <header class="ev-head">
     <div>
-      <h1>{doc.title}</h1>
+      <h1>{displayTitle(doc, lang)}</h1>
       <p>{local(doc.kind, lang)} · {doc.file} · {doc.pages} {id ? 'halaman' : 'pages'}</p>
     </div>
     <div class="ev-actions">

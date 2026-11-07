@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
+
   import { CircleAlert, FileText, FolderOpen, Speech } from '@lucide/svelte';
   import type { CaseSummary, Lang } from '@jude/core/domain';
 
@@ -18,7 +20,7 @@
     {/if}
   </div>
   <div class="details">
-    <h2><a id={'register-case-' + item.id} href={href}>{item.title}</a></h2>
+    <h2><a id={'register-case-' + item.id} href={href}>{displayTitle(item, lang)}</a></h2>
     {#if item.reference}<p class="reference">{item.reference}</p>{/if}
     {#if item.summary[lang]}<p class="summary">{item.summary[lang]}</p>{/if}
   </div>

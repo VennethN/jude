@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayTitle } from '$lib/workspace/format';
+
   import { Trash2 } from '@lucide/svelte';
   import type { CaseDocument, Lang, Workspace } from '@jude/core/domain';
   import { api } from '$lib/client';
@@ -36,7 +38,7 @@
       await removed({
         caseId: workspace.caseRecord.id,
         id: result.id,
-        title: doc.title,
+        title: displayTitle(doc, lang),
         citedFindings: result.citedFindings
       });
     } catch {
@@ -55,7 +57,7 @@
   }}
 >
   <div class="stack">
-    <p><strong>{doc.title}</strong></p>
+    <p><strong>{displayTitle(doc, lang)}</strong></p>
     <p>
       {cited
         ? en

@@ -1,3 +1,4 @@
+import { exampleCaseLabels } from '$lib/workspace/example-labels';
 import { error } from '@sveltejs/kit';
 import type { CaseSummary } from '@jude/core/domain';
 import type { BillingAccount } from '@jude/core/plans';
@@ -13,6 +14,6 @@ export const load: PageServerLoad = async ({ fetch, depends, url }) => {
   if (!casesResponse.ok) error(casesResponse.status, { message: 'Gagal memuat daftar perkara.' });
   const { cases }: { cases: CaseSummary[] } = await casesResponse.json();
   const billing: BillingAccount | undefined = billingResponse.ok ? await billingResponse.json() : undefined;
-  return { cases, casesFull: isFull(billing?.usage.cases), storageFull: isFull(billing?.usage.storage),
+  return { cases: cases.map(exampleCaseLabels), casesFull: isFull(billing?.usage.cases), storageFull: isFull(billing?.usage.storage),
     caseUnavailable: url.searchParams.get('notice') === 'case-unavailable' };
 };

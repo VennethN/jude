@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { displayCourt, displayTitle, formatDate, timecode } from '$lib/workspace/format';
+
   import { page } from '$app/state';
   import { goto, invalidateAll, replaceState } from '$app/navigation';
   import {
@@ -29,7 +31,6 @@
   import HearingRow from '$lib/workspace/HearingRow.svelte';
   import { voice } from '$lib/workspace/hearing-detail/people';
   import { casePrompts } from '$lib/workspace/case-prompts';
-  import { formatDate, timecode } from '$lib/workspace/format';
   let { data } = $props();
   const w = $derived(data.workspace),
     c = $derived(w.caseRecord),
@@ -88,7 +89,7 @@
   }
 </script>
 
-<svelte:head><title>{c.title} · Jude</title></svelte:head>
+<svelte:head><title>{displayTitle(c, data.lang)} · Jude</title></svelte:head>
 <div class="overview">
   <header class="file-head">
     <div class="file-id">
@@ -102,7 +103,7 @@
             : 'Perkara privat'}</span
       >{#if c.reference}<span>{c.reference}</span>{/if}
     </div>
-    <h1>{c.title}</h1>
+    <h1>{displayTitle(c, data.lang)}</h1>
     {#if c.summary[data.lang]}<p class="summary">{c.summary[data.lang]}</p>{/if}
     <dl class="facts">
       <div>
@@ -111,7 +112,7 @@
       </div>
       <div>
         <dt>{en ? 'Court' : 'Pengadilan'}</dt>
-        <dd>{c.court || '—'}</dd>
+        <dd>{displayCourt(c, data.lang) || '—'}</dd>
       </div>
     </dl>
     {#if !empty && !c.archived}<div class="case-actions">
@@ -303,7 +304,7 @@
           {#each w.documents.slice(0, 4) as doc (doc.id)}<a
               class="doc-row"
               href={base + '/documents/' + doc.id}
-              ><FileText size={15} /><span>{doc.title}</span><small>{doc.pages} {en ? 'pp.' : 'hlm.'}</small
+              ><FileText size={15} /><span>{displayTitle(doc, data.lang)}</span><small>{doc.pages} {en ? 'pp.' : 'hlm.'}</small
               ></a
             >{/each}
           {#if w.documents.length > 4}<a class="text-action" href={base + '/documents'}
