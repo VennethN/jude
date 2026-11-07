@@ -549,7 +549,7 @@
           <a class="button" href={base + '/hearings/' + activeOther.id}
             >{en ? 'Go to live hearing' : 'Buka sidang berjalan'}<ArrowRight size={15} /></a
           >
-        {:else if synthetic || (!account.user.guest && transcription && !h.closed)}<button
+        {:else if !h.closed && (synthetic || (!account.user.guest && account.plan.id !== 'basic' && transcription))}<button
             class="button primary"
             onclick={() => (dialog = 'start')}
             ><Mic size={16} />{en ? 'Start hearing' : 'Mulai sidang'}</button
@@ -559,9 +559,11 @@
               ? en
                 ? 'This hearing is closed to recording.'
                 : 'Perekaman tidak tersedia dalam sidang tertutup.'
-              : en
-                ? 'Live transcription is unavailable for this account.'
-                : 'Transkripsi langsung tidak tersedia untuk akun ini.'}
+              : account.user.guest
+                ? (en ? 'Sign in to record a private hearing.' : 'Masuk untuk merekam sidang privat.')
+                : account.plan.id === 'basic'
+                  ? (en ? 'Live recording requires Advocate Pro or higher.' : 'Rekam langsung tersedia mulai paket Advokat Pro.')
+                  : (en ? 'The voice service has not enabled transcription.' : 'Transkripsi belum aktif pada layanan suara.')}
           </p>{/if}
       </section>
     </div>

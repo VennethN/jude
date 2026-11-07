@@ -27,8 +27,9 @@ const require = createRequire(join(webDir, 'package.json'));
 const webCommand = dev
   ? [resolve(dirname(require.resolve('vite/package.json')), 'bin/vite.js'), ...webArgs]
   : ['server.mjs'];
+const hostedVoice = dev && new URL(env.VOICE_ORIGIN).protocol === 'https:';
 const children = [
-  launchVoice(env),
+  ...(hostedVoice ? [] : [launchVoice(env)]),
   spawn(process.execPath, webCommand, { cwd: webDir, env, stdio: 'inherit' }),
 ];
 let stopping = false;

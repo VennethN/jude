@@ -14,6 +14,7 @@
     en = $derived(data.lang === 'en'),
     base = $derived('/case/' + w.caseRecord.id + '/hearings');
   const live = $derived(w.hearings.find((h) => h.mode === 'live'));
+  const canStart = $derived(w.caseRecord.label === 'synthetic' || (!data.account.user.guest && data.account.plan.id !== 'basic' && data.transcription));
   let query = $state(''),
     reviewOnly = $state(false),
     create = $state(false),
@@ -93,7 +94,7 @@
     {#if !w.caseRecord.archived}<div class="toolbar" data-tour="hearings-new">
         {#if live}<a class="button" href={base + '/' + live.id}
             ><Mic size={16} />{en ? 'Open live hearing' : 'Buka sidang langsung'}</a
-          >{:else if data.transcription || w.caseRecord.label === 'synthetic'}<button
+          >{:else if canStart}<button
             class="button"
             onclick={() => open('live')}><Mic size={16} />{en ? 'Record live' : 'Rekam langsung'}</button
           >{/if}<button class="button primary" onclick={() => open()}
@@ -122,7 +123,7 @@
           lang={data.lang}
           {match}
           term={query.trim()}
-          onstart={w.caseRecord.archived ? undefined : () => open('live', h)}
+          onstart={!w.caseRecord.archived && canStart && !h.closed ? () => open('live', h) : undefined}
         />
         {#if manage && h.mode !== 'live'}<button
             class="remove"
