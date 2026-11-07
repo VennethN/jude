@@ -15,6 +15,7 @@ provider "aws" {
       Project     = var.project
       Environment = var.environment
       ManagedBy   = "terraform"
+      Hackathon   = "true"
     }
   }
 }

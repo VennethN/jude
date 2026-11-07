@@ -6,6 +6,7 @@ const baseURL = process.env.JUDE_TEST_URL || 'http://127.0.0.1:4191';
 const dataDir = mkdtempSync(join(tmpdir(), 'jude-browser-'));
 export default defineConfig({
   testDir: './tests/e2e',
+  outputDir: './test-results',
   timeout: 45000,
   workers: 2,
   fullyParallel: true,
@@ -20,6 +21,7 @@ export default defineConfig({
     ? undefined
     : {
         command: 'node scripts/start.mjs',
+        cwd: new URL('../../', import.meta.url).pathname,
         url: baseURL + '/healthz',
         reuseExistingServer: false,
         timeout: 60000,

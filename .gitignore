@@ -39,4 +39,3 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .ruff_cache/
-.amplify-hosting/

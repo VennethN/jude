@@ -6,9 +6,9 @@ import { tmpdir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { documents, passages } from '../packages/core/src/server/seed.ts';
+import { documents, passages } from '../../../packages/core/src/server/seed.ts';
 
-const root = fileURLToPath(new URL('../apps/web/', import.meta.url));
+const root = fileURLToPath(new URL('../', import.meta.url));
 const out = path.join(root, 'static/demo/documents');
 const { chromium } = createRequire(path.join(root, 'package.json'))('@playwright/test');
 const docs = Object.fromEntries(

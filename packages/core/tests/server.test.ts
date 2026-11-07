@@ -11,17 +11,17 @@ import type {
   SessionInfo,
   Thread,
   Workspace,
-} from '../packages/core/src/domain';
-import { endpoint } from '../packages/core/src/server/api';
-import { sessionFromToken } from '../packages/core/src/server/auth';
-import { transaction } from '../packages/core/src/server/db';
-import { mutateWorkspace } from '../packages/core/src/server/cases';
-import { runAnalysisWorker } from '../packages/core/src/server/jobs';
-import { purgeExpired, retentionMs } from '../packages/core/src/server/retention';
-import { getOriginal, putOriginal } from '../packages/core/src/server/providers/storage';
-import { meter } from '../packages/core/src/server/billing';
-import { storeFile } from '../packages/core/src/server/documents';
-import { demoAssetsDirectory, repositoryRoot } from '../packages/core/src/server/workspace-paths';
+} from '../src/domain';
+import { endpoint } from '../src/server/api';
+import { sessionFromToken } from '../src/server/auth';
+import { transaction } from '../src/server/db';
+import { mutateWorkspace } from '../src/server/cases';
+import { runAnalysisWorker } from '../src/server/jobs';
+import { purgeExpired, retentionMs } from '../src/server/retention';
+import { getOriginal, putOriginal } from '../src/server/providers/storage';
+import { meter } from '../src/server/billing';
+import { storeFile } from '../src/server/documents';
+import { demoAssetsDirectory, repositoryRoot } from '../src/server/workspace-paths';
 
 let temporary: string;
 beforeAll(async () => {

@@ -10,3 +10,6 @@ db_deletion_protection = true
 # Temporary public access from any IPv4 address, as requested.
 db_publicly_accessible  = true
 db_allowed_public_cidrs = ["0.0.0.0/0"]
+
+enable_application = true
+enable_voice_host  = true

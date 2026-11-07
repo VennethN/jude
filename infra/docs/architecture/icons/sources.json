@@ -1,12 +1,6 @@
 {
   "note": "Original vendor artwork, used only to identify services. No endorsement implied. SVG originals are unmodified; PNG files are rasterized caches.",
   "assets": {
-    "amplify": {
-      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
-      "archive_path": "Architecture-Service-Icons_07312026/Arch_Front-End-Web-Mobile/64/Arch_AWS-Amplify_64.svg",
-      "owner": "Amazon Web Services",
-      "sha256": "d38fd389b67c4df1a22be0f1308b577bb874dbe9dd8ee065ebb69d4e5508b08f"
-    },
     "ec2": {
       "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
       "archive_path": "Architecture-Service-Icons_07312026/Arch_Compute/64/Arch_Amazon-EC2_64.svg",
@@ -134,6 +128,24 @@
       "source": "https://caddyserver.com/resources/images/logo-light.svg",
       "owner": "Caddy",
       "sha256": "7cb6f7b34b040f11c04974cc67ab89abc6860ab4bf556903ce21c1e65b66cd21"
+    },
+    "cloudfront": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Networking-Content-Delivery/64/Arch_Amazon-CloudFront_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "664919982792a69058077eaf39240afd320bbcbd082d36a9148184ec32708cd5"
+    },
+    "s3": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Storage/64/Arch_Amazon-Simple-Storage-Service_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "b92c5101cc6565dd12df37655802279f8fba0c719279f62f93106d26750b36c6"
+    },
+    "kms": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Security-Identity/64/Arch_AWS-Key-Management-Service_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "5b3ed298ae380707f77ca21c2f417d0a7a36e70e59bfe9a5d8f281b8447ae750"
     }
   }
 }
