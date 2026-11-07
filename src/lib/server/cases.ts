@@ -1,0 +1,164 @@
+import { randomUUID } from 'node:crypto';
+import type { CaseRecord, CaseSummary, Thread, Workspace } from '../domain';
+import { needsReview } from '../domain';
+import * as seed from './seed';
+import { transaction, type Database } from './db';
+import { ApiError, bilingual, missing, string, type Fields } from './validation';
+
+const groups = ['hearings','speakers','statements','findings','documents','passages','connections','boards','threads','legal','replies'] as const;
+type Group = typeof groups[number];
+interface CaseRow {id: string; record: string; version: number; archived: number;}
+type EntityEntry = {kind: Group; id: string; ordinal: number; body: string};
+export function emptyWorkspace(caseRecord: CaseRecord): Workspace {
+  return { caseRecord, version: 1, hearings: [], speakers: [], statements: [], findings: [], documents: [],
+    passages: [], connections: [], boards: [], threads: [], legal: [], replies: [] };
+}
+
+function samples(caseId: string): Thread[] {
+  const prompts = [
+    ['th-differences','Di mana keterangan saksi berbeda?','Where do the accounts differ?', 'd1p4'],
+    ['th-keys','Siapa yang memegang kunci gudang?', 'Who held the warehouse keys?', 'd2p2'],
+    ['th-timeline','Kapan truk meninggalkan gerbang?', 'When did the truck leave the gate?', 'd3p3'],
+    ['th-patrol','Kapan patroli dicatat?', 'When were the patrols logged?', 'd3p4']
+  ];
+  return prompts.map(([id, idTitle, enTitle, passageId], index) => {
+    const title = {id: idTitle, en: enTitle};
+    const passage = seed.passages.find(p => p.id === passageId)!;
+    return {
+      id, caseId, title, updated: Date.parse(seed.TODAY) - index * 60000, sample: true,
+      messages: [
+        {id: id + '-q', role: 'user', text: title, contexts: [{kind:'case'}]},
+        {id: id + '-a', role:'assistant', text: '“' + passage.text + '” [1]', mode:'sources-only',
+          citations: [{kind:'passage',id:passageId}]}
+      ]
+    };
+  });
+}
+function demoWorkspace(template: CaseRecord) {
+  const id = randomUUID();
+  const workspace = emptyWorkspace({...structuredClone(template), id});
+  const hearingIds = new Set(seed.hearings.filter(h => h.caseId === template.id).map(h => h.id));
+  workspace.hearings = seed.hearings.filter(h => hearingIds.has(h.id)).map(h => ({...h,caseId:id}));
+  workspace.documents = seed.documents.filter(d => d.caseId === template.id).map(d => ({...d,caseId:id,original:d.pdf,status:'ready'}));
+  workspace.passages = seed.passages.filter(p => workspace.documents.some(d => d.id === p.docId));
+  workspace.statements = seed.statements.filter(s => hearingIds.has(s.hearingId));
+  if (template.id === 'c1') {
+    workspace.findings = seed.findings;
+    workspace.connections = seed.connections;
+    workspace.speakers = seed.speakers;
+    workspace.legal = seed.legal;
+    workspace.threads = samples(id);
+  }
+  return workspace;
+}
+
+export async function seedOrganization(db: Database, orgId: string) {
+  const refs: Record<string, string> = {};
+  for (const template of seed.cases) {
+    const workspace = demoWorkspace(template);
+    refs[template.id] = workspace.caseRecord.id;
+    for (const group of groups) for (const item of workspace[group]) refs[item.id] = item.id;
+    await insertWorkspace(db, orgId, workspace);
+  }
+  await db.query('UPDATE organizations SET demo_id=$1,demo_refs=$2 WHERE id=$3',[refs.c1,JSON.stringify(refs),orgId]);
+}
+
+function entries(workspace: Workspace) {
+  const values = new Map<string,EntityEntry>();
+  for (const kind of groups) {
+    workspace[kind].forEach((entity, ordinal) => {
+      values.set(kind + '/' + entity.id, {kind,id:entity.id,ordinal,body:JSON.stringify(entity)});
+    });
+  }
+  return values;
+}
+async function saveEntries(db: Database, caseId: string, before: Map<string,EntityEntry>, workspace: Workspace) {
+  const after = entries(workspace);
+  for (const [key, entry] of after) {
+    const prev = before.get(key);
+    if (prev?.body === entry.body && prev.ordinal === entry.ordinal) continue;
+    await db.query('INSERT INTO case_entities(case_id,kind,id,ordinal,body) VALUES($1,$2,$3,$4,$5) ON CONFLICT(case_id,kind,id) DO UPDATE SET ordinal=excluded.ordinal,body=excluded.body',
+      [caseId,entry.kind,entry.id,entry.ordinal,entry.body]);
+  }
+  for (const [key, entry] of before) {
+    if (!after.has(key)) await db.query('DELETE FROM case_entities WHERE case_id=$1 AND kind=$2 AND id=$3',[caseId,entry.kind,entry.id]);
+  }
+}
+export async function insertWorkspace(db: Database, orgId: string, workspace: Workspace) {
+  const record = workspace.caseRecord;
+  await db.query('INSERT INTO cases(id,org_id,record,version,updated_at,synthetic) VALUES($1,$2,$3,$4,$5,$6)',
+    [record.id,orgId,JSON.stringify(record),workspace.version,Date.now(),Number(record.label==='synthetic')]);
+  await saveEntries(db, record.id, new Map(), workspace);
+}
+export async function orgLock(db: Database, orgId: string) {
+  const rows = await db.query('SELECT id FROM organizations WHERE id=$1'+db.forUpdate,[orgId]);
+  if (!rows.length) missing();
+}
+export async function workspaceIn(db: Database, orgId: string, caseId: string, write = false) {
+  const [row] = await db.query<CaseRow>('SELECT id,record,version,archived FROM cases WHERE id=$1 AND org_id=$2 AND deleted_at IS NULL'+(write ? db.forUpdate : db.forUpdate ? ' FOR SHARE' : ''),[caseId,orgId]);
+  if (!row) missing();
+  if (write && row.archived) throw new ApiError(409,'case_archived','Restore the archived case before editing it.');
+  const w = emptyWorkspace(JSON.parse(row.record) as CaseRecord);
+  w.caseRecord.archived = Boolean(row.archived);
+  w.version = row.version;
+  const data = await db.query<EntityEntry>('SELECT kind,id,ordinal,body FROM case_entities WHERE case_id=$1 ORDER BY kind,ordinal',[caseId]);
+  for (const entry of data) (w[entry.kind] as {id:string}[]).push(JSON.parse(entry.body));
+  return w;
+}
+export async function changeIn<T>(db: Database, orgId: string, caseId: string, edit: (workspace: Workspace) => T) {
+  const workspace = await workspaceIn(db,orgId,caseId,true);
+  const before = entries(workspace);
+  const previousRecord = JSON.stringify(workspace.caseRecord);
+  const result = edit(workspace);
+  const after = entries(workspace);
+  if (before.size === after.size && [...after].every(([key,value]) => before.get(key)?.body === value.body && before.get(key)?.ordinal === value.ordinal)
+    && previousRecord === JSON.stringify(workspace.caseRecord)) return result;
+  workspace.version++;
+  workspace.caseRecord.updated = new Date().toISOString();
+  await db.query('UPDATE cases SET record=$1,version=$2,updated_at=$3 WHERE id=$4',[JSON.stringify(workspace.caseRecord),workspace.version,Date.now(),caseId]);
+  await saveEntries(db,caseId,before,workspace);
+  return result;
+}
+export const readWorkspace = (orgId: string,caseId: string) => transaction(db => workspaceIn(db,orgId,caseId));
+export function mutateWorkspace<T>(orgId: string,caseId: string,edit:(workspace: Workspace) => T) {
+  return transaction(db => changeIn(db,orgId,caseId,edit));
+}
+
+export function makeCase(fields: Fields): CaseRecord {
+  return {id:randomUUID(),title:string(fields.title,'title',200),reference:string(fields.reference,'reference',200,true),
+    label:'private',court:string(fields.court,'court',240,true),client:string(fields.client,'client',150,true),
+    summary:bilingual(fields.summary,'summary',4000,true),updated:new Date().toISOString()};
+}
+export function patchCase(workspace: Workspace, fields: Fields) {
+  const item = workspace.caseRecord;
+  if ('title' in fields) item.title = string(fields.title,'title',200);
+  if ('reference' in fields) item.reference = string(fields.reference,'reference',200,true);
+  if ('client' in fields) item.client = string(fields.client,'client',150,true);
+  if ('court' in fields) item.court = string(fields.court,'court',240,true);
+  if ('summary' in fields) item.summary = bilingual(fields.summary,'summary',4000,true);
+  return item;
+}
+export async function listCases(db:Database, orgId:string, term='') {
+  const records = await db.query<CaseRow>('SELECT id,record,version,archived FROM cases WHERE org_id=$1 AND deleted_at IS NULL ORDER BY updated_at DESC,id ASC',[orgId]);
+  const summaries: CaseSummary[] = [];
+  for (const record of records) {
+    const info:CaseRecord = JSON.parse(record.record);
+    if (term && !(info.title+' '+info.reference+' '+info.court+' '+info.client).toLowerCase().includes(term.toLowerCase())) continue;
+    const w = await workspaceIn(db,orgId,record.id);
+    summaries.push({...w.caseRecord,counts:{hearings:w.hearings.length,documents:w.documents.length,needsLook:w.findings.filter(needsReview).length},
+      live:w.hearings.find(h=>h.mode==='live') ?? null});
+  }
+  return summaries.sort((a,b) => Number(Boolean(b.live))-Number(Boolean(a.live)) || b.updated.localeCompare(a.updated));
+}
+
+export async function idempotent<T>(db:Database, orgId:string, scope:string, key:string|null, run:()=>Promise<T>) {
+  if (!key) return run();
+  string(key,'Idempotency-Key',100);
+  await orgLock(db,orgId);
+  const [prior] = await db.query<{result:string}>('SELECT result FROM idempotency WHERE org_id=$1 AND scope=$2 AND key=$3',[orgId,scope,key]);
+  if (prior) return JSON.parse(prior.result) as T;
+  const value = await run();
+  await db.query('INSERT INTO idempotency(org_id,scope,key,result,created_at) VALUES($1,$2,$3,$4,$5)',[orgId,scope,key,JSON.stringify(value),Date.now()]);
+  return value;
+}
+

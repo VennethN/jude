@@ -133,6 +133,7 @@ export interface CaseDocument {
 }
 
 export interface Passage {
+  ocr?: boolean;
   id: string;
   docId: string;
   page: number;
