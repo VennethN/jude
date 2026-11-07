@@ -15,6 +15,7 @@
     workspace: w,
     lang,
     compact = false,
+    initialQuestion = '',
     context,
     threadId,
     draft: initialDraft = '',
@@ -23,6 +24,7 @@
     workspace: Workspace;
     lang: Lang;
     compact?: boolean;
+    initialQuestion?: string;
     context?: ContextRef;
     threadId?: string;
     draft?: string;
@@ -39,7 +41,7 @@
     untrack(() => initialDraft || (!compact ? (page.state as {judeDraft?: string}).judeDraft : '') || '')
   );
   let extra = $state<ContextRef[]>([]),
-    ignoreContext = $state(false),
+    removedInitial = $state<string[]>([]),
     pick = $state(false),
     search = $state(''),
     busy = $state(false),
@@ -69,10 +71,12 @@
       if (sourceOf(w, ref, lang)) return ref;
     }
   }
-  let scope = $derived(context ?? parse(page.url.searchParams.get('context')) ?? ({ kind: 'case' } as const));
+  let initialContexts = $derived(
+    context ? [context] : page.url.searchParams.getAll('context').map(parse).filter((ref) => ref !== undefined)
+  );
   const key = (c: ContextRef) => ('id' in c ? evidenceKey(c) : c.kind);
   let contexts = $derived.by(() => {
-    const all = !ignoreContext && scope.kind !== 'case' ? [scope, ...extra] : extra;
+    const all = [...initialContexts.filter((c) => c.kind !== 'case' && !removedInitial.includes(key(c))), ...extra];
     const seen = new Set<string>();
     return all
       .filter((c) => {
@@ -159,7 +163,7 @@
     }
   }
   function remove(ref: ContextRef) {
-    if (key(ref) === key(scope)) ignoreContext = true;
+    if (initialContexts.some((c) => key(ref) === key(c))) removedInitial = [...removedInitial, key(ref)];
     extra = extra.filter((c) => key(c) !== key(ref));
   }
   function toggle(ref: ContextRef) {
@@ -229,7 +233,7 @@
     currentId = '';
     result = undefined;
     extra = [];
-    ignoreContext = false;
+    removedInitial = [];
     draft = '';
     problem = '';
     retry = '';
@@ -266,13 +270,19 @@
       void send(judeAsk.text, true);
     }
     if (compact) {
+      composer?.focus({ preventScroll: true });
+      if (initialQuestion.trim()) {
+        currentId = '';
+        remember('');
+        void send(initialQuestion, true);
+        return;
+      }
       try {
         const saved = sessionStorage.getItem(storeKey);
         if (saved && w.threads.some((t) => t.id === saved)) currentId = saved;
       } catch {
         /* Storage is optional. */
       }
-      composer?.focus();
     }
     if (currentId) {
       remember(currentId);
