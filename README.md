@@ -4,7 +4,7 @@
 
 A courtroom workspace for reading case files, following testimony, and reviewing findings alongside their original sources. Built for Indonesian legal workflows, with Indonesian and English interfaces that preserve source material in its original language.
 
-[![Test and deploy](https://github.com/VennethN/jude/actions/workflows/deploy.yml/badge.svg)](https://github.com/VennethN/jude/actions/workflows/deploy.yml)
+[![Lint and deploy](https://github.com/VennethN/jude/actions/workflows/deploy.yml/badge.svg)](https://github.com/VennethN/jude/actions/workflows/deploy.yml)
 
 [Web](apps/web/README.md) · [Voice](apps/voice/README.md) · [Deployment](apps/web/docs/aws.md) · [Product](apps/web/PRODUCT.md) · [Design](apps/web/DESIGN.md)
 
@@ -88,11 +88,11 @@ pnpm exec playwright install chromium
 pnpm test:e2e
 ```
 
-GitHub Actions also tests web and voice persistence against PostgreSQL. Run `pnpm design:check` for design-pattern checks and `node apps/web/scripts/check-bundle.mjs` for the initial JavaScript budget.
+Database and browser suites run separately from the deployment pipeline. Run `pnpm design:check` for design-pattern checks and `node apps/web/scripts/check-bundle.mjs` for the initial JavaScript budget.
 
 ## Deploy to AWS
 
-The [Test and deploy workflow](.github/workflows/deploy.yml) runs separate **web** and **voice** checks. Once both pass, an eligible push to `main` builds the Linux AMD64 `release-pyannote` image, publishes it to ECR, and deploys it through SSM. EC2 pulls the image by digest and checks both application processes before confirming proxy readiness.
+The [Lint and deploy workflow](.github/workflows/deploy.yml) runs **web static checks** and **Python lint**, without unit, database or E2E suites. Once both pass, an eligible push to `main` builds the Linux AMD64 `release-pyannote` image, publishes it to ECR, and deploys it through SSM. EC2 pulls the image by digest and checks both application processes before confirming proxy readiness.
 
 GitHub authenticates to AWS through **OIDC**. Deployment settings are read from repository Actions Secrets:
 

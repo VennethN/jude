@@ -39,4 +39,8 @@ An absent or empty model parameter keeps replay and playback available. For opt-
 
 For the custom-domain `jude.service` deployment, set `JUDE_DIARIZATION_MODEL=/models/community-1` in its Secrets Manager application secret. For an independent voice container, configure the same read-only bind mount and model path. `JUDE_DIARIZATION_TIMEOUT_MS` sets the inference deadline in milliseconds.
 
+For the Jakarta host deployed by GitHub Actions, temporarily store an authorized Hugging Face read token as the SSM SecureString `/jude-dev/runtime/HF_TOKEN`. Run `infra/deploy/provision-diarization.sh` on that host through SSM. It downloads the pinned snapshot using the current application image, verifies that the pipeline loads without network access, and installs it without replacing an existing model. It does not restart the application.
+
+After provisioning succeeds, remove the temporary `HF_TOKEN` parameter and set `/jude-dev/runtime/JUDE_DIARIZATION_MODEL` to `/models/community-1`. Redeploy using `infra/deploy/run-voice-host.sh`. The deployment validates the model before replacing the running containers and mounts it read-only. The snapshot persists across application deployments. Verify `/capabilities` on voice's internal port 3001 and test both file and live transcription using synthetic speech before accepting private recordings.
+
 When supplying an image tag to the [AWS environment guide](../../web/docs/aws.md), include the selected build target. Keep the compatible image digest and model snapshot revision with the release record.
