@@ -7,7 +7,8 @@ Official SVG artwork and PNG caches live in infra/docs/architecture/icons.
 Vendor sources and SHA-256 digests are recorded in icons/sources.json.
 Generating either format is offline; ImageMagick is not a runtime dependency.
 Edit the layout below, or pass --config settings.json to override CONFIG values.
-The diagram documents Terraform and the GitHub Actions deployment workflow.
+The diagrams document application flows, Terraform and the GitHub Actions workflow.
+The overview and two focused views are emitted together; see the architecture README.
 """
 from __future__ import annotations
 
@@ -55,7 +56,7 @@ class Drawing:
     def __init__(self, width=2000, height=1100, png=True):
         self.width, self.height, self.scale = width, height, 2
         self.svg = [f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" viewBox="0 0 {width} {height}" role="img" aria-labelledby="title desc">',
-                    '<title id="title">AWS architecture: EC2 frontend, web API and Python voice</title>',
+                    '<title id="title">Jude service architecture and application flows</title>',
                     '<desc id="desc">CloudFront serves HTTPS from a Jakarta EC2 host running SvelteKit frontend and API plus Python voice. RDS and private S3 storage are in Jakarta. GitHub Actions checks both services, builds an ECR image and deploys it by digest through Systems Manager using OIDC.</desc>',
                     '<rect width="100%" height="100%" fill="white"/>']
         self.image = self.pen = None
@@ -169,108 +170,147 @@ class Drawing:
         if code:
             self.text(x+58,y+53,code,20,color=MUTED)
 
-    def write(self, directory):
+    def write(self, directory, name="aws-architecture"):
         directory.mkdir(parents=True, exist_ok=True)
-        target = directory / "aws-architecture.svg"
+        target = directory / f"{name}.svg"
         target.write_text("\n".join(self.svg+["</svg>"]), encoding="utf-8")
         print(target)
         if self.image:
-            target = directory / "aws-architecture.png"
+            target = directory / f"{name}.png"
             self.image.save(target)
             print(target)
 
 
+def box(d, x, y, w, h, title, lines=(), color=BLUE, fill="#f7faff", icon=None):
+    d.rect(x, y, w, h, fill, color, 12)
+    if icon:
+        d.icon(x+16, y+12, color, icon, size=32)
+    d.text(x+(60 if icon else 18), y+28, title, 21, bold=True)
+    for index, line in enumerate(lines):
+        d.text(x+18, y+58+index*25, line, 18, color=MUTED)
+
+
+def heading(d, title, subtitle):
+    d.text(32, 34, title, 30, bold=True)
+    d.text(32, 70, subtitle, 18, color=MUTED)
+
+
+def note(d, x, y, text, color=MUTED):
+    d.text(x, y, text, 17, color=color)
+
+
+def flow(d, points, label=None, label_at=None, color=BLUE, dashed=False):
+    d.line(points, color=color, width=2, dashed=dashed, arrow=True)
+    if label:
+        x, y = label_at
+        width = len(label)*8.3+16
+        d.rect(x-width/2, y-13, width, 26, "white", "none", 4)
+        d.text(x, y, label, 16, color=color, bold=True, align="center")
+
+
+def save(d, output, name):
+    d.write(output, name)
+
+
 def generate(config, output, png):
-    """One Jakarta compute region; CloudFront is an edge service, not hosting."""
+    """Render the current voice-host path, then focused application/control planes.
+
+    This checked-in Python source is the editable, offline diagram source.
+    README.md in the output directory records evidence and conditional behavior.
+    """
     c = config
-    d = Drawing(width=2080, height=1180, png=png)
-    d.rect(240, 40, 1600, 1090, "white", "#647084", 16)
-    d.icon(264, 64, INK, "aws-cloud", size=40)
-    d.text(320, 85, "AWS Cloud", 27, bold=True)
-    d.card(320, 132, 330, 88, "CloudFront", PURPLE, size=22)
-    d.card(1860, 132, 200, 88, "OpenAI API", TEAL, size=17)
-    d.group(850, 96, 910, 154, "Asia Pacific (Singapore)", "ap-southeast-1")
-    d.card(1320, 178, 350, 60, "Amazon Transcribe", TEAL, size=20)
-    d.text(485, 241, "Global edge · HTTPS / WebSocket", 17, color=MUTED, align="center")
-    d.group(280, 268, 1520, 800, c["backend_region"], c["backend_region_code"])
-    d.group(312, 374, 1456, 466, f'Amazon VPC · {c["vpc"]}', color=GREEN, fill="#fbfefb")
-    d.group(344, 454, 850, 362, f'Application subnet · {c["voice_subnet"]}', color=GREEN, fill="#f5fbf4")
-    d.group(1242, 454, 494, 362, "RDS subnet group · 2 AZs", color=BLUE, fill="#f6faff")
-    d.card(1452, 350, 284, 64, "Internet Gateway", PURPLE, size=18)
+    d = Drawing(width=1280, height=1240, png=png)
+    heading(d, "Jude · service and hosting overview", "Repository configuration · Jakarta compute/storage · Singapore speech recognition")
 
-    d.card(368, 528, 802, 214, f'Amazon EC2 · {c["instance"]}', ORANGE, kind="compute", fill="#fffaf4", size=23)
-    d.asset(1040, 547, 28, 24, "docker")
-    d.text(1076, 560, "Docker", 17, color=BLUE, bold=True)
-    d.rect(392, 602, 330, 72, "#f4f9ff", "#91b3de", 8)
-    d.text(557, 625, "SvelteKit · Node.js", 21, bold=True, align="center")
-    d.text(557, 653, "Frontend + API :3000", 18, color=MUTED, align="center")
-    d.rect(780, 602, 366, 72, "#f4f9ff", "#91b3de", 8)
-    d.icon(796, 624, TEAL, "fastapi", size=28)
-    d.text(980, 625, "Python · FastAPI", 21, bold=True, align="center")
-    d.text(980, 653, "Voice :3001", 18, color=MUTED, align="center")
-    d.line([(722, 638), (780, 638)], width=1.8, arrow=True)
-    d.rect(392, 690, 330, 40, "white", "#91b3de", 8)
-    d.asset(463, 698, 80, 26, "caddy")
-    d.text(582, 710, ":80", 17, bold=True)
-    d.line([(418, 690), (418, 674)], width=1.8, arrow=True)
-    d.rect(368, 758, 802, 40, "white", "#a9c99b", 8)
-    d.icon(384, 766, GREEN, "ebs", size=24)
-    d.text(424, 778, f'EBS gp3 · {c["disk_gb"]} GB', 19, bold=True)
+    box(d, 32, 108, 340, 130, "Browser", ["Svelte workspace + microphone", "Session cookie; per-tab memory cache"], INK, "#f8fafc", icon="users")
+    box(d, 450, 108, 360, 130, "CloudFront · global edge", ["HTTPS / WSS entry point", "Caching disabled; forwards requests"], PURPLE, "#fbf8ff", icon="cloudfront")
+    box(d, 888, 108, 360, 130, "Direct voice gateway", ["Optional HTTPS :443 → /api/live/*", "Enabled by committed tfvars"], PURPLE, "#fbf8ff", icon="caddy")
+    flow(d, [(372, 171), (450, 171)], "TLS", (410, 151))
+    flow(d, [(202, 238), (202, 259), (1068, 259), (1068, 238)], color=PURPLE, dashed=True)
 
-    d.text(1266, 519, f'AZ A · {c["db_subnet_a"]}', 18, color=MUTED)
-    d.card(1266, 548, 446, 112, "RDS PostgreSQL", PURPLE,
-           [f'{c["db_instance"]} · Single-AZ'], "database", fill="#fcf8ff", size=23)
-    d.text(1266, 692, f'AZ B · {c["db_subnet_b"]}', 18, color=MUTED)
-    d.text(1266, 719, "Subnet only · no standby", 17, color=MUTED)
-    d.rect(1266, 750, 446, 42, "#fff8ed", "#e8c99b", 8)
-    d.text(1489, 771, "Public RDS · TLS :5432", 18, bold=True, align="center")
+    d.rect(32, 290, 1216, 604, "#fbfefb", GREEN, 16)
+    d.icon(52, 300, PURPLE, "region", size=32)
+    d.text(96, 319, "AWS Jakarta · ap-southeast-3", 24, bold=True)
+    note(d, 52, 349, "VPC 10.40.0.0/16 · Internet Gateway · public app subnet 10.40.20.0/24")
+    d.rect(52, 378, 748, 460, "#fffaf4", ORANGE, 14)
+    d.icon(72, 388, ORANGE, "ec2", size=32)
+    d.text(116, 406, f'EC2 · {c["instance"]} · encrypted gp3 {c["disk_gb"]} GB', 22, bold=True)
+    d.icon(736, 422, BLUE, "docker", size=28)
+    note(d, 72, 436, "Caddy proxy container + one combined application container")
+    box(d, 72, 462, 708, 94, "Caddy :80 · CloudFront origin", ["HTTP origin restricted to CloudFront IP prefix list"], ORANGE, "white", icon="caddy")
+    flow(d, [(630, 238), (630, 276), (822, 276), (822, 508), (780, 508)], "HTTP / WS :80", (731, 276))
+    flow(d, [(1068, 238), (1068, 276), (832, 276), (832, 574), (244, 574), (244, 590)], color=PURPLE, dashed=True)
+    box(d, 72, 590, 338, 218, "Web · Node :3000", ["UI, auth, case and document APIs", "SSE events; NDJSON answers", "Analysis / index / retention jobs", "SvelteKit + shared TypeScript core"], BLUE, icon="docker")
+    box(d, 442, 590, 338, 218, "Voice · FastAPI :3001", ["Recording permissions + replay", "Live audio + file transcription", "Audio persistence, speaker labels", "Optional legacy pyannote worker"], TEAL, "#f2fcfa", icon="fastapi")
+    flow(d, [(244, 556), (244, 590)])
+    flow(d, [(410, 650), (442, 650)], color=TEAL)
+    note(d, 325, 851, "Web → Voice: HTTP / WS over loopback; no public :3000/:3001")
 
-    tiles = [
-        ("Amazon ECR", "ecr", ORANGE), ("Parameter Store", "parameter-store", PINK),
-        ("Secrets Manager", "secrets-manager", PINK), ("KMS", "kms", PINK),
-        ("S3 private files", "s3", GREEN), ("Systems Manager", "session-manager", PINK),
-        ("CloudWatch Logs", "cloudwatch", PINK),
-    ]
-    for index, (title, key, color) in enumerate(tiles):
-        x = 312 + index * 208
-        d.rect(x, 904, 192, 120, "white", "#d7dde7", 10)
-        d.icon(x+72, 922, color, key, size=48)
-        d.text(x+96, 998, title, 15, bold=True, align="center")
+    box(d, 850, 378, 378, 172, "RDS PostgreSQL", ["TLS :5432 · users, orgs, case records", "Transcripts, jobs, semantic vectors", "pgvector if installed; native fallback", "Single-AZ · two-subnet DB group"], PURPLE, "#fbf8ff", icon="rds")
+    box(d, 850, 590, 378, 140, "Private S3 + KMS", ["Original documents + hearing audio", "Server-side object access over HTTPS", "Public access blocked; SSE-KMS"], GREEN, "#f6fcf3", icon="s3")
+    d.icon(1180, 602, PINK, "kms", size=32)
+    flow(d, [(800, 486), (850, 486)], color=PURPLE)
+    flow(d, [(800, 678), (850, 678)], color=GREEN)
+    note(d, 850, 770, "RDS: db.t4g.micro · backup retention 7d")
+    note(d, 850, 797, "Committed public DB allowlist: 0.0.0.0/0")
+    note(d, 850, 824, "TLS required; no standby in current config")
+    note(d, 52, 875, "Boundary: provider credentials and private object access stay in the backend; see focused flows.")
 
-    d.card(32, 130, 168, 96, "Users", INK, size=20)
-    d.card(32, 640, 168, 112, "GitHub", INK, size=19)
-    d.text(116, 727, c["repository"], 14, color=MUTED, align="center")
-    d.card(24, 842, 184, 112, "Actions", INK, size=18)
-    d.text(116, 972, "Web + voice checks", 16, color=MUTED, align="center")
-    d.card(32, 1038, 168, 88, "Admin", INK, size=19)
+    box(d, 32, 922, 378, 146, "OpenAI + Pasal.id", ["OpenAI · LLM + embeddings · HTTPS", "Pasal.id · optional legal discovery", "No fixed provider region asserted"], TEAL, "#f2fcfa", icon="openai")
+    box(d, 442, 922, 378, 146, "Singapore · Transcribe", ["ap-southeast-1 · speech streaming", "Signed WSS :8443 from Voice", "Anonymous speaker labels + text"], TEAL, "#f2fcfa", icon="transcribe")
+    box(d, 852, 922, 396, 146, "Release + operations", ["GitHub OIDC → ECR / SSM", "S3 release scripts; Parameter Store", "RDS secret; PostgreSQL log export"], INK, "#f8fafc", icon="github")
+    for x, key, label in [(32, "aws-cloud", "AWS"), (180, "vpc", "VPC"), (328, "internet-gateway", "Internet GW"), (476, "ecr", "ECR"), (624, "parameter-store", "Parameters"), (772, "secrets-manager", "Secrets"), (920, "session-manager", "SSM"), (1068, "cloudwatch", "CloudWatch")]:
+        d.icon(x, 1090, INK, key, size=30)
+        d.text(x+39, 1105, label, 15, color=MUTED)
+    note(d, 32, 1160, "Solid arrows: request/data path. Dashed: configuration-dependent direct gateway.")
+    note(d, 32, 1190, "Details and source links: infra/docs/architecture/README.md · application-flow.svg · deployment-flow.svg")
+    # Write overview last, since Drawing.write retains the established output basename.
+    overview = d
 
-    def label(x, y, value, color=INK):
-        w = len(value)*8.5+18
-        d.rect(x-w/2, y-13, w, 26, "white", "none", 5)
-        d.text(x, y, value, 16, color=color, bold=True, align="center")
+    d = Drawing(width=1280, height=1210, png=png)
+    heading(d, "Jude · application data flows", "Three transports: HTTP APIs + case SSE + voice WebSocket · server-authoritative permissions")
+    box(d, 32, 108, 378, 220, "1 · Browser workspace", ["HttpOnly jude_session cookie", "Versioned snapshots + case register", "Bounded Maps in this tab's memory", "BroadcastChannel invalidates tabs", "Focus / visibility refresh guards"], INK, "#f8fafc")
+    box(d, 492, 108, 756, 220, "2 · Web authentication and case boundary", ["Session token hash → sessions + current organisation", "Case membership: owner / editor / viewer; mutation checks", "SSR guards + x-jude-workspace identity/version checks", "GET workspace snapshot + case library over HTTPS", "Guest entry imports bundled, labelled practice archive"], BLUE)
+    flow(d, [(410, 202), (492, 202)], "HTTPS", (450, 180))
 
-    d.line([(200, 178), (320, 178)], arrow=True)
-    label(260, 157, "HTTPS")
-    d.line([(320, 200), (264, 200), (264, 710), (392, 710)], BLUE, 2, arrow=True)
-    d.line([(692, 674), (692, 682), (1216, 682), (1216, 604), (1266, 604)], INK, 2, arrow=True)
-    d.line([(722, 614), (750, 614), (750, 514), (1212, 514), (1212, 348), (1960, 348), (1960, 220)], TEAL, 2, arrow=True)
-    d.line([(980, 602), (980, 490), (1186, 490), (1186, 258), (1495, 258), (1495, 238)], TEAL, 2, arrow=True)
-    d.line([(1146, 654), (1216, 654)], INK, 2)
-    label(1350, 348, "OpenAI HTTPS", TEAL)
-    label(1080, 490, "Speech / WSS", TEAL)
-    label(1010, 682, "PostgreSQL / TLS")
-    d.line([(116, 752), (116, 842)], ORANGE, 1.7, dashed=True, arrow=True)
-    d.line([(200, 884), (224, 884), (224, 1054), (408, 1054), (408, 1024)], ORANGE, 1.7, dashed=True, arrow=True)
-    d.line([(408, 904), (408, 866), (1228, 866), (1228, 582), (1170, 582)], ORANGE, 1.7, dashed=True, arrow=True)
-    label(782, 866, "Pull image by digest", ORANGE)
-    label(300, 1054, "Push image", ORANGE)
-    d.line([(200, 926), (216, 926), (216, 1100), (1444, 1100), (1444, 1024)], ORANGE, 1.7, dashed=True, arrow=True)
-    label(850, 1100, "OIDC role → SSM Run Command", ORANGE)
-    d.line([(200, 1082), (232, 1082), (232, 1140), (1476, 1140), (1476, 1024)], BLUE, 1.7, dashed=True, arrow=True)
-    d.line([(1448, 904), (1448, 882), (1204, 882), (1204, 720), (1170, 720)], BLUE, 1.7, dashed=True, arrow=True)
-    d.text(1040, 1162, "Solid: application traffic    ·    Dashed: deployment & administration", 16, color=MUTED, align="center")
-    d.write(output)
+    box(d, 32, 390, 378, 190, "3 · Case change stream", ["EventSource /api/cases/:id/events", "Web polls DB version every 1.5s", "SSE case.updated → refetch snapshot", "Access lost → discard / navigate"], BLUE)
+    box(d, 492, 390, 756, 190, "Shared PostgreSQL records and migrations", ["Both backends share sessions, orgs, cases and hearing records", "Durable analysis_jobs; semantic evidence + vector index", "PostgreSQL real[] cosine fallback; pgvector if installed", "Local development: shared SQLite + private filesystem"], PURPLE, "#fbf8ff")
+    flow(d, [(870, 328), (870, 390)], "SQL / TLS", (948, 357), color=PURPLE)
+    flow(d, [(492, 465), (410, 465)], "SSE", (450, 442))
+    flow(d, [(220, 390), (220, 328)], color=BLUE)
 
+    box(d, 32, 654, 378, 252, "4 · Hearings and audio", ["Web Audio microphone in browser", "Same-origin /api/live/*", "WSS: live PCM + server events", "HTTPS: upload, replay, audio range", "Web forwards cookie / origin", "Voice rechecks role + consent"], TEAL, "#f2fcfa")
+    box(d, 492, 654, 352, 252, "Voice · Python", ["FFmpeg decodes uploaded audio", "Transcribe text + speaker labels", "Persist transcript → queue analysis", "Store hearing audio privately", "Synthetic replay is labelled", "Legacy pyannote is optional"], TEAL, "#f2fcfa")
+    box(d, 922, 654, 326, 252, "Speech and objects", ["Transcribe · Singapore", "SigV4 WSS :8443", "", "S3 + KMS · Jakarta", "HTTPS object read / write", "Audio served through backend"], GREEN, "#f6fcf3")
+    flow(d, [(410, 748), (492, 748)], "HTTP/WS", (450, 726), color=TEAL)
+    flow(d, [(844, 748), (922, 748)], "WSS", (883, 726), color=TEAL)
+    flow(d, [(844, 848), (922, 848)], "HTTPS", (883, 826), color=GREEN)
+    flow(d, [(668, 654), (668, 580)], "SQL / TLS", (737, 615), color=PURPLE)
+
+    box(d, 32, 980, 378, 180, "5 · Evidence and Assistant", ["Documents: extract / OCR / convert", "Case archive import / export", "Private files through backend", "Source-linked answers + findings"], BLUE)
+    box(d, 492, 980, 352, 180, "Web jobs + retrieval", ["Two in-process analysis lanes", "Durable leases / retry / recovery", "Embedding index + retention purge", "Lexical + semantic case retrieval"], BLUE)
+    box(d, 922, 980, 326, 180, "Optional providers · HTTPS", ["OpenAI Responses: model tasks", "OpenAI embeddings: 1536 dims", "Pasal.id: legal discovery", "Assistant returns NDJSON stream"], TEAL, "#f2fcfa")
+    flow(d, [(410, 1060), (492, 1060)])
+    flow(d, [(844, 1060), (922, 1060)], "HTTPS", (883, 1037), color=TEAL)
+    note(d, 32, 1190, "All browser-to-backend traffic follows the overview ingress path. Workers run inside the services; no separate queue broker.")
+    save(d, output, "application-flow")
+
+    d = Drawing(width=1280, height=1030, png=png)
+    heading(d, "Jude · release and operations", "Current .github/workflows/deploy.yml path · one EC2 host · immutable image digest")
+    box(d, 32, 108, 378, 170, "1 · GitHub Actions checks", ["Pull requests / eligible main pushes", "pnpm check + design:check", "Python Ruff lint", "CI does not run full test suites"], INK, "#f8fafc")
+    box(d, 492, 108, 756, 170, "2 · Build, authenticate, publish", ["GitHub OIDC assumes scoped AWS deployment role", "Docker release-pyannote target · Linux AMD64", "Combined Node + Python image → immutable ECR digest", "Deployment scripts uploaded to S3 _deploy/releases/"], ORANGE, "#fffaf4")
+    flow(d, [(410, 190), (492, 190)], "pass", (450, 167), color=ORANGE)
+    box(d, 32, 354, 378, 200, "3 · SSM Run Command", ["deploy-ci.py invokes target EC2", "EC2 role fetches ECR + scripts", "Run run-voice-host.sh", "Then configured direct gateway", "No SSH deployment step"], ORANGE, "#fffaf4")
+    box(d, 492, 354, 756, 200, "4 · EC2 runtime · Jakarta", ["/jude-dev/runtime/* → temporary /run/jude/app.env", "Parameter Store holds runtime config + credentials", "RDS CA bundle downloaded; mounted read-only", "Optional offline Community-1 model mounted read-only", "jude-app + jude-proxy replaced on the single host"], BLUE)
+    flow(d, [(870, 278), (870, 314), (220, 314), (220, 354)], "OIDC → AWS SSM", (545, 314), color=ORANGE)
+    flow(d, [(410, 450), (492, 450)], "run", (450, 427), color=ORANGE)
+    box(d, 32, 630, 378, 192, "5 · Readiness and smoke test", ["Both :3000 and :3001 /healthz", "Expected x-jude-revision checked", "Proxy starts after app readiness", "Workflow checks public /healthz", "Replacement briefly interrupts traffic"], GREEN, "#f6fcf3")
+    box(d, 492, 630, 352, 192, "Persistent infrastructure", ["RDS: app data + job leases", "S3/KMS: originals + audio", "ECR: immutable release images", "SSM: host administration", "EBS: host + optional model"], PURPLE, "#fbf8ff")
+    box(d, 922, 630, 326, 192, "Secrets and logs", ["RDS-managed master secret", "Stored in Secrets Manager", "RDS PostgreSQL → CloudWatch", "Container logs: local rotation", "No app log sink asserted"], INK, "#f8fafc")
+    flow(d, [(870, 554), (870, 592), (220, 592), (220, 630)], "local health → public revision", (550, 592), color=GREEN)
+    box(d, 32, 892, 1216, 100, "Separate Terraform deployment option · not the workflow above", ["app_image_digest + app_hostname create app-host EC2 with direct Caddy TLS and application Secrets Manager JSON.", "Committed tfvars instead enables voice-host + CloudFront. These are separate provisioning paths; avoid assuming two live hosts."], MUTED, "#f8fafc")
+    save(d, output, "deployment-flow")
+    save(overview, output, "aws-architecture")
 
 def main():
     root = Path(__file__).resolve().parents[1]
