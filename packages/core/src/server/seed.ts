@@ -434,6 +434,7 @@ export const connections: Connection[] = [
 
 export const legal: LegalRef[] = [
   {
+    provider: "sample",
     id: "lg1",
     type: "UU",
     regulation: "UU No. 8 Tahun 1981 tentang Hukum Acara Pidana (KUHAP)",
@@ -445,6 +446,7 @@ export const legal: LegalRef[] = [
     keywords: ["saksi", "keterangan", "alat bukti", "testimony", "witness", "185", "kuhap"],
   },
   {
+    provider: "sample",
     id: "lg2",
     type: "UU",
     regulation: "UU No. 8 Tahun 1981 tentang Hukum Acara Pidana (KUHAP)",
@@ -456,6 +458,7 @@ export const legal: LegalRef[] = [
     keywords: ["alat bukti", "bukti", "evidence", "184", "kuhap", "surat"],
   },
   {
+    provider: "sample",
     id: "lg3",
     type: "KUHP",
     regulation: "Kitab Undang-Undang Hukum Pidana (KUHP)",
@@ -467,6 +470,7 @@ export const legal: LegalRef[] = [
     keywords: ["penggelapan", "jabatan", "hubungan kerja", "embezzlement", "374", "kuhp"],
   },
   {
+    provider: "sample",
     id: "lg4",
     type: "KUHP",
     regulation: "Kitab Undang-Undang Hukum Pidana (KUHP)",
@@ -478,6 +482,7 @@ export const legal: LegalRef[] = [
     keywords: ["penggelapan", "embezzlement", "372", "kuhp", "barang"],
   },
   {
+    provider: "sample",
     id: "lg5",
     type: "UU",
     regulation: "UU No. 8 Tahun 1981 tentang Hukum Acara Pidana (KUHAP)",
@@ -489,6 +494,7 @@ export const legal: LegalRef[] = [
     keywords: ["saksi", "terdakwa", "tanpa hadirnya", "173", "kuhap"],
   },
   {
+    provider: "sample",
     id: "lg6",
     type: "PERMA",
     regulation: "PERMA No. 5 Tahun 2020 tentang Protokol Persidangan dan Keamanan dalam Lingkungan Pengadilan",

@@ -32,6 +32,7 @@ import { addHearing, endHearing, importHearing, patchHearing, patchSpeaker, star
 import {
   ApiError,
   bilingual,
+  bool,
   choice,
   conflict,
   invalid,
@@ -45,6 +46,7 @@ import {
 import { jsonFields } from './request';
 import { authorizeCase, listMembers, setCaseMember } from './access';
 import { answerQuestion } from './providers/assistant';
+import { discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
 
 const groups = [
   'hearings',
@@ -274,6 +276,7 @@ async function postMessage(
   const org = session.organization.id,
     text = string(f.text ?? f.question, 'text', 6000),
     lang = choice(f.lang ?? session.prefs.lang ?? 'id', ['id', 'en'], 'lang');
+  const withLegal = f.withLegal === undefined ? true : bool(f.withLegal, 'withLegal');
   const scope = caseId + '/threads/' + threadId + '/messages';
   const before = await transaction(async (db) => {
     await orgLock(db, org);
@@ -298,6 +301,9 @@ async function postMessage(
     lang,
     !session.user.guest && before.workspace!.caseRecord.label === 'private',
   );
+  const discovered = withLegal
+    ? await discoverLegal(before.workspace!, text, [...contexts, ...(answer.citations ?? [])])
+    : [];
   return transaction((db) =>
     idempotent(db, org, scope, key, async () => {
       await checkQuota(db, org, 'questions', 1);
@@ -308,12 +314,13 @@ async function postMessage(
         contextsOf(w, contexts);
         if (answer.citations?.some((c) => !hasCitation(w, c)))
           conflict('A cited source has changed. Ask the question again.');
+        const legal = retainLegal(w, discovered);
         if (thread.messages.length === 0) thread.title = thread.title || text.slice(0, 80);
         thread.sample = false;
         thread.updated = Date.now();
         thread.messages.push(
           { id: randomUUID(), role: 'user', text, contexts },
-          { ...answer, id: randomUUID(), role: 'assistant' },
+          { ...answer, ...(legal.length ? { legal } : {}), id: randomUUID(), role: 'assistant' },
         );
         return thread;
       });
@@ -363,7 +370,7 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
       return exportArchive(org, caseId);
     }
     const w = await readWorkspace(org, caseId);
-    if (!resource || (resource === 'workspace' && !id)) return w;
+    if (!resource || (resource === 'workspace' && !id)) return { ...w, legalDiscovery: legalDiscoveryMode(w) };
     if (resource === 'shell' && !id)
       return {
         case: w.caseRecord,
