@@ -23,7 +23,7 @@ The production server listens on `PORT` (default 3000). Its `/healthz` check que
 
 ## Project files
 
-Web source, browser tests, Playwright configuration and synthetic document generation live in this directory. `.env.example` documents server settings; it contains no credentials. Copy it to `.env` for Vite development. For `pnpm dev` from the repository root, export the required settings to the shell so both processes receive them. Production loads runtime secrets from SSM.
+Web source, browser tests, Playwright configuration and synthetic document generation live in this directory. Use this app’s `.env.example` as a settings reference. Put `DATABASE_URL` in the repository root’s Git-ignored `.env` to use PostgreSQL with `pnpm dev` or `pnpm start`. Both the web and voice processes receive it. For RDS, include `sslmode=verify-full` and set `sslrootcert` to the local CA bundle’s absolute path. Production loads runtime secrets from SSM.
 
 Run `pnpm test:e2e` from the repository root for browser tests. Shared backend tests live in `packages/core/tests` and run with `pnpm test`. The combined EC2 Dockerfile lives at `infra/docker/Dockerfile`; build it from the repository root to include both apps and shared migrations.
 
