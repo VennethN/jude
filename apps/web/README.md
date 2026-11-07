@@ -40,6 +40,8 @@ pnpm design:check
 
 OpenAI receives server-side requests for model-generated findings and assistant answers when `OPENAI_API_KEY` is configured. Source-only retrieval and the synthetic case work without credentials. Originals are served privately from local files or AWS S3 using `JUDE_S3_BUCKET`, `JUDE_S3_KMS_KEY` and `AWS_REGION`.
 
+The Assistant’s Pasal.id control includes legal references with a question. The synthetic case searches its labelled sample records. For private workspaces, set `JUDE_PASAL_TOKEN` on the web server. The Discovery API returns regulation metadata and links to read the source on Pasal.id. [Pasal.id Discovery API](https://pasal.id/en/api)
+
 The microphone captures mono PCM at 24 kHz. With an available voice socket, sustained speech is sent after 2.4 seconds. A turn can close earlier once 1.2 seconds have elapsed since speech began and the last 0.6 seconds are quiet. While an earlier turn waits for its acknowledgement, continuous speech is saved in windows of up to eight seconds. Each turn stays in the browser’s hearing-scoped IndexedDB queue until the service acknowledges its ID. Pause and Stop also save the worklet’s final partial block. Provider processing and network time add to the capture window.
 
 [Voice service](../voice/README.md) · [Shared case core](../../packages/core/README.md) · [AWS hosting](docs/aws.md)

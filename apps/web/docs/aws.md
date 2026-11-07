@@ -52,6 +52,7 @@ The other values are optional single-line strings.
 | --- | --- |
 | `OPENAI_API_KEY` | Enables configured OpenAI models. Live and uploaded speech also require the pyannote image and Community-1 weights. |
 | `OPENAI_PROJECT_ID` | Selects the OpenAI project used for requests. |
+| `JUDE_PASAL_TOKEN` | Enables server-side regulation discovery in private cases. The token stays in the web runtime. |
 | `OPENAI_MODEL`, `OPENAI_ASSISTANT_MODEL`, `OPENAI_ANALYSIS_MODEL`, `OPENAI_REVIEW_MODEL`, `OPENAI_NOTES_MODEL`, `OPENAI_TRANSCRIPTION_MODEL` | Override individual model routes. |
 | `JUDE_MAIL_FROM` | Verified SES sender for invitations and resets. Set the matching `app_mail_identity_arn` Terraform variable. |
 | `JUDE_DIARIZATION_MODEL`, `JUDE_DIARIZATION_TIMEOUT_MS` | Optional local speaker diarization. Publish the pyannote target and provision the model as described in the voice guide. |
