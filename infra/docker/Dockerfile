@@ -27,6 +27,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=proxy /usr/bin/caddy /usr/local/bin/caddy
 
 FROM web-runtime AS web
+ARG JUDE_REVISION=development
+ENV JUDE_REVISION=$JUDE_REVISION
+LABEL org.opencontainers.image.revision=$JUDE_REVISION
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000 \
     JUDE_MIGRATIONS_DIR=/app/migrations JUDE_DEMO_ASSETS_DIR=/app/apps/web/static/demo/documents
 COPY --from=web-dependencies --chown=node:node /app/ ./
@@ -56,6 +59,9 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 
     && python -c "from torchcodec.decoders import AudioDecoder; from pyannote.audio import Pipeline"
 
 FROM voice-dependencies AS voice
+ARG JUDE_REVISION=development
+ENV JUDE_REVISION=$JUDE_REVISION
+LABEL org.opencontainers.image.revision=$JUDE_REVISION
 ENV VOICE_HOST=0.0.0.0 VOICE_PORT=3001 PYTHONPATH=/app/apps/voice JUDE_MIGRATIONS_DIR=/app/migrations
 COPY --chown=jude:jude apps/voice/jude_voice ./apps/voice/jude_voice
 COPY --chown=jude:jude migrations ./migrations
