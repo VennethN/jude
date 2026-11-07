@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, type Snippet } from 'svelte';
+  import SheetHandle from './SheetHandle.svelte';
   import { X } from '@lucide/svelte';
   import { cubicOut } from 'svelte/easing';
   import type { TransitionConfig } from 'svelte/transition';
@@ -43,6 +44,7 @@
   {#if side}<h2 id={id} class="sr-only">{title}</h2>
   {:else}
     <div class="dialog-head">
+      {#if sheet}<SheetHandle dismiss={close}/>{/if}
       <h2 id={id}>{title}</h2>
       {#if headerActions}<div class="head-actions">{@render headerActions()}</div>{/if}
       <button class="icon-button" aria-label={lang === 'id' ? 'Tutup' : 'Close'} onclick={close}><X size={19}/></button>
@@ -58,6 +60,6 @@
  dialog.side.docked { position:fixed; z-index:20; inset:0 0 0 auto; width:404px; border:0; border-inline-start:1px solid var(--line); border-radius:0; }
  .sheet .dialog-head { align-items:center; position:sticky; top:0; z-index:2; margin:0; padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--line); }
  .head-actions { display:flex; align-items:center; margin-inline-start:auto; }
- .sheet .dialog-head h2 { font-size:1.5rem; }
- @media (max-width:719px) { dialog.sheet,dialog.side { width:100%; height:calc(100dvh - 10px); max-height:calc(100dvh - 10px); margin:auto 0 0; padding-bottom:env(safe-area-inset-bottom,0px); border-radius:18px 18px 0 0; } }
+ .sheet .dialog-head h2 { font:600 14px/1.4 var(--sans); letter-spacing:0; }
+ @media (max-width:719px) { .sheet .dialog-head { padding-top:18px; } dialog.sheet,dialog.side { width:100%; height:calc(100dvh - 10px); max-height:calc(100dvh - 10px); margin:auto 0 0; padding-bottom:env(safe-area-inset-bottom,0px); border-radius:18px 18px 0 0; } }
 </style>

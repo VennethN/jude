@@ -1,6 +1,5 @@
 <script lang="ts">
   import Dialog from '$lib/workspace/Dialog.svelte';
-  import SheetHandle from '$lib/workspace/SheetHandle.svelte';
   import FindingLink from './FindingLink.svelte';
   import SourceAvailability from './SourceAvailability.svelte';
   import {
@@ -43,7 +42,6 @@
 </script>
 
 <Dialog sheet {title} {lang} {close}>
-  <SheetHandle dismiss={close} />
   <div class="ev-panel inspector">
   {#if law}
     <h2 id="source-title" class="ev-title">{law.article}</h2>
