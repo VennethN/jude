@@ -170,9 +170,6 @@
   .mobile-links .language {
     border-bottom: 1px solid #ffffff25;
   }
-  .mobile-links .entry {
-    margin-top: 12px;
-  }
   @media (max-width: 760px) {
     .pub-nav {
       min-height: 68px;
