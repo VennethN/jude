@@ -10,11 +10,10 @@ const rootEnv = new URL('.env', repo);
 
 export default defineConfig(({ command }) => {
   const localVoice = 'http://127.0.0.1:' + (process.env.VOICE_PORT || '3001');
+  const fileEnv = command === 'serve' && existsSync(rootEnv) ? parseEnv(readFileSync(rootEnv, 'utf8')) : {};
   let origin = process.env.VOICE_ORIGIN;
   // A Vite config reload can follow a local switch to the hosted gateway without ending the dev session.
-  if (command === 'serve' && (!origin || origin === localVoice) && existsSync(rootEnv)) {
-    origin = parseEnv(readFileSync(rootEnv, 'utf8')).VOICE_ORIGIN || origin;
-  }
+  if (!origin || origin === localVoice) origin = fileEnv.VOICE_ORIGIN || origin;
   const voiceTarget = new URL(origin || localVoice);
   if (command === 'serve') process.env.VOICE_ORIGIN = voiceTarget.origin;
   return {
@@ -37,6 +36,7 @@ export default defineConfig(({ command }) => {
       proxy: {
         '/api/live/': voiceProxy({
           ...process.env,
+          CHATGPT_TRANSCRIBE: process.env.CHATGPT_TRANSCRIBE ?? fileEnv.CHATGPT_TRANSCRIBE,
           VOICE_ORIGIN: origin || localVoice,
           JUDE_VOICE_REMOTE: voiceTarget.protocol === 'https:' ? 'true' : process.env.JUDE_VOICE_REMOTE,
         }),

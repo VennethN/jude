@@ -7,7 +7,7 @@ from contextlib import AsyncExitStack
 from anyio import CancelScope
 from starlette.websockets import WebSocketDisconnect
 
-from .providers import ProviderError
+from .providers import ProviderError, realtime_transcription_model
 from .repository import statement_id
 
 MAX_IN_FLIGHT = 3
@@ -27,6 +27,7 @@ async def write_transaction(fn, *args, **kwargs):
 
 async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode, realtime, speakers):
     language = "en" if ws.query_params.get("lang") == "en" else "id"
+    model = realtime_transcription_model(ws.query_params.get("transcription"))
     connections = [None] * MAX_IN_FLIGHT
     contexts = [AsyncExitStack() for _ in connections]
     speaker_queue = asyncio.Queue(maxsize=MAX_IN_FLIGHT)
@@ -81,7 +82,7 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode, re
 
                 try:
                     if connections[lane] is None:
-                        connections[lane] = await contexts[lane].enter_async_context(realtime(language))
+                        connections[lane] = await contexts[lane].enter_async_context(realtime(language, model))
                     words = await connections[lane].transcribe(pcm, partial)
                 except WebSocketDisconnect:
                     raise
@@ -104,7 +105,7 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode, re
     health = asyncio.create_task(heartbeat())
     labeler = asyncio.create_task(label_speakers())
     try:
-        await send({"type": "ready", "maxInFlight": MAX_IN_FLIGHT})
+        await send({"type": "ready", "maxInFlight": MAX_IN_FLIGHT, "transcriptionModel": model})
         while True:
             if buffered is not None and available:
                 lane = available.pop()

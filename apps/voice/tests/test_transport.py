@@ -6,16 +6,19 @@ import json
 import os
 import threading
 import unittest
+from email import policy
+from email.parser import BytesParser
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
+import httpx
 from anyio import CancelScope, sleep_forever
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
 
 from jude_voice import app as transport
 from jude_voice.diarization import SpeakerTurn
-from jude_voice.providers import Realtime, wav_header, windows
+from jude_voice.providers import Realtime, transcribe_file, wav_header, windows
 from jude_voice.speakers import BYTES_PER_SECOND, SpeakerWindow, process_recording
 
 
@@ -25,7 +28,10 @@ class VoiceTransportTest(unittest.TestCase):
         self.enterContext(patch.object(transport, "repo", self.repo))
         self.enterContext(patch.object(transport, "diarization_available", return_value=True))
         self.enterContext(
-            patch.dict(os.environ, {"ORIGIN": "http://testserver", "OPENAI_API_KEY": "test"})
+            patch.dict(os.environ, {
+                "ORIGIN": "http://testserver", "OPENAI_API_KEY": "test",
+                "CHATGPT_TRANSCRIBE": "false", "OPENAI_REALTIME_TRANSCRIPTION_MODEL": "",
+            })
         )
         self.client = TestClient(transport.app)
         self.addCleanup(self.client.close)
@@ -149,7 +155,9 @@ class VoiceTransportTest(unittest.TestCase):
                 )
 
             with connect() as client:
-                self.assertEqual(client.receive_json(), {"type": "ready", "maxInFlight": 3})
+                self.assertEqual(client.receive_json(), {
+                    "type": "ready", "maxInFlight": 3, "transcriptionModel": "gpt-live-transcribe",
+                })
                 turn = {"id": "turn-1", "t": 1.25, "keep": False, "pcm": base64.b64encode(pcm).decode()}
                 client.send_json(turn)
                 for words in ("hear", "heard"):
@@ -164,7 +172,7 @@ class VoiceTransportTest(unittest.TestCase):
 
             # A browser resends its pending turn over a new connection after a dropped ack.
             with connect() as replacement:
-                self.assertEqual(replacement.receive_json(), {"type": "ready", "maxInFlight": 3})
+                self.assertEqual(replacement.receive_json()["transcriptionModel"], "gpt-live-transcribe")
                 replacement.send_json(turn)
                 self.assertEqual(replacement.receive_json(), {"type": "ack", **receipt})
             window.return_value.label.assert_called_once()
@@ -176,6 +184,85 @@ class VoiceTransportTest(unittest.TestCase):
         self.assertFalse(self.repo.begin_turn.call_args.kwargs["keep"])
         self.assertEqual(self.repo.release.call_args_list, [call("c", "h", "first"), call("c", "h", "second")])
         self.assertFalse(active.locked())
+
+    def test_model_query_is_limited_to_an_authorized_recorder_and_the_exact_trial_name(self):
+        path = "/api/live/c/h/socket?transcription="
+        headers = {"Origin": "http://testserver"}
+        with patch.dict(os.environ, {"OPENAI_REALTIME_TRANSCRIPTION_MODEL": "gpt-realtime-whisper"}):
+            for query, expected in (
+                ("gpt-transcribe", "gpt-transcribe"),
+                ("gpt-live-transcribe", "gpt-realtime-whisper"),
+                ("GPT-TRANSCRIBE", "gpt-realtime-whisper"),
+                ("arbitrary-model", "gpt-realtime-whisper"),
+            ):
+                with self.subTest(query=query), self.client.websocket_connect(path + query, headers=headers) as client:
+                    self.assertEqual(client.receive_json()["transcriptionModel"], expected)
+
+        self.repo.acquire.reset_mock()
+        with patch("jude_voice.providers.connect", new_callable=AsyncMock) as upstream:
+            self.repo.session.side_effect = transport.VoiceError(401, "unauthenticated", "Sign in.")
+            with self.assertRaises(WebSocketDisconnect) as denied, self.client.websocket_connect(
+                path + "gpt-transcribe", headers=headers
+            ):
+                self.fail("The trial must require a session")
+            self.assertEqual(denied.exception.code, 1008)
+            self.repo.acquire.assert_not_called()
+            self.repo.session.side_effect = None
+            self.repo.acquire.side_effect = transport.VoiceError(403, "forbidden", "Recording permission required.")
+            with self.assertRaises(WebSocketDisconnect) as denied, self.client.websocket_connect(
+                path + "gpt-transcribe", headers=headers
+            ):
+                self.fail("The trial must require recording permission")
+            self.assertEqual(denied.exception.code, 1008)
+            upstream.assert_not_awaited()
+
+    def test_experimental_turn_retries_the_same_audio_after_upstream_failure_and_saves_once(self):
+        receipt = {"id": "tercatat", "statementId": "mic-h-tercatat"}
+        self.repo.begin_turn.side_effect = [None, None, receipt]
+        self.repo.finish_turn.return_value = receipt
+        recognizer_events = "conversation.item.input_audio_transcription."
+        refused, accepted = AsyncMock(), AsyncMock()
+        for socket, result in (
+            (refused, {"type": recognizer_events + "failed", "item_id": "item"}),
+            (accepted, {"type": recognizer_events + "completed", "item_id": "item",
+                        "transcript": "Sudah tercatat.", "languages": [{"code": "id"}]}),
+        ):
+            socket.recv.side_effect = [json.dumps(event) for event in (
+                {"type": "session.updated"}, {"type": "input_audio_buffer.committed", "item_id": "item"}, result,
+            )]
+        pcm = b"\x01\0" * 2400
+        turn = {"id": receipt["id"], "t": 8.25, "pcm": base64.b64encode(pcm).decode(), "keep": True}
+        with patch("jude_voice.providers.connect", new_callable=AsyncMock) as upstream:
+            upstream.side_effect = [refused, accepted]
+            for attempt in range(3):
+                with self.subTest(attempt=attempt), self.client.websocket_connect(
+                    "/api/live/c/h/socket?transcription=gpt-transcribe", headers={"Origin": "http://testserver"}
+                ) as client:
+                    self.assertEqual(client.receive_json(), {
+                        "type": "ready", "maxInFlight": 3, "transcriptionModel": "gpt-transcribe",
+                    })
+                    client.send_json(turn)
+                    if attempt == 0:
+                        self.assertEqual(client.receive_json(), {"type": "error", "code": "transcription_interrupted"})
+                        self.repo.finish_turn.assert_not_called()
+                        with self.assertRaises(WebSocketDisconnect) as closed:
+                            client.receive_json()
+                        self.assertEqual(closed.exception.code, 1011)
+                    else:
+                        self.assertEqual(client.receive_json(), {"type": "ack", **receipt})
+            self.assertEqual(upstream.await_count, 2)
+        for socket in (refused, accepted):
+            update, append, commit = [json.loads(sent.args[0]) for sent in socket.send.await_args_list]
+            self.assertEqual(update["session"]["audio"]["input"]["transcription"], {
+                "model": "gpt-transcribe", "languages": ["id"],
+            })
+            self.assertEqual(append, {"type": "input_audio_buffer.append", "audio": turn["pcm"]})
+            self.assertEqual(commit, {"type": "input_audio_buffer.commit"})
+            socket.close.assert_awaited_once()
+        self.repo.finish_turn.assert_called_once_with(
+            self.repo.session.return_value, "c", "h", lease=self.repo.acquire.return_value,
+            turn_id=receipt["id"], text="Sudah tercatat.",
+        )
 
     def test_later_turn_finishes_while_an_earlier_turn_is_still_transcribing(self):
         release = threading.Event()
@@ -220,7 +307,7 @@ class VoiceTransportTest(unittest.TestCase):
             patch.object(transport, "SpeakerWindow") as window,
             self.client.websocket_connect("/api/live/c/h/socket", headers={"Origin": "http://testserver"}) as client,
         ):
-            self.assertEqual(client.receive_json(), {"type": "ready", "maxInFlight": 3})
+            self.assertEqual(client.receive_json()["type"], "ready")
             turn = {"id": "quiet", "t": 2, "keep": True, "pcm": base64.b64encode(bytes(96)).decode()}
             for _ in range(2):
                 client.send_json(turn)
@@ -330,6 +417,76 @@ class SpeakersTest(unittest.TestCase):
 
 
 class RealtimeTest(unittest.IsolatedAsyncioTestCase):
+    async def test_handshake_uses_the_selected_model_and_its_language_format(self):
+        for switch, override, language, expected in (
+            (None, None, "id", {"model": "gpt-live-transcribe", "languages": ["id"]}),
+            ("false", "gpt-realtime-whisper", "en", {"model": "gpt-realtime-whisper", "language": "en"}),
+            (None, "gpt-transcribe", "en", {"model": "gpt-transcribe", "languages": ["en"]}),
+            ("true", "gpt-realtime-whisper", "id", {"model": "gpt-transcribe", "languages": ["id"]}),
+        ):
+            env = {"OPENAI_API_KEY": "test", "OPENAI_PROJECT_ID": "test-project"}
+            if switch is not None:
+                env["CHATGPT_TRANSCRIBE"] = switch
+            if override is not None:
+                env["OPENAI_REALTIME_TRANSCRIPTION_MODEL"] = override
+            with (
+                self.subTest(switch=switch, override=override),
+                patch.dict(os.environ, env, clear=True),
+                patch("jude_voice.providers.connect", new_callable=AsyncMock) as upstream,
+            ):
+                socket = upstream.return_value
+                socket.recv.side_effect = ['{"type":"session.created"}', '{"type":"session.updated"}']
+                async with Realtime(language):
+                    handshake = json.loads(socket.send.await_args.args[0])
+                    self.assertEqual(handshake, {"type": "session.update", "session": {
+                        "type": "transcription", "audio": {"input": {
+                            "format": {"type": "audio/pcm", "rate": 24000},
+                            "transcription": expected, "turn_detection": None,
+                        }},
+                    }})
+                    self.assertEqual(upstream.await_args.args, ("wss://api.openai.com/v1/realtime?intent=transcription",))
+                    self.assertEqual(upstream.await_args.kwargs["additional_headers"], {
+                        "Authorization": "Bearer test", "OpenAI-Project": "test-project",
+                    })
+                socket.close.assert_awaited_once()
+
+    async def test_upload_encodes_the_model_language_and_diarized_audio_as_multipart(self):
+        pcm = b"\x01\x00" * 16000
+        for model, switch, language, expected_model, field in (
+            ("", "false", "id", "gpt-transcribe", "languages[]"),
+            ("gpt-transcribe", "true", "en", "gpt-transcribe", "languages[]"),
+            ("gpt-4o-mini-transcribe", "true", "id", "gpt-4o-mini-transcribe", "language"),
+        ):
+            capture = MagicMock(return_value=httpx.Response(200, json={"text": " Satu. ", "languages": []}))
+            client = httpx.AsyncClient(transport=httpx.MockTransport(capture))
+            with (
+                self.subTest(model=model, switch=switch),
+                patch.dict(os.environ, {
+                    "OPENAI_API_KEY": "test", "OPENAI_TRANSCRIPTION_MODEL": model, "CHATGPT_TRANSCRIBE": switch,
+                }),
+                patch("jude_voice.providers.httpx.AsyncClient", return_value=client),
+                patch("jude_voice.providers.normalize_audio", return_value=pcm),
+                patch("jude_voice.providers.diarization_available", return_value=True),
+                patch("jude_voice.providers.diarize", return_value=[SpeakerTurn(0, 1, "A")]),
+            ):
+                rows, duration = await transcribe_file(b"source", ".wav", language)
+                self.assertEqual(duration, 1)
+                self.assertEqual(rows, [{"start": 0, "end": 1, "text": "Satu.", "speaker": "A"}])
+                capture.assert_called_once()
+                request = capture.call_args.args[0]
+                self.assertEqual(str(request.url), "https://api.openai.com/v1/audio/transcriptions")
+                mime = BytesParser(policy=policy.default).parsebytes(
+                    f"Content-Type: {request.headers['content-type']}\r\n\r\n".encode() + request.content
+                )
+                fields = {
+                    part.get_param("name", header="content-disposition"): part.get_payload(decode=True)
+                    for part in mime.iter_parts()
+                }
+                self.assertEqual(fields, {
+                    "model": expected_model.encode(), field: language.encode(), "response_format": b"json",
+                    "file": wav_header(len(pcm), 16000) + pcm,
+                })
+
     async def test_visible_deltas_accumulate_until_the_committed_transcript(self):
         recognizer = Realtime("id")
         recognizer.socket = AsyncMock()

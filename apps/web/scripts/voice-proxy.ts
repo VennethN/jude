@@ -29,6 +29,13 @@ export function voiceProxy(env: NodeJS.ProcessEnv): ProxyOptions {
     target: upstream.origin,
     ws: true,
     changeOrigin: true,
+    rewrite(path) {
+      if (env.CHATGPT_TRANSCRIBE?.trim().toLowerCase() !== 'true') return path;
+      const url = new URL(path, local);
+      if (!/^\/api\/live\/[^/]+\/[^/]+\/socket$/.test(url.pathname)) return path;
+      url.searchParams.set('transcription', 'gpt-transcribe');
+      return url.pathname + url.search;
+    },
     configure(proxy) {
       proxy.on('proxyReq', (out, req, res) => {
         if (!allowed(req)) {

@@ -17,6 +17,8 @@ from .diarization import diarization_available, diarize
 MAX_SECONDS = 1800
 SAMPLE_RATE = 16000
 _JOBS = asyncio.Semaphore(2)
+COMMITTED_TURN_MODEL = "gpt-transcribe"
+LIVE_TRANSCRIPTION_MODEL = "gpt-live-transcribe"
 
 
 class ProviderError(Exception):
@@ -132,10 +134,18 @@ def openai_headers():
     return result
 
 
+def realtime_transcription_model(requested: str | None = None) -> str:
+    if requested == COMMITTED_TURN_MODEL or os.getenv("CHATGPT_TRANSCRIBE", "").strip().lower() == "true":
+        return COMMITTED_TURN_MODEL
+    return os.getenv("OPENAI_REALTIME_TRANSCRIPTION_MODEL") or LIVE_TRANSCRIPTION_MODEL
+
+
 async def transcribe_file(data: bytes, suffix: str, language: str):
     headers = openai_headers()
     if not diarization_available():
         raise ProviderError("Provision the pyannote model to process hearing audio.")
+    model = os.getenv("OPENAI_TRANSCRIPTION_MODEL") or COMMITTED_TURN_MODEL
+    language_field = "languages[]" if model == COMMITTED_TURN_MODEL else "language"
     async with _JOBS:
         pcm = await asyncio.to_thread(normalize_audio, data, suffix)
         duration = len(pcm) / (SAMPLE_RATE * 2)
@@ -148,8 +158,8 @@ async def transcribe_file(data: bytes, suffix: str, language: str):
                     "https://api.openai.com/v1/audio/transcriptions",
                     headers=headers,
                     data={
-                        "model": os.getenv("OPENAI_TRANSCRIPTION_MODEL") or "gpt-transcribe",
-                        "language": language,
+                        "model": model,
+                        language_field: language,
                         "response_format": "json",
                     },
                     files={
@@ -171,38 +181,34 @@ async def transcribe_file(data: bytes, suffix: str, language: str):
 class Realtime:
     """A provider connection belongs to one authorized microphone session."""
 
-    def __init__(self, language: str):
+    def __init__(self, language: str, model: str | None = None):
         self.language = language
+        self.model = model or realtime_transcription_model()
         self.socket = None
 
     async def __aenter__(self):
+        language_hint = (
+            {"languages": [self.language]}
+            if self.model in (COMMITTED_TURN_MODEL, LIVE_TRANSCRIPTION_MODEL)
+            else {"language": self.language}
+        )
+        audio_input = {
+            "format": {"type": "audio/pcm", "rate": 24000},
+            "transcription": {"model": self.model, **language_hint},
+            "turn_detection": None,
+        }
         self.socket = await connect(
             "wss://api.openai.com/v1/realtime?intent=transcription",
             additional_headers=openai_headers(),
             open_timeout=10,
             max_size=4 * 1024 * 1024,
         )
-        await self.send(
-            {
-                "type": "session.update",
-                "session": {
-                    "type": "transcription",
-                    "audio": {
-                        "input": {
-                            "format": {"type": "audio/pcm", "rate": 24000},
-                            "transcription": {
-                                "model": os.getenv("OPENAI_REALTIME_TRANSCRIPTION_MODEL")
-                                or "gpt-live-transcribe",
-                                "languages": [self.language],
-                            },
-                            "turn_detection": None,
-                        }
-                    },
-                },
-            }
-        )
         try:
             async with asyncio.timeout(15):
+                await self.send({
+                    "type": "session.update",
+                    "session": {"type": "transcription", "audio": {"input": audio_input}},
+                })
                 while True:
                     event = json.loads(await self.socket.recv())
                     if event.get("type") == "session.updated":
