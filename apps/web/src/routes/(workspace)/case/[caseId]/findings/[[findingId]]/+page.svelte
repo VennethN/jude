@@ -1,12 +1,13 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto } from '$app/navigation';
-  import { ArrowLeft, Bookmark, CheckCheck, ClipboardList, PanelsTopLeft, Search } from '@lucide/svelte';
+  import { Bookmark, CheckCheck, ClipboardList, PanelsTopLeft, Search } from '@lucide/svelte';
   import type { PageData } from './$types';
   import type { Finding } from '@jude/core/domain';
   import { casePath, clock, local, meaningful, statuses } from '$lib/evidence/records';
   import FindingDetail from '$lib/evidence/FindingDetail.svelte';
   import SavedLines from '$lib/evidence/SavedLines.svelte';
+  import Dialog from '$lib/workspace/Dialog.svelte';
   import BoardView from '$lib/evidence/BoardView.svelte';
   import '$lib/evidence/evidence.css';
 
@@ -50,11 +51,33 @@
           .includes(query.trim().toLowerCase())
     )
   );
+  let width = $state(0);
+  let narrow = $derived(width > 0 && width < 760);
   let active = $derived(requested || (!opened ? list[0] : undefined));
   function href(changes: Record<string, string | null>, f?: Finding) {
     const qp = new URLSearchParams(page.url.searchParams);
     for (const [k, v] of Object.entries(changes)) v === null ? qp.delete(k) : qp.set(k, v);
     return base + (f ? '/' + encodeURIComponent(f.id) : '') + (qp.size ? '?' + qp : '');
+  }
+  let position = $derived(list.findIndex(f => f.id === active?.id));
+  let pager = $derived(position >= 0 ? { index: position, total: list.length, step } : undefined);
+  function step(delta: number) {
+    const next = list[position + delta];
+    if (next) void goto(href({ tab }, next), {
+      replaceState: !!opened, noScroll: true, keepFocus: true, state: { ...page.state },
+    });
+  }
+  function pick(event: MouseEvent, f: Finding) {
+    if (event.defaultPrevented || event.button || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    void goto(href({ tab }, f), {
+      noScroll: true, keepFocus: true,
+      state: { ...page.state, judeFindingsQueue: page.url.pathname === base ? base : undefined },
+    });
+  }
+  function closeSheet() {
+    if ((page.state as { judeFindingsQueue?: string }).judeFindingsQueue === base) history.back();
+    else void goto(href({ tab }), { replaceState:true, noScroll:true });
   }
   let tabs = $derived([
     { code: 'attention', text: id ? 'Perlu dicek' : 'Needs a look', count: attention.length },
@@ -72,7 +95,7 @@
   ><title>{board ? (id ? 'Papan temuan' : 'Case board') : id ? 'Temuan' : 'Findings'} · Jude</title
   ></svelte:head
 >
-<div class="ev-page" class:is-detail={!!requested && !board}>
+<div class="ev-page" class:board bind:clientWidth={width}>
   <header class="ev-head">
     <div>
       <h1>{board ? (id ? 'Papan temuan' : 'Case board') : id ? 'Temuan' : 'Findings'}</h1>
@@ -86,11 +109,12 @@
             : 'Compare testimony with the record and keep your review notes together.'}
       </p>
     </div>
-    <a class="ev-button" data-tour="board-open" href={board ? base : base + '?view=board'}
-      >{#if board}<ClipboardList size={16} />{id ? 'Daftar temuan' : 'Findings list'}{:else}<PanelsTopLeft
-          size={16}
-        />{id ? 'Buka papan' : 'Open board'}{/if}</a
-    >
+    <nav class="finding-views" aria-label={id ? 'Tampilan temuan' : 'Findings view'} data-tour="board-open">
+      <a href={base} aria-current={!board ? 'page' : undefined}><ClipboardList size={15}/>{id ? 'Daftar' : 'List'}</a>
+      <a href={base+'?view=board'} aria-label={id ? 'Buka papan' : 'Open board'} aria-current={board ? 'page' : undefined}>
+        <PanelsTopLeft size={15}/>{id ? 'Papan' : 'Board'}
+      </a>
+    </nav>
   </header>
   {#if board}
     <BoardView workspace={w} {lang} />
@@ -143,7 +167,7 @@
               <li>
                 <a
                   class="ev-pick"
-                  href={href({ tab }, f)}
+                  href={href({ tab }, f)} onclick={(e) => pick(e,f)}
                   aria-current={active?.id === f.id ? 'page' : undefined}
                   ><span class="ev-cap status" data-status={f.status}
                     >{#if f.reviewed}<CheckCheck size={14} />{/if}{statuses[f.status][lang]}</span
@@ -155,11 +179,15 @@
             {/each}
           </ul>
         </div>
-        {#if active}<div class="detail-pane">
-            <a class="mobile-back ev-link" href={href({ tab })}
-              ><ArrowLeft size={15} />{id ? 'Daftar temuan' : 'Findings list'}</a
-            >{#key active.id}<FindingDetail workspace={w} {lang} finding={active} />{/key}
-          </div>{/if}
+        {#if active}
+          {#if narrow && requested}
+            <Dialog sheet title={id ? 'Temuan' : 'Finding'} {lang} close={closeSheet}>
+              {#key active.id}<FindingDetail workspace={w} {lang} finding={active} navigation={pager}/>{/key}
+            </Dialog>
+          {:else if !narrow && (width || opened)}
+            <div class="detail-pane">{#key active.id}<FindingDetail workspace={w} {lang} finding={active} navigation={pager}/>{/key}</div>
+          {/if}
+        {/if}
       </div>
     {:else}<div class="ev-empty">
         {#if tab === 'checked'}<CheckCheck size={25} />{:else if tab === 'others'}<Bookmark
@@ -216,9 +244,10 @@
   .status[data-status='potential_inconsistency'] {
     color: var(--accent);
   }
-  .mobile-back {
-    display: none;
-  }
+  .finding-views { display:inline-flex; align-items:center; padding:3px; align-self:flex-start; background:var(--wash); border:1px solid var(--line); border-radius:8px; }
+  .finding-views a { display:inline-flex; gap:7px; align-items:center; padding:6px 12px; border-radius:6px; min-height:36px; text-decoration:none; font-size:.92rem; }
+  .finding-views a[aria-current] { background:var(--surface); color:var(--ink); box-shadow:0 1px 3px rgb(18 35 25 / .14); }
+  @media(pointer:coarse) { .finding-views a { min-height:44px; } }
   .detail-pane {
     min-width: 0;
   }
@@ -228,24 +257,11 @@
     max-height: 75vh;
     overflow: auto;
   }
-  @container (max-width:740px) {
-    .is-detail .ev-head { margin:0; }
-    .is-detail .ev-head h1 { position:absolute;width:1px;height:1px;clip-path:inset(50%);overflow:hidden; }
-    .is-detail .ev-head p,.is-detail .ev-head a,.is-detail .filters,.is-detail .ev-tabs { display:none; }
-    .review-grid {
-      display: block;
-    }
-    .review-grid:not(.detail-open) .detail-pane,
-    .detail-open .queue {
-      display: none;
-    }
-    .queue {
-      position: static;
-      max-height: none;
-    }
-    .mobile-back {
-      display: inline-flex;
-    }
+  @container (max-width:759px) {
+    .review-grid { display:block; }
+    .review-grid:not(.detail-open) .detail-pane { display:none; }
+    .queue { position:static; max-height:none; }
+    .board .ev-head p { display:none; }
     .filters .ev-search {
       flex: 1;
       min-width: min(100%, 12rem);

@@ -14,7 +14,7 @@
     BookOpenText,
     FileText,
     CircleCheck,
-    ChevronDown
+    ChevronDown, ChevronLeft, ChevronRight
   } from '@lucide/svelte';
   import { write } from '$lib/client';
   import type { Finding, InspectTarget, Lang, Workspace } from '@jude/core/domain';
@@ -24,7 +24,11 @@
   import { timecode } from '$lib/workspace/format';
   import { voice } from '$lib/workspace/hearing-detail/people';
 
-  let { workspace: w, lang, finding: f }: { workspace: Workspace; lang: Lang; finding: Finding } = $props();
+  let { workspace: w, lang, finding: f, navigation }: {
+    workspace: Workspace; lang: Lang; finding: Finding;
+    navigation?: { index: number; total: number; step: (delta: number) => void };
+  } = $props();
+  let article: HTMLElement;
   let id = $derived(lang === 'id');
   let line = $derived(w.statements.find((s) => s.id === f.statementId));
   let hearing = $derived(w.hearings.find((h) => h.id === f.hearingId));
@@ -115,7 +119,7 @@
       e.altKey ||
       e.shiftKey ||
       target ||
-      document.querySelector('dialog[open]') ||
+      [...document.querySelectorAll('dialog[open]')].some(dialog => !dialog.contains(article)) ||
       (e.target instanceof HTMLElement &&
         (e.target.isContentEditable || e.target.closest('input,textarea,select')))
     )
@@ -139,10 +143,19 @@
 </script>
 
 <svelte:window onkeydown={shortcut} />
-<article class="detail" data-tour="finding-detail">
+<article class="detail" data-tour="finding-detail" bind:this={article}>
   <div class="finding-meta">
     <span class="ev-cap flag" data-status={f.status}><span></span>{statuses[f.status][lang]}</span>
     {#if f.reviewed}<span class="ev-cap"><CircleCheck size={15} />{id ? 'Diperiksa' : 'Checked'}</span>{/if}
+    {#if navigation}
+      <nav class="finding-pager" aria-label={id ? 'Urutan temuan' : 'Finding navigation'}>
+        <span aria-live="polite">{navigation.index + 1} {id ? 'dari' : 'of'} {navigation.total}</span>
+        <button class="ev-icon" aria-label={id ? 'Temuan sebelumnya' : 'Previous finding'} disabled={navigation.index === 0}
+          onclick={() => navigation?.step(-1)}><ChevronLeft size={17}/></button>
+        <button class="ev-icon" aria-label={id ? 'Temuan berikutnya' : 'Next finding'} disabled={navigation.index === navigation.total - 1}
+          onclick={() => navigation?.step(1)}><ChevronRight size={17}/></button>
+      </nav>
+    {/if}
   </div>
   <h2 class="ev-title">{local(f.title, lang)}</h2>
   {#if testimony && line}
@@ -289,6 +302,11 @@
 {#if target}<Inspector workspace={w} {lang} {target} close={() => (target = null)} />{/if}
 
 <style>
+  .finding-pager { display:flex; align-items:center; flex-wrap:nowrap; gap:4px; margin-left:auto; }
+  .finding-pager span { font-size:.86rem; color:var(--muted); font-variant-numeric:tabular-nums; margin-right:4px; }
+  .finding-pager button { border:0; background:transparent; }
+  @media (pointer:coarse) { .finding-pager button { min-width:44px; min-height:44px; } }
+
   .detail {
     background: var(--surface);
     border: 1px solid var(--line);
