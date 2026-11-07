@@ -82,7 +82,7 @@
 </script>
 
 <nav class="localnav" class:shown bind:this={nav} aria-label={en ? 'Page navigation' : 'Navigasi halaman'} inert={!shown}>
-  <a class="ln-mark" href="#" aria-label={en ? 'Back to top' : 'Kembali ke atas'} onclick={(event) => jump(event)}>jude.</a>
+  <a class="ln-mark" href="#public-main" aria-label={en ? 'Back to top' : 'Kembali ke atas'} onclick={(event) => jump(event)}>jude.</a>
   <div class="ln-links">
     {#each sections as section (section.id)}
       <a href={'#' + section.id} aria-current={current === section.id ? 'location' : undefined} onclick={(event) => jump(event, section.id)}>{en ? section.enLabel : section.idLabel}</a>
