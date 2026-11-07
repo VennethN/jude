@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { CaseRecord, CaseSummary, Thread, Workspace } from '../domain';
 import { needsReview } from '../domain';
 import { queueStatementIn } from './queue';
+import { syncSemanticIndexIn } from './semantic-index';
 import { preserveHidden, retainedMarker, withoutRemoved, type RemovedSource } from './retained-evidence';
 import * as seed from './seed';
 import { transaction, type Database } from './db';
@@ -152,6 +153,11 @@ async function saveEntries(
         entry.kind,
         entry.id,
       ]);
+  }
+  if (db.forUpdate) {
+    const [owner] = await db.query<{ org_id: string }>('SELECT org_id FROM cases WHERE id=$1', [caseId]);
+    const removed = await removedSources(db, caseId);
+    if (owner) await syncSemanticIndexIn(db, owner.org_id, removed.length ? withoutRemoved(workspace, removed) : workspace);
   }
 }
 export async function insertWorkspace(db: Database, orgId: string, workspace: Workspace, creator?: string) {

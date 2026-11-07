@@ -2,6 +2,7 @@ import type { CaseRecord } from '../domain';
 import { checkQuota } from './billing';
 import { orgLock, purgeSourcesIn, workspaceIn } from './cases';
 import { transaction, type Database } from './db';
+import { syncSemanticIndexIn } from './semantic-index';
 import { retainedMarker, type RemovedSource } from './retained-evidence';
 import { removeOriginal } from './providers/storage';
 import { conflict, missing, required } from './validation';
@@ -40,6 +41,7 @@ export async function removeSourceIn(
     Date.now(),
   ]);
   await touch(db, w.caseRecord);
+  await syncSemanticIndexIn(db, org, await workspaceIn(db, org, caseId));
   return { ok: true, id, citedFindings };
 }
 
@@ -63,6 +65,7 @@ export async function restoreSourceIn(
   await checkQuota(db, org, 'storage', Number(bytes.size) / 1e9);
   await db.query('DELETE FROM case_trash WHERE case_id=$1 AND kind=$2 AND id=$3', [caseId, kind, id]);
   await touch(db, w.caseRecord);
+  await syncSemanticIndexIn(db, org, await workspaceIn(db, org, caseId));
   return JSON.parse(item.body);
 }
 

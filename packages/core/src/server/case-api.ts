@@ -214,9 +214,11 @@ async function caseState(
     if (Number(stored.size)) await checkQuota(db, org, 'storage', Number(stored.size) / 1e9);
     if (Number(stored.boards)) await checkQuota(db, org, 'boards', Number(stored.boards));
   }
-  if (action === 'delete')
+  if (action === 'delete') {
     await db.query('UPDATE cases SET deleted_at=$1,version=version+1 WHERE id=$2', [Date.now(), id]);
-  else if (action === 'restore')
+    await db.query('DELETE FROM semantic_evidence WHERE case_id=$1', [id]);
+    await db.query('DELETE FROM semantic_case_state WHERE case_id=$1', [id]);
+  } else if (action === 'restore')
     await db.query('UPDATE cases SET deleted_at=NULL,version=version+1 WHERE id=$1', [id]);
   else if (Boolean(c.archived) !== (action === 'archive')) {
     const record = JSON.parse(c.record);

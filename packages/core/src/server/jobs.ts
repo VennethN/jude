@@ -3,6 +3,7 @@ import { readWorkspace, mutateWorkspace, workspaceIn } from './cases';
 import { transaction } from './db';
 import { queueStatementIn, recoverStatements } from './queue';
 import { purgeExpired } from './retention';
+import { runSemanticIndexBatch } from './semantic-index';
 
 interface Job {
   case_id: string;
@@ -94,6 +95,7 @@ export function runAnalysisWorker() {
     lastRecovery = 0,
     lastPurge = 0,
     purging = false;
+  let indexing = false;
   const maintainRetention = async () => {
     if (purging || stopped || Date.now() - lastPurge < 60 * 60_000) return;
     purging = true;
@@ -109,6 +111,10 @@ export function runAnalysisWorker() {
   };
   const tick = async () => {
     void maintainRetention();
+    if (!indexing && !stopped) {
+      indexing = true;
+      void runSemanticIndexBatch().catch(() => undefined).finally(() => { indexing = false; });
+    }
     if (stopped || active) return;
     active = true;
     try {
