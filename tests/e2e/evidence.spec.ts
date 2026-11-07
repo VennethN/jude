@@ -13,6 +13,7 @@ test('open a marked PDF passage, inspect the record, then review its finding', a
   await expect(page.locator('.spoken blockquote')).toContainText('jam setengah sepuluh malam');
   await expect(page.locator('.filed blockquote').first()).toContainText('20.00 WIB');
 
+  await page.getByRole('button', { name: 'Tambah catatan' }).click();
   await page.getByLabel('Catatan pemeriksaan').fill('Periksa catatan kartu gerbang sebelum bertanya.');
   await page.getByRole('button', { name: 'Tandai diperiksa' }).click();
   await expect(page.getByRole('button', { name: 'Buka kembali' })).toBeVisible();
