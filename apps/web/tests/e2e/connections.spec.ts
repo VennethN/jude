@@ -112,6 +112,10 @@ test('source selection eases through intermediate positions and settles immediat
   await openGroup(page);
   for (const motion of ['no-preference', 'reduce'] as const) {
     await page.emulateMedia({ reducedMotion: motion });
+    // Let the media-query change reach the app before starting another transition.
+    await page.evaluate(() => new Promise<void>(resolve => {
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+    }));
     await expect(page.locator('.map')).toHaveAttribute('data-progress', '1');
     const key = motion === 'reduce' ? finding : statement;
     const frames = await page.evaluate(
