@@ -54,6 +54,7 @@ for (const width of [1440, 390]) {
     await page.getByRole('searchbox', { name: 'Find a case' }).fill('Cakung Warehouse');
     await expect(page.getByRole('link', { name: 'Cakung Warehouse Embezzlement Case', exact: true })).toBeVisible();
     await page.getByRole('link', { name: 'Cakung Warehouse Embezzlement Case', exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(base + '$'));
     await language(page, 'en', 'id');
     await expect(page.getByRole('heading', { level: 1 })).toHaveText('Perkara Penggelapan Gudang Cakung');
     await expect(page.locator('#case-main')).toContainText('Saksi Dimas Prasetyo');
