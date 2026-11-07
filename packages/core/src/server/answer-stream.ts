@@ -1,13 +1,14 @@
-import type { AnswerStreamEvent, ChatMessage, Thread } from '../domain';
+import type { AnswerStreamEvent, AssistantStage, ChatMessage, Thread } from '../domain';
 import { ApiError } from './validation';
 
 type Partial = (message: ChatMessage) => void;
-type Generate = (publish: Partial) => Promise<Thread>;
+type Generate = (publish: Partial, signal?: AbortSignal) => Promise<Thread>;
 
 interface RunningAnswer {
   result: Promise<Thread>;
   listeners: Set<Partial>;
   last?: ChatMessage;
+  controller: AbortController;
 }
 
 // Reconnect to an accepted request while the provider is still responding. The database
@@ -15,16 +16,17 @@ interface RunningAnswer {
 const running = new Map<string, RunningAnswer>();
 
 export function sharedAnswer(key: string | undefined, generate: Generate, publish?: Partial, signal?: AbortSignal) {
-  if (!key) return generate(message => { if (!signal?.aborted) publish?.(message); });
+  if (!key) return generate(message => { if (!signal?.aborted) publish?.(message); }, AbortSignal.any([AbortSignal.timeout(120_000), ...(signal ? [signal] : [])]));
 
   let entry = running.get(key);
   if (!entry) {
+    const controller = new AbortController();
     const listeners = new Set<Partial>();
     const result = Promise.resolve().then(() => generate(message => {
       current.last = message;
       for (const listener of listeners) listener(message);
-    })).finally(() => running.delete(key));
-    const current: RunningAnswer = { listeners, result };
+    }, AbortSignal.any([controller.signal, AbortSignal.timeout(120_000)]))).finally(() => running.delete(key));
+    const current: RunningAnswer = { listeners, result, controller };
     running.set(key, current);
     entry = current;
   }
@@ -41,7 +43,14 @@ export function sharedAnswer(key: string | undefined, generate: Generate, publis
   });
 }
 
-export function answerStream(requestSignal: AbortSignal, generate: (publish: Partial, signal: AbortSignal) => Promise<Thread>) {
+export function cancelAnswer(key: string) {
+  const answer = running.get(key);
+  if (!answer) return false;
+  answer.controller.abort();
+  return true;
+}
+
+export function answerStream(requestSignal: AbortSignal, generate: (publish: Partial, signal: AbortSignal, progress: (stage: AssistantStage) => void) => Promise<Thread>) {
   const encoder = new TextEncoder();
   const subscription = new AbortController();
   let writer: ReadableStreamDefaultController<Uint8Array> | undefined;
@@ -66,7 +75,7 @@ export function answerStream(requestSignal: AbortSignal, generate: (publish: Par
       requestSignal.addEventListener('abort', close, { once: true });
       send({ type: 'status', phase: 'reading' });
       void Promise.resolve()
-        .then(() => generate(message => send({ type: 'partial', message }), subscription.signal))
+        .then(() => generate(message => send({ type: 'partial', message }), subscription.signal, phase => send({ type: 'status', phase })))
         .then(thread => send({ type: 'complete', thread }))
         .catch((cause: unknown) => {
           const error = cause instanceof ApiError

@@ -44,9 +44,10 @@ import {
   type Fields,
 } from './validation';
 import { jsonFields } from './request';
-import { authorizeCase, listMembers, setCaseMember } from './access';
-import { answerQuestion } from './providers/assistant';
-import { answerStream, sharedAnswer } from './answer-stream';
+import { authorizeCase, caseAccess, listMembers, setCaseMember } from './access';
+import { answerQuestion, sourcePool } from './providers/assistant';
+import { ASSISTANT_QUESTION_LIMIT, type AssistantStage } from '../domain';
+import { answerStream, sharedAnswer, cancelAnswer } from './answer-stream';
 import { mergeEvidenceRanks, semanticMatches, type SourceRef } from './providers/semantic-retrieval';
 import { discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
 
@@ -277,12 +278,12 @@ async function postMessage(
   request: Request,
 ) {
   const org = session.organization.id,
-    text = string(f.text ?? f.question, 'text', 6000),
+    text = string(f.text ?? f.question, 'text', ASSISTANT_QUESTION_LIMIT),
     lang = choice(f.lang ?? session.prefs.lang ?? 'id', ['id', 'en'], 'lang');
   const withLegal = f.withLegal === undefined ? true : bool(f.withLegal, 'withLegal');
   const scope = caseId + '/threads/' + threadId + '/messages';
   if (key) string(key, 'Idempotency-Key', 100);
-  const before = await transaction<{ cached: Thread } | { workspace: Workspace; contexts: ContextRef[]; length: number }>(async (db) => {
+  const before = await transaction<{ cached: Thread } | { workspace: Workspace; contexts: ContextRef[]; length: number; history: ChatMessage[] }>(async (db) => {
     await orgLock(db, org);
     const w = await workspaceIn(db, org, caseId);
     const thread = required(w.threads, (t) => t.id === threadId);
@@ -294,9 +295,9 @@ async function postMessage(
       if (prior) return { cached: JSON.parse(prior.result) as Thread };
     }
     await checkQuota(db, org, 'questions', 1);
-    return { workspace: w, contexts: contextsOf(w, f.contexts), length: thread.messages.length };
+    return { workspace: w, contexts: contextsOf(w, f.contexts), length: thread.messages.length, history: thread.messages };
   });
-  async function generate(publish: (message: ChatMessage) => void): Promise<Thread> {
+  async function generate(publish: (message: ChatMessage) => void, signal?: AbortSignal, progress?: (stage: AssistantStage) => void): Promise<Thread> {
     if ('cached' in before) return before.cached;
     const { workspace, contexts } = before;
     const answer = await answerQuestion(
@@ -307,13 +308,20 @@ async function postMessage(
       !session.user.guest && workspace.caseRecord.label === 'private',
       org,
       publish,
+      { signal, progress, history: before.history },
     );
+    signal?.throwIfAborted();
     if (answer.mode === 'sources-only') publish(answer);
+    if (withLegal) progress?.('legal');
     const discovered = withLegal
-      ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])], { status: status => { answer.legalStatus = status; } })
+      ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])], { signal, status: status => { answer.legalStatus = status; } })
       : [];
+    signal?.throwIfAborted();
+    progress?.('saving');
     return transaction((db) =>
       idempotent(db, org, scope, key, async () => {
+        signal?.throwIfAborted();
+        await caseAccess(db, session, caseId, 'write');
         await checkQuota(db, org, 'questions', 1);
         const result = await changeIn(db, org, caseId, (w) => {
           const thread = required(w.threads, (t) => t.id === threadId);
@@ -321,6 +329,10 @@ async function postMessage(
             conflict('Another question was added. Reload this conversation.');
           contextsOf(w, contexts);
           if (answer.citations?.some((c) => !hasCitation(w, c)))
+            conflict('A cited source has changed. Ask the question again.');
+          const original = sourcePool(workspace, [{ kind: 'case' }], lang);
+          const current = sourcePool(w, [{ kind: 'case' }], lang);
+          if (answer.citations?.some(c => original.find(s=>s.kind===c.kind&&s.id===c.id)?.text !== current.find(s=>s.kind===c.kind&&s.id===c.id)?.text))
             conflict('A cited source has changed. Ask the question again.');
           const legal = retainLegal(w, discovered);
           if (thread.messages.length === 0) thread.title = thread.title || text.slice(0, 80);
@@ -342,8 +354,8 @@ async function postMessage(
     (value) => value.trim().split(';')[0] === 'application/x-ndjson',
   );
   return acceptsStream
-    ? answerStream(request.signal, (publish, signal) => sharedAnswer(cacheKey, generate, publish, signal))
-    : sharedAnswer(cacheKey, generate);
+    ? answerStream(request.signal, (publish, signal, progress) => sharedAnswer(cacheKey, (emit, workSignal) => generate(emit, workSignal, progress), publish, signal))
+    : sharedAnswer(cacheKey, generate, undefined, request.signal);
 }
 async function liveQuota(db: Database, org: string, w: Workspace) {
   if (w.caseRecord.label === 'synthetic') return;
@@ -434,6 +446,10 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
     return transaction((db) => removeItem(db, org, caseId, trash, id));
   if (trash && id && act === 'restore' && method === 'POST')
     return transaction((db) => restoreItem(db, org, caseId, trash, id));
+  if (resource === 'threads' && id && act === 'cancel' && method === 'POST') {
+    const attempt = string(key, 'Idempotency-Key', 100);
+    return { cancelled: cancelAnswer(JSON.stringify([org, caseId + '/threads/' + id + '/messages', attempt])) };
+  }
   const f = await jsonFields(event.request);
   if (!resource && method === 'PATCH') return mutateWorkspace(org, caseId, (w) => patchCase(w, f));
   if (resource === 'threads' && id && act === 'messages' && method === 'POST')

@@ -387,6 +387,8 @@ function parseWorkspace(raw: unknown) {
           contexts,
           legal: ids(m.legal),
           mode: m.mode ? choice(m.mode, ['ai', 'sources-only'], 'mode') : undefined,
+          issue: m.issue ? choice(m.issue, ['not_configured', 'unavailable', 'rate_limit', 'incomplete', 'unverified', 'insufficient'], 'issue') : undefined,
+          retrieval: m.retrieval ? choice(m.retrieval, ['hybrid', 'lexical', 'partial'], 'retrieval') : undefined,
           legalStatus: m.legalStatus ? choice(m.legalStatus, ['found', 'no_matches', 'no_query', 'not_configured', 'unavailable', 'sample'], 'legalStatus') : undefined,
         };
       }),
