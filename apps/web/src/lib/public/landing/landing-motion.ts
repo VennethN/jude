@@ -1,3 +1,6 @@
+import Lenis from 'lenis';
+import 'lenis/dist/lenis.css';
+
 /** Pinned scenes follow native document scroll. Every read precedes writes in a frame. */
   const tracks: Record<string, [name: string, from: number, to: number][]> = {
     hero: [["hv", 0, 1]],
@@ -54,80 +57,104 @@
     ],
   };
 
-export function followStory(root: HTMLElement, onChange: (moving:boolean,pinned:boolean) => void) {
-	const motion = matchMedia('(prefers-reduced-motion: no-preference)');
-	const desktop = matchMedia('(min-width: 900px) and (min-height: 700px)');
-	const scenes = [...root.querySelectorAll<HTMLElement>('[data-scene]')];
-	const drifts = [...root.querySelectorAll<HTMLElement>('[data-drift]')];
-	const risers = [...root.querySelectorAll<HTMLElement>('[data-rise]')];
-	const visible = new Set<Element>();
-	const assigned = new Map<HTMLElement,Set<string>>();
-	let frame = 0;
-	let active = true;
-	const observer = new IntersectionObserver(entries => {
-		for (const entry of entries) {
-			if (entry.isIntersecting) visible.add(entry.target);
-			else visible.delete(entry.target);
-		}
-		request();
-	}, {rootMargin:'25% 0px'});
-	for (const element of [...scenes,...risers,...drifts]) observer.observe(element);
-	const clamp = (value:number) => Math.max(0,Math.min(1,value));
-	function ease(value:number) {
-		const at = clamp(value);
-		return at * at * (3 - 2 * at);
-	}
-	function write(node:HTMLElement, name:string, amount:number) {
-		const value = amount.toFixed(3);
-		if (node.style.getPropertyValue(name) === value) return;
-		node.style.setProperty(name,value);
-		if (!assigned.has(node)) assigned.set(node,new Set());
-		assigned.get(node)!.add(name);
-	}
-	function draw() {
-		frame=0;
-		if (!active || !motion.matches) return;
-		const vh = innerHeight;
-		const boxes = <T extends HTMLElement>(nodes:T[]) => nodes.filter(n => visible.has(n)).map(node => ({node,box:node.getBoundingClientRect()}));
-		const activeScenes = boxes(scenes);
-		const activeRisers = desktop.matches ? [] : boxes(risers);
-		const activeDrifts = boxes(drifts);
-		for (const {node,box} of activeScenes) {
-			const name = node.dataset.scene!;
-			const progress = name === 'hero' ? -box.top / box.height : name === 'closing' ? (vh-box.top)/(vh*.8) : desktop.matches ? -box.top/Math.max(1,box.height-vh) : 1;
-			for (const [track,from,to] of tracks[name] ?? []) {
-				const phase = (progress-from)/(to-from);
-				// The reading rule and the sweep across the desk measure linear progress.
-				write(node,'--'+track,track === 'hp' || track === 'sc' ? clamp(phase) : ease(phase));
-			}
-		}
-		for (const {node,box} of activeRisers) write(node,'--p',ease((vh-box.top)/(vh*.45)));
-		for (const {node,box} of activeDrifts) write(node,'--d',Math.max(-1,Math.min(1,(box.top+box.height/2-vh/2)/vh)));
-	}
-	function request() { if (active && !frame && motion.matches) frame = requestAnimationFrame(draw); }
-	function sync() {
-		onChange(motion.matches,motion.matches && desktop.matches);
-		if (!motion.matches) {
-			for (const [node,names] of assigned) for (const name of names) node.style.removeProperty(name);
-			assigned.clear();
-		}
-		request();
-	}
-	const resized = new ResizeObserver(request);
-	resized.observe(root);
-	window.addEventListener('scroll',request,{passive:true});
-	window.addEventListener('resize',request);
-	motion.addEventListener('change',sync);
-	desktop.addEventListener('change',sync);
-	sync();
-	return () => {
-		active=false;
-		cancelAnimationFrame(frame);
-		observer.disconnect();
-		resized.disconnect();
-		window.removeEventListener('scroll',request);
-		window.removeEventListener('resize',request);
-		motion.removeEventListener('change',sync);
-		desktop.removeEventListener('change',sync);
-	};
+const unit = (value: number) => Math.min(1, Math.max(0, value));
+const easeOut = (value: number) => 1 - (1 - unit(value)) ** 3;
+
+type MotionLayout = { moving: boolean; desktop: boolean; phoneDesk: boolean };
+
+export function followStory(root: HTMLElement, onLayout: (layout: MotionLayout) => void) {
+  const motion = matchMedia('(prefers-reduced-motion: no-preference)');
+  const wide = matchMedia('(min-width: 900px) and (min-height: 700px)');
+  const tallPhone = matchMedia('(max-width: 899px) and (min-height: 560px)');
+  const scenes = [...root.querySelectorAll<HTMLElement>('[data-scene]')];
+  const risers = [...root.querySelectorAll<HTMLElement>('[data-rise]')];
+  const drifters = [...root.querySelectorAll<HTMLElement>('[data-drift]')];
+  const values = new Map<HTMLElement, Map<string, string>>();
+  let wheel: Lenis | null = null;
+  let frame = 0;
+
+  function write(element: HTMLElement, key: string, value: number) {
+    const next = value.toFixed(3);
+    let previous = values.get(element);
+    if (!previous) {
+      previous = new Map();
+      values.set(element, previous);
+    }
+    if (previous.get(key) !== next) {
+      previous.set(key, next);
+      element.style.setProperty('--' + key, next);
+    }
+  }
+
+  function draw() {
+    if (!motion.matches) return;
+    const vh = innerHeight;
+    // Read every position together, before changing any transforms.
+    const sceneBoxes = scenes.map(node => node.getBoundingClientRect());
+    const riseBoxes = wide.matches ? [] : risers.map(node => node.getBoundingClientRect());
+    const driftBoxes = drifters.map(node => node.getBoundingClientRect());
+    scenes.forEach((node, index) => {
+      const name = node.dataset.scene!;
+      const box = sceneBoxes[index];
+      let progress: number;
+      if (name === 'hero') progress = unit(-box.top / box.height);
+      else if (name === 'closing') progress = unit((vh - box.top) / (vh * .8));
+      else if (wide.matches || (name === 'show' && tallPhone.matches)) progress = -box.top / Math.max(1, box.height - vh);
+      else if (name === 'show') progress = (vh * .75 - box.top) / box.height;
+      else return;
+      for (const [key, from, to] of tracks[name] ?? []) write(node, key, easeOut((progress - from) / (to - from)));
+    });
+    riseBoxes.forEach((box, index) => write(risers[index], 'p', easeOut((vh - box.top) / (vh * .45))));
+    driftBoxes.forEach((box, index) => write(drifters[index], 'd', Math.max(-1, Math.min(1, (box.top + box.height / 2 - vh / 2) / vh))));
+  }
+
+  function request() {
+    if (!motion.matches || frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; draw(); });
+  }
+
+  function sync() {
+    onLayout({ moving: motion.matches, desktop: motion.matches && wide.matches, phoneDesk: motion.matches && tallPhone.matches });
+    if (motion.matches) {
+      if (!wheel) {
+        wheel = new Lenis({ autoRaf: true, lerp: .11 });
+        wheel.on('scroll', draw);
+      }
+      request();
+    } else {
+      wheel?.destroy();
+      wheel = null;
+      for (const [node, fields] of values) for (const key of fields.keys()) node.style.removeProperty('--' + key);
+      values.clear();
+    }
+  }
+
+  const resized = new ResizeObserver(() => { wheel?.resize(); request(); });
+  resized.observe(root);
+  window.addEventListener('scroll', request, { passive: true });
+  window.addEventListener('resize', request);
+  const queries = [motion, wide, tallPhone];
+  for (const query of queries) query.addEventListener('change', sync);
+  sync();
+
+  return {
+    scrollTo(target: HTMLElement | 0, immediate = false) {
+      if (wheel) {
+        wheel.resize();
+        wheel.scrollTo(target, { immediate });
+      } else if (target === 0) {
+        window.scrollTo({ top: 0, behavior: 'instant' });
+      } else {
+        target.scrollIntoView({ block: 'start', behavior: 'instant' });
+      }
+    },
+    destroy() {
+      cancelAnimationFrame(frame);
+      wheel?.destroy();
+      resized.disconnect();
+      window.removeEventListener('scroll', request);
+      window.removeEventListener('resize', request);
+      for (const query of queries) query.removeEventListener('change', sync);
+    },
+  };
 }

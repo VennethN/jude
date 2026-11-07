@@ -5,8 +5,11 @@
 	import type { Lang } from '@jude/core/domain';
 	import Icon from '../Icon.svelte';
 	import SourceDesk from '../SourceDesk.svelte';
+  import LandingSectionNav from './LandingSectionNav.svelte';
 	import { around, sources, type LandingRecord } from './landing-record';
 	import { followStory } from './landing-motion';
+  import { deskQuote } from './desk-quote';
+  import DeskPaper from './DeskPaper.svelte';
 	import { order, place, across, pins, threads, wires, rings } from './landing-desk';
 	import { translate, type Key } from './landing-text';
 	import './landing-story.css';
@@ -15,10 +18,15 @@
 	let t = $derived((key:Key, vars?: Record<string,number|string>) => translate(lang,key,vars));
 	let root:HTMLElement, sheet:HTMLElement;
 	let playing=$state(false), offscreen=$state(false), hidden=$state(false);
-	let scrolly=$state(false), pinned=$state(false);
+	let scrolly=$state(false), pinned=$state(false), phoneDesk=$state(false);
+  let storyScroll: ReturnType<typeof followStory> | undefined;
+  function jump(target: HTMLElement | 0) {
+    storyScroll?.scrollTo(target);
+    if (target) target.focus({ preventScroll: true });
+  }
 	let raised=$derived(around(record.testimony,sources[0].mark));
+  let statementSlip=$derived(deskQuote('statement',record).join(''));
 	let bapQuote=$derived(around(record.written,sources[1].mark));
-	let logCited=$derived(around(record.gate,sources[2].mark));
 	let introCited=$derived(around(record.intro,'pukul 10.00 WIB'));
 	let quietLines=$derived([
 		{who:'lp.whoPu' as const, speaker:'pu', text:record.firstQuestion},
@@ -26,17 +34,18 @@
 		{who:'lp.whoPu' as const, speaker:'pu', text:record.timeQuestion}
 	]);
 	let samplePage=$derived({
-		heading:['BERITA ACARA PEMERIKSAAN SAKSI','BAP SAKSI RINA HARTATI'],
+		heading:['PRO JUSTITIA','BERITA ACARA PEMERIKSAAN SAKSI'],
 		labels:{q:'Pertanyaan',a:'Jawaban'},folio:'4 / 6',
 		items:[
-			{n:3,q:'Kapan Saudara tiba di Gudang B pada hari Sabtu, 14 Maret 2026?',a:record.written,mark:sources[1].mark},
-			{n:4,q:'Apa yang Saudara lihat menjelang tengah malam?',a:record.vehicle,mark:''}
+			{n:3,q:'Apa tugas Saudari di Gudang B?',a:record.schedule,mark:''},
+			{n:4,q:'Kapan Saudari tiba di Gudang B pada hari Sabtu, 14 Maret 2026?',a:record.written,mark:sources[1].mark},
+			{n:5,q:'Apakah Saudari melihat kendaraan keluar dari gerbang timur malam itu?',a:record.vehicle,mark:''}
 		]
 	});
 	let slips=$derived([
-		{id:'bap',meta:'lp.g.bapMeta' as const,text:record.written,mark:sources[1].mark,rel:'conflicts' as const,href:sources[1].href},
+		{id:'bap',meta:'lp.g.bapMeta' as const,text:deskQuote('written',record).join(''),mark:sources[1].mark,rel:'conflicts' as const,href:sources[1].href},
 		{id:'log',meta:'lp.g.logMeta' as const,text:record.gate,mark:sources[2].mark,rel:'conflicts' as const,href:sources[2].href},
-		{id:'shift',meta:'lp.g.shiftMeta' as const,text:record.shift,mark:'',rel:'context' as const,href:'/demo/hearings/h2?s=s214'},
+		{id:'shift',meta:'lp.g.shiftMeta' as const,text:deskQuote('shift',record).join(''),mark:'',rel:'context' as const,href:'/demo/hearings/h2?s=s214'},
 		{id:'law',meta:'lp.g.lawMeta' as const,text:record.charge,mark:'',rel:'related' as const,href:'/demo/documents/d4?p=d4p4'}
 	]);
 	async function replay() {
@@ -47,7 +56,35 @@
 		playing=true;
 	}
 	onMount(()=>{
-		const stop = followStory(root,(moving,desktop)=>{scrolly=moving;pinned=desktop;});
+		storyScroll = followStory(root, ({ moving, desktop, phoneDesk: phone }) => {
+      scrolly = moving;
+      pinned = desktop;
+      phoneDesk = phone;
+    });
+    const header = document.querySelector<HTMLElement>('.pub-header');
+    const footer = document.querySelector<HTMLElement>('.paper-foot');
+    const sectionIds = new Set(['lp-source','lp-how','lp-approach','lp-close']);
+    function sectionLink(event: MouseEvent) {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) return;
+      const link = event.target instanceof Element ? event.target.closest('a[href]') : null;
+      if (!(link instanceof HTMLAnchorElement) || link.target || link.origin !== location.origin || link.pathname !== location.pathname) return;
+      const id = link.hash.slice(1);
+      if (id === 'public-main' && footer?.contains(link)) {
+        event.preventDefault();
+        jump(0);
+        document.getElementById('public-main')?.focus({ preventScroll: true });
+        return;
+      }
+      const target = sectionIds.has(id) ? document.getElementById(id) : null;
+      if (!target) return;
+      event.preventDefault();
+      const menu = link.closest('details');
+      if (menu) menu.open = false;
+      jump(target);
+    }
+    root.addEventListener('click', sectionLink);
+    header?.addEventListener('click', sectionLink);
+    footer?.addEventListener('click', sectionLink);
 		const observer=new IntersectionObserver(([entry])=>{
 			offscreen=!entry.isIntersecting;
 			if (entry.isIntersecting && scrolly) playing=true;
@@ -57,15 +94,21 @@
 		document.addEventListener('visibilitychange',visibility);
 		const anchor=page.url.hash.slice(1) || page.url.searchParams.get('to');
 		let frame=0;
-		if (anchor && ['lp-source','lp-how','lp-approach','lp-close'].includes(anchor)) {
+		if (anchor && sectionIds.has(anchor)) {
 			frame=requestAnimationFrame(()=>{
 				const target=document.getElementById(anchor);
 				if (document.activeElement !== document.body && document.activeElement !== target) return;
-				target?.scrollIntoView({block:'start'});
+				if (target) storyScroll?.scrollTo(target, true);
 				target?.focus({preventScroll:true});
 			});
 		}
-		return ()=>{cancelAnimationFrame(frame);stop();observer.disconnect();document.removeEventListener('visibilitychange',visibility);};
+		return ()=>{cancelAnimationFrame(frame);
+      storyScroll?.destroy();
+      root.removeEventListener('click', sectionLink);
+      header?.removeEventListener('click', sectionLink);
+      footer?.removeEventListener('click', sectionLink);
+      observer.disconnect();
+      document.removeEventListener('visibilitychange',visibility);};
 	});
 </script>
 
@@ -79,7 +122,8 @@
 {#snippet initials(id:string,size:number)}
 	<span aria-hidden="true" class="source-disc" data-role={id} style:--disc-size={size+'px'}>{id==='rina'?'R':id.toUpperCase()}</span>
 {/snippet}
-<div class="lp" bind:this={root} class:scrolly class:pinned>
+<div class="lp" bind:this={root} class:scrolly class:pinned class:show-pin={phoneDesk}>
+  <LandingSectionNav {lang} onJump={jump}/>
   <header class="cover" data-scene="hero">
     <div class="frame">
       {@render ringField("hero")}
@@ -104,7 +148,7 @@
         <div class="compare">
           <div class="side">
             <h2 class="side-label">{t("lp.testimony")}</h2>
-            <blockquote class="quote" lang="id">“…jam <span class="hl one">{raised[1]}</span>{raised[2]}”</blockquote>
+            <blockquote class="quote" lang="id">“…<span class="hl one">{raised[1]}</span>…”</blockquote>
             <a class="source" href={sources[0].href}>
               <Icon name="mic" size={15} />{t("lp.transcript")} · <span class="tabular">00:14:32</span>
             </a>
@@ -116,7 +160,7 @@
           </div>
           <div class="side earlier">
             <h2 class="side-label">{t("lp.earlier")}</h2>
-            <p class="quote typed" lang="id">“…<span class="hl two">{bapQuote[1]}</span>…”</p>
+            <p class="quote typed" lang="id">“…tiba di gudang <span class="hl two">{bapQuote[1]}</span>…”</p>
             <a class="source" href={sources[1].href}>
               <Icon name="file" size={15} />{t("lp.witnessStatement")} · {t("common.page", { n: 4 })}
             </a>
@@ -150,7 +194,7 @@
             <span class="file" aria-hidden="true"></span>
             <article class="slip statement" data-rise>
               <a class="slip-meta linked-source" href={sources[0].href}>{@render initials("rina",18)}{t("lp.g.statementMeta")}</a>
-              <p class="statement-text" lang="id">“{record.testimony}”</p>
+              <p class="statement-text" lang="id">“{statementSlip}”</p>
             </article>
             {#each slips as s (s.id)}
               {@const parts = around(s.text, s.mark)}
@@ -206,13 +250,10 @@
                 <p class="pp-line pp-key"><b>{t("role.witness")}</b> {raised[0]}<mark class="tb-c key" style:--mx={across("talk", 0.45, 0.7)}>{raised[1]}</mark>{raised[2]}</p>
               </div>
               <div class="tb-paper p-roster" style={place("roster")}>
-                <p class="pp-head">JADWAL JAGA GUDANG B</p>
-                <p class="pp-typed">{record.schedule}</p>
+                <DeskPaper kind="roster" {record}/>
               </div>
               <div class="tb-paper p-log key" style={place("log")}>
-                <p class="pp-folio">7 / 12</p>
-                <p class="pp-head">LAPORAN LOG AKSES GERBANG</p>
-                <p class="pp-typed pp-key">{logCited[0]}<mark class="tb-c key" style:--mx={across("log",0.24,0.633)}>{logCited[1]}</mark>{logCited[2]}</p>
+                <DeskPaper kind="log" {record}/>
               </div>
               <div class="tb-paper p-cctv" style={place("cctv")}>
                 <span class="cc-frame"><span class="cc-cam">GERBANG TIMUR · GUDANG B</span><mark class="tb-c cc-stamp" style:--mx={across("cctv", 0.68, 0.22)}>14-03-2026 · 23:48:12</mark></span>
@@ -231,6 +272,7 @@
           </div>
         </div>
       </div>
+      <SourceDesk {lang} {record} mode="sources"/>
     </section>
 
     <section class="how wrap" id="lp-how" tabindex="-1" aria-labelledby="lp-how-title">
@@ -361,7 +403,7 @@
           <img class="clay clay-clip" src="/public/clip.webp" alt="" aria-hidden="true" loading="lazy" decoding="async" />
           <p class="page-folio tabular">{samplePage.folio}</p>
           {#each samplePage.heading as line (line)}<p class="page-heading">{line}</p>{/each}
-          <p class="page-intro">Rina Hartati · Gudang B · PT Sinar Logistik Contoh</p>
+          <p class="page-intro">{record.intro}</p>
           <ol class="page-items">
             {#each samplePage.items as item (item.n)}
               {@const parts = around(item.a, item.mark)}

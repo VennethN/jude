@@ -34,7 +34,7 @@ Set the wordmark, page covers and case titles in Rufina, hearing and finding tit
 
 ## Components
 
-Text and shape accompany review status. A paper folio can carry a single prominent case or comparison. Ordinary lists use fine dividers. Dialogs have a visible close control, initial focus, Escape dismissal and a return focus target. Use motion only to orient navigation and selection. Preserve a fully static reduced-motion presentation.
+Text and shape accompany review status. A paper folio can carry a single prominent case or comparison. Ordinary lists use fine dividers. Dialogs have a visible close control, initial focus, Escape dismissal and a return focus target. Use short eased transitions for navigation, selection and inspection. Preserve a fully static reduced-motion presentation.
 
 ## Night
 
@@ -48,4 +48,6 @@ Show the testimony and filed phrase together wherever space permits. Give each i
 
 Give the forest cover a paper margin. Set the two-line headline above a wide comparison sheet and leave open space around the clay gavel. The desk, paper spreads and legal miniatures follow the reader through the public story. Inside a case, reserve that space for the live transcript, pending review, next hearing and original sources. [Live design reference](https://vennethn.github.io/sable-mockup/)
 
-Use native scrolling for the public story. Changing scroll direction reverses the sequence. Source controls work from the keyboard and let a reader jump directly to a filed page. Reduced-motion and short-viewport layouts keep the content readable in normal document flow.
+On the landing page, ease wheel and trackpad scrolling with a 0.11 interpolation factor. Keep touch scrolling native. The paper spreads follow scroll position in either direction with a cubic ease-out. Wide screens pin every spread, and narrow screens at least 560px tall pin the six-paper desk. A short viewport keeps the desk in the document flow. Reduced motion shows the finished exhibits and all source links.
+
+In the workspace, use 220ms for a page or layout change, 170ms for hover and selection, and 260ms for sliding panels. A press responds immediately. Transcription, timecodes and recording controls follow their actual state.
