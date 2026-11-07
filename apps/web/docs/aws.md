@@ -1,6 +1,6 @@
 # Hosting Jude on AWS
 
-Jude runs on one Amazon Linux 2023 EC2 instance in Jakarta. Caddy terminates HTTPS and proxies HTTP, event streams and WebSockets to the web service over a private Docker network. The combined EC2 release runs the web and voice applications as separate Node processes. The application uses the existing RDS PostgreSQL instance, writes originals to a private S3 bucket encrypted with a rotating KMS key, and calls OpenAI directly when a key is configured.
+Jude runs on one Amazon Linux 2023 EC2 instance in Jakarta. Caddy terminates HTTPS and proxies HTTP, event streams and WebSockets to the web service over a private Docker network. The combined EC2 release runs the Node web application and the Python voice service as separate processes. The application uses the existing RDS PostgreSQL instance, writes originals to a private S3 bucket encrypted with a rotating KMS key, and calls OpenAI directly when a key is configured.
 
 Run the following commands from the repository root. Cloud commands in this guide use the operator’s AWS identity. Set `AWS_REGION=ap-southeast-3` in that shell.
 
@@ -50,17 +50,18 @@ The other values are optional single-line strings.
 
 | Key | Purpose |
 | --- | --- |
-| `OPENAI_API_KEY` | Enables configured OpenAI model and transcription workflows for private cases. |
+| `OPENAI_API_KEY` | Enables configured OpenAI models. Live and uploaded speech also require the pyannote image and Community-1 weights. |
 | `OPENAI_PROJECT_ID` | Selects the OpenAI project used for requests. |
 | `OPENAI_MODEL`, `OPENAI_ASSISTANT_MODEL`, `OPENAI_ANALYSIS_MODEL`, `OPENAI_REVIEW_MODEL`, `OPENAI_NOTES_MODEL`, `OPENAI_TRANSCRIPTION_MODEL` | Override individual model routes. |
 | `JUDE_MAIL_FROM` | Verified SES sender for invitations and resets. Set the matching `app_mail_identity_arn` Terraform variable. |
+| `JUDE_DIARIZATION_MODEL`, `JUDE_DIARIZATION_TIMEOUT_MS` | Optional local speaker diarization. Publish the pyannote target and provision the model as described in the voice guide. |
 | `JUDE_DELETE_GRACE_DAYS` | Retention interval for deleted cases, in days. |
 
 The instance profile reads the application secret and release digest, pulls from the environment’s ECR repository, and accesses this environment’s S3 objects and their KMS key. The RDS master secret stays with the database administrator. Application secret values stay outside Terraform state and EC2 user data.
 
 ## Build and release
 
-Build an x86-64 Linux image for the default EC2 instance. The default `release` image starts both processes with `node scripts/start.mjs`. It includes migrations, synthetic originals, OCR language packs, PDF tools, LibreOffice and ffmpeg. Use a unique image tag for each release.
+Build an x86-64 Linux image for the default EC2 instance. The default `release` image starts the Node web and Python voice processes with `node scripts/start.mjs`. It includes migrations, synthetic originals, OCR language packs, PDF tools, LibreOffice and ffmpeg. This target supports synthetic replay and authorised playback of retained hearings. For new live or uploaded speech, build with `--target release-pyannote`, provision the Community-1 weights and set the OpenAI API key. Use a unique image tag for each release.
 
 ```sh
 repository=$(terraform -chdir=infra/terraform output -raw app_registry)
@@ -89,6 +90,14 @@ docker buildx build --platform linux/amd64 --target web --tag jude-web:release -
 ```
 
 The independent voice process, Docker target, and streaming route are described in the [voice deployment guide](../../voice/docs/aws.md).
+
+## Verify the release images locally
+
+Build the `web`, `voice` and `release` targets with `--load`, then pass their local tags to the smoke check. It starts disposable PostgreSQL 17 on an isolated Docker network, opens a guest case and advances its synthetic hearing through Python voice. The check reads the new transcript and server-sent event through web, exercises WebSocket admission, and repeats the run with the combined release. It removes its containers and network on exit.
+
+```sh
+bash infra/deploy/verify-images.sh jude-web:release jude-voice:release jude:release
+```
 
 ## Subsequent releases and recovery
 

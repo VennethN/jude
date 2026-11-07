@@ -21,3 +21,11 @@ tests
 **/*.tfstate*
 **/*.tfvars*
 **/.DS_Store
+**/.venv
+**/__pycache__
+**/.cache/huggingface
+**/.huggingface
+**/models
+**/*.safetensors
+**/*.ckpt
+**/*.pt

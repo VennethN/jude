@@ -21,12 +21,23 @@ aws secretsmanager get-secret-value --secret-id "$JUDE_SECRET_ARN" --query Secre
 jq -er '
   if type != "object" or (.DATABASE_URL | type) != "string" or (.DATABASE_URL | length) == 0 then
     error("Set DATABASE_URL in the Jude application secret.")
-  elif any(to_entries[]; (.key | test("^(DATABASE_URL|OPENAI_(API_KEY|PROJECT_ID|MODEL|[A-Z_]+_MODEL)|JUDE_(MAIL_FROM|PASAL_URL|PASAL_TOKEN|DELETE_GRACE_DAYS))$") | not)
+  elif any(to_entries[]; (.key | test("^(DATABASE_URL|OPENAI_(API_KEY|PROJECT_ID|MODEL|[A-Z_]+_MODEL)|JUDE_(MAIL_FROM|PASAL_URL|PASAL_TOKEN|DELETE_GRACE_DAYS|DIARIZATION_MODEL|DIARIZATION_TIMEOUT_MS))$") | not)
     or (.value | type != "string") or (.value | test("[\\r\\n]")))
   then error("Use supported environment names and single-line string values.")
   else to_entries[] | "\(.key)=\(.value)"
   end
 ' "$work/settings.json" > "$work/app.env"
+model_mount=()
+model=$(jq -r '.JUDE_DIARIZATION_MODEL // ""' "$work/settings.json")
+if [[ -n "$model" ]]; then
+  if [[ "$model" != /models/community-1 || ! -r /var/lib/jude/models/community-1/config.yaml ]]; then
+    echo "Install the Community-1 model under /var/lib/jude/models/community-1 and set JUDE_DIARIZATION_MODEL=/models/community-1." >&2
+    exit 1
+  fi
+  docker run --rm --network none --entrypoint /opt/jude-voice/bin/python "$image" -c 'from pyannote.audio import Pipeline'
+  model_mount=(--mount type=bind,src=/var/lib/jude/models/community-1,dst=/models/community-1,readonly -e HF_HUB_OFFLINE=1 -e PYANNOTE_METRICS_ENABLED=0)
+fi
+
 install -d -m 0755 /etc/jude/certs
 curl --fail --silent --show-error --retry 4 --proto '=https' \
   "https://truststore.pki.rds.amazonaws.com/$JUDE_REGION/$JUDE_REGION-bundle.pem" -o "$work/rds-ca.pem"
@@ -40,7 +51,7 @@ for container in jude-proxy jude-app; do
 done
 docker run -d --name jude-app --network jude --restart unless-stopped \
   --init --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=2g --env-file "$work/app.env" \
+  --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=2g --env-file "$work/app.env" "${model_mount[@]}" \
   -e "ORIGIN=https://$JUDE_HOST" -e "WEB_ORIGIN=https://$JUDE_HOST" \
   -e "AWS_REGION=$JUDE_REGION" -e "JUDE_S3_BUCKET=$JUDE_FILES_BUCKET" -e "JUDE_S3_KMS_KEY=$JUDE_FILES_KEY" \
   -e NODE_EXTRA_CA_CERTS=/run/rds-ca.pem -e BODY_SIZE_LIMIT=64M -e HOME=/tmp \
