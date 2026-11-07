@@ -270,13 +270,80 @@ class VoiceRepositoryTest(unittest.TestCase):
 
     def test_replay_is_synthetic_case_scoped_and_retry_safe(self):
         with ThreadPoolExecutor(max_workers=2) as pool:
+            previews = list(
+                pool.map(lambda n: self.repo.replay_preview(self.guest, "demo", "h3", n), [0, 7])
+            )
             result = list(pool.map(lambda _: self.repo.replay(self.guest, "demo", "h3", 0), range(2)))
+        self.assertEqual(previews[0], previews[1])
         self.assertEqual([r["cursor"] for r in result], [1, 1])
-        self.assertEqual(len(self.repo.statements(self.guest, "demo", "h3")), 1)
+        (line,) = self.repo.statements(self.guest, "demo", "h3")
+        self.assertEqual(previews[0]["turn"]["id"], line["id"])
+        next_turn = self.repo.replay_preview(self.guest, "demo", "h3", 0)
+        self.assertEqual(next_turn["cursor"], 1)
+        self.assertNotEqual(next_turn["turn"]["id"], line["id"])
         self.assertEqual(self.one("SELECT version FROM cases WHERE id='demo'")["version"], 2)
         self.assertEqual(self.one("SELECT count(*) AS n FROM analysis_jobs")["n"], 0)
         self.expect_error(409, self.repo.replay, self.owner, "case", "hearing", 0)
         self.expect_error(422, self.repo.replay, self.guest, "demo", "h3", True)
+
+    def test_replay_previews_match_every_committed_turn_in_both_hearings(self):
+        hearing = {"id": "h4", "caseId": "demo", "mode": "live"}
+        self.execute(
+            "INSERT INTO case_entities(case_id,kind,id,ordinal,body) VALUES('demo','hearings','h4',1,?)",
+            (pack(hearing),),
+        )
+        seed = {"id": "seed", "hearingId": "h3", "t": 453, "speakerId": "dimas", "text": "Previously."}
+        self.execute(
+            "INSERT INTO case_entities(case_id,kind,id,ordinal,body) VALUES('demo','statements','seed',0,?)",
+            (pack(seed),),
+        )
+        for hid, first_speaker, start, count in (("h3", "pu", 459, 20), ("h4", "hk", 6, 9)):
+            for cursor in range(count):
+                with self.subTest(hearing=hid, cursor=cursor):
+                    version = self.one("SELECT version FROM cases WHERE id='demo'")
+                    totals = self.one("SELECT count(*) AS n FROM case_entities WHERE case_id='demo'")
+                    current = self.repo.replay_preview(self.guest, "demo", hid, cursor)
+                    self.assertEqual(self.repo.replay_preview(self.guest, "demo", hid, 999), current)
+                    self.assertEqual(self.one("SELECT version FROM cases WHERE id='demo'"), version)
+                    self.assertEqual(
+                        self.one("SELECT count(*) AS n FROM case_entities WHERE case_id='demo'"), totals
+                    )
+                    turn = current["turn"]
+                    self.assertEqual((current["cursor"], current["done"]), (cursor, False))
+                    self.assertEqual(set(turn), {"id", "speakerId", "t", "text", "durationMs"})
+                    self.assertEqual(turn["durationMs"], len(turn["text"].split()) * 140 + 420)
+                    if cursor == 0:
+                        self.assertEqual((turn["speakerId"], turn["t"]), (first_speaker, start))
+                    committed = self.repo.replay(self.guest, "demo", hid, cursor)
+                    self.assertEqual(
+                        (committed["cursor"], committed["done"]), (cursor + 1, cursor + 1 == count)
+                    )
+                    if cursor == 0:
+                        self.assertEqual(committed["pause"], 1700)
+                    last = self.repo.statements(self.guest, "demo", hid)[-1]
+                    for field in ("id", "speakerId", "text", "t"):
+                        self.assertEqual(turn[field], last[field])
+            self.assertEqual(
+                self.repo.replay_preview(self.guest, "demo", hid, 0), {"cursor": count, "done": True}
+            )
+
+    def test_only_current_members_can_preview_an_active_synthetic_hearing(self):
+        get = self.repo.replay_preview
+        self.expect_error(404, get, self.repo.session(f"{3:064x}"), "demo", "h3", 0)
+        self.expect_error(404, get, self.owner, "demo", "h3", 0)
+        self.expect_error(409, get, self.owner, "case", "hearing", 0)
+        self.expect_error(404, get, self.guest, "demo", "missing", 0)
+        self.expect_error(422, get, self.guest, "demo", "h3", True)
+        self.execute("INSERT INTO case_members(case_id,user_id,role) VALUES('demo','viewer','viewer')")
+        self.assertEqual(get(self.viewer, "demo", "h3", 0)["turn"]["id"], "replay-h3-0")
+        self.expect_error(403, self.repo.replay, self.viewer, "demo", "h3", 0)
+        self.execute("DELETE FROM case_members WHERE case_id='demo' AND user_id='viewer'")
+        self.expect_error(404, get, self.viewer, "demo", "h3", 0)
+        hearing = {"id": "h3", "caseId": "demo", "mode": "recorded"}
+        self.execute(
+            "UPDATE case_entities SET body=? WHERE case_id='demo' AND kind='hearings'", (pack(hearing),)
+        )
+        self.expect_error(409, get, self.guest, "demo", "h3", 0)
 
     def test_private_storage_and_explicit_consent(self):
         self.expect_error(

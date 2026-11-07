@@ -99,6 +99,19 @@ async def user(conn):
     return await asyncio.to_thread(repo.session, conn.cookies.get("jude_session"))
 
 
+@app.get("/api/live/{case_id}/{hearing_id}/replay")
+async def replay_preview(case_id: str, hearing_id: str, request: Request):
+    session = await user(request)
+    raw = request.query_params.get("cursor", "")
+    try:
+        if not re.fullmatch(r"[0-9]+", raw):
+            raise ValueError()
+        cursor = int(raw)
+    except ValueError:
+        return failure(422, "validation", "A replay cursor is required.")
+    return await asyncio.to_thread(repo.replay_preview, session, case_id, hearing_id, cursor)
+
+
 @app.post("/api/live/{case_id}/{hearing_id}/replay")
 async def replay(case_id: str, hearing_id: str, request: Request):
     session = await user(request)

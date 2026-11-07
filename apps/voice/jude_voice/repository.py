@@ -596,6 +596,12 @@ class Repository:
                 not_found()
             return {"turns": turns}
 
+    def replay_preview(self, session, case_id, hearing_id, cursor):
+        from .replay import preview
+
+        with self._case(session, case_id) as graph:
+            return preview(graph, hearing_id, cursor)
+
     def replay(self, session, case_id, hearing_id, cursor):
         from .replay import advance
 

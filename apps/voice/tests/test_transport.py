@@ -82,6 +82,26 @@ class VoiceTransportTest(unittest.TestCase):
         gap = self.client.get("/api/live/c/h/audio", headers={"Range": "bytes=48042-48045"})
         self.assertEqual(gap.content, b"\0\0ef")
 
+    def test_replay_preview_requires_a_session_and_a_nonnegative_cursor(self):
+        route = "/api/live/demo/h4/replay"
+        self.repo.session.side_effect = transport.VoiceError(401, "unauthenticated", "Sign in.")
+        self.assertEqual(self.client.get(route, params={"cursor": 0}).status_code, 401)
+        self.repo.session.side_effect = None
+        self.client.cookies.set("jude_session", "test-cookie")
+        for raw in (None, "-1", "true", "1.2", ""):
+            with self.subTest(raw=raw):
+                bad = self.client.get(route, params={} if raw is None else {"cursor": raw})
+                self.assertEqual((bad.status_code, bad.json()["error"]["code"]), (422, "validation"))
+        self.repo.replay_preview.assert_not_called()
+        response = {"cursor": 9, "done": True}
+        self.repo.replay_preview.return_value = response
+        result = self.client.get(route, params={"cursor": 7})
+        self.assertEqual((result.status_code, result.json()), (200, response))
+        self.repo.session.assert_called_with("test-cookie")
+        self.repo.replay_preview.assert_called_once_with(self.repo.session.return_value, "demo", "h4", 7)
+        self.repo.replay.assert_not_called()
+        self.assertEqual(result.headers["cache-control"], "private, no-store")
+
     def test_reconnected_recorder_acknowledges_the_committed_turn_once(self):
         active = threading.Lock()
         holders = iter(["first", "second"])
