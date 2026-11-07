@@ -346,10 +346,10 @@ class VoiceRepositoryTest(unittest.TestCase):
         lease = self.repo.acquire(self.owner, "case", "hearing")
         self.repo.begin_turn(self.owner, "case", "hearing", lease=lease, turn_id="split", start=2,
                              pcm=b"\x00\x00" * 24_000, keep=True)
-        kwargs = dict(lease=lease, turn_id="split", text="combined", segments=[
+        kwargs = {"lease": lease, "turn_id": "split", "text": "combined", "segments": [
             {"start": 0, "end": .4, "text": "Pertama.", "speaker": "spk_0"},
             {"start": .4, "end": 1, "text": "Second.", "speaker": "spk_0"},
-        ])
+        ]}
         receipt = self.repo.finish_turn(self.owner, "case", "hearing", **kwargs)
         self.assertEqual(receipt["statementId"], "mic-hearing-split")
         self.assertEqual(self.repo.finish_turn(self.owner, "case", "hearing", **kwargs), receipt)
@@ -386,6 +386,10 @@ class VoiceRepositoryTest(unittest.TestCase):
         lease = self.repo.acquire(self.owner, "case", "hearing")
         self.capture(lease)
         self.capture(lease, "b", 11)
+        def resume(tid):
+            return self.repo.capture_resume_offset(self.owner, "case", "hearing", lease=lease, turn_id=tid)
+        self.assertEqual(resume("b"), 0)
+        fingerprint = self.one("SELECT fingerprint FROM voice_pending_transcripts WHERE turn_id='b'")["fingerprint"]
         segments = [{"start": 10.2, "end": 11.2, "text": "Kesaksian."},
                     {"start": 11.2, "end": 11.8, "text": "Response.", "speaker": "spk_1"}]
         def save(epoch="epoch-1", result_id="r", values=segments):
@@ -395,6 +399,15 @@ class VoiceRepositoryTest(unittest.TestCase):
             receipts = list(pool.map(lambda _: save(), range(2)))
         receipt = receipts[0]
         self.assertEqual(receipt, receipts[1])
+        self.assertEqual(resume("a"), 1)
+        self.assertAlmostEqual(resume("b"), .8)
+        self.assertIsNone(self.repo.committed_turn(self.owner, "case", "hearing", "b"))
+        self.assertEqual(self.one("SELECT fingerprint FROM voice_pending_transcripts WHERE turn_id='b'")["fingerprint"], fingerprint)
+        self.expect_error(409, self.repo.begin_capture, self.owner, "case", "hearing", lease=lease,
+                          epoch="epoch-reconnect", turn_id="b", start=11.8,
+                          pcm=b"\x10\x00" * 4800, keep=True)
+        self.expect_error(403, self.repo.capture_resume_offset, self.viewer, "case", "hearing", lease=lease, turn_id="b")
+        self.expect_error(409, self.repo.capture_resume_offset, self.owner, "case", "hearing", lease="wrong", turn_id="b")
         lines = self.repo.statements(self.owner, "case", "hearing")
         self.assertEqual([(s["t"], s["text"]) for s in lines], [(10.2, "Kesaksian."), (11.2, "Response.")])
         self.assertEqual(len({s["speakerId"] for s in lines}), 2)
@@ -407,8 +420,10 @@ class VoiceRepositoryTest(unittest.TestCase):
             complete = self.repo.complete_capture(self.owner, "case", "hearing", lease=lease, epoch="epoch-1", turn_id=tid)
             self.assertEqual(complete, {"id": tid, "statementId": None})
             self.assertEqual(self.repo.committed_turn(self.owner, "case", "hearing", tid), complete)
+        self.assertAlmostEqual(resume("b"), .8)
         self.capture(lease, epoch="epoch-2")
         self.capture(lease, "b", 11, "epoch-2")
+        self.assertEqual(self.one("SELECT fingerprint FROM voice_stream_captures WHERE turn_id='b' AND epoch='epoch-2'")["fingerprint"], fingerprint)
         self.assertEqual(save("epoch-2")["segments"], receipt["segments"])
         self.assertEqual(save("epoch-2", "split", [dict(segments[0], end=10.8)])["statementId"], lines[0]["id"])
         self.assertEqual(self.expect_error(409, save, "epoch-2", "overlap",
@@ -432,8 +447,8 @@ class VoiceRepositoryTest(unittest.TestCase):
         lease = self.repo.acquire(self.owner, "case", "hearing")
         self.capture(lease, keep=False)
         self.capture(lease, "b", 12, keep=False)
-        kwargs = dict(lease=lease, epoch="epoch-1", result_id="r",
-                      segments=[{"start": 10, "end": 12.5, "text": "Gap"}])
+        kwargs = {"lease": lease, "epoch": "epoch-1", "result_id": "r",
+                      "segments": [{"start": 10, "end": 12.5, "text": "Gap"}]}
         self.expect_error(422, self.repo.save_stream_result, self.owner, "case", "hearing", **kwargs)
         self.assertEqual(self.one("SELECT count(*) AS n FROM voice_stream_results")["n"], 0)
         kwargs["segments"] = [{"start": 10, "end": 11, "text": "Valid"}]

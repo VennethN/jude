@@ -10,7 +10,7 @@ Run `pnpm check`, `pnpm test`, `pnpm build`, and the relevant browser tests befo
 
 ## Voice service
 
-Implement the service in Python. Voice owns pyannote speaker diarization, OpenAI transcription, audio persistence, recording permission and synthetic replay. The browser microphone belongs to Jude Web. Read apps/voice/README.md for local setup and the web service contract.
+Implement the service in Python. Voice owns pyannote speaker diarization, Amazon Transcribe transcription, audio persistence, recording permission and synthetic replay. The browser microphone belongs to Jude Web. Read apps/voice/README.md for local setup and the web service contract.
 
 Keep model credentials server-side. Case audio and inferred speaker labels belong to their originating hearing. Verify session, case role and recording permission in the backend. Use the shared SQL migration ledger and run the Python suite against SQLite and PostgreSQL for database changes.
 

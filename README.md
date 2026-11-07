@@ -17,7 +17,7 @@ A courtroom workspace for reading case files, following testimony, and reviewing
 | **Review findings** | Compare statements with their cited evidence, assign review statuses, and keep examination notes. |
 | **Prepare the case** | Organize evidence boards, explore relationships, bookmark passages, and ask source-linked questions. |
 
-The example workspace provides a clearly labelled synthetic case. Real audio transcription requires OpenAI credentials and a configured diarization model. Users can review and correct the resulting transcripts and speaker labels.
+The example workspace provides a clearly labelled synthetic case. Real audio transcription requires an AWS role with Amazon Transcribe streaming access in Singapore. Users can review and correct the resulting transcripts and speaker labels.
 
 ## Architecture
 
@@ -28,14 +28,15 @@ The example workspace provides a clearly labelled synthetic case. Real audio tra
 | Component | Responsibility |
 | --- | --- |
 | **SvelteKit · Node.js** | Frontend, authentication, case APIs, and analysis workers. |
-| **FastAPI · Python** | Hearing audio, OpenAI transcription, and pyannote speaker diarization. |
+| **FastAPI · Python** | Hearing audio, Amazon Transcribe, and anonymous speaker labels. |
 | **EC2 `t3.medium`** | Shared web and voice host with a 40 GB gp3 volume. |
 | **RDS PostgreSQL** | Shared application data; `db.t4g.micro`, Single-AZ, with a subnet group spanning two AZs. |
 | **S3 + KMS** | Encrypted private storage for documents and audio. |
 | **SSM Parameter Store** | Runtime credentials and configuration. Systems Manager handles deployment and host administration. |
 | **Secrets Manager** | AWS-managed RDS master credentials. |
 | **ECR · CloudWatch** | Application image registry and PostgreSQL log exports. |
-| **OpenAI API** | Server-side transcription and analysis. |
+| **Amazon Transcribe** | Speech recognition in Singapore (`ap-southeast-1`); application and audio storage remain in Jakarta. |
+| **OpenAI API** | Server-side case analysis and assistance. |
 
 The current hackathon configuration enables public RDS access on port `5432` with TLS and an allowlist of `0.0.0.0/0`. The EC2 HTTP origin accepts traffic only from CloudFront. Infrastructure settings live in [Terraform](infra/terraform/terraform.tfvars), with `Hackathon=true` on supported resources.
 
@@ -52,7 +53,7 @@ pnpm dev
 
 Open **http://localhost:5173** and choose the example case. The launcher starts web and voice together. Without `DATABASE_URL`, local development uses SQLite and stores private files under `.jude-data/`.
 
-Put web development settings in the Git-ignored `apps/web/.env`. Run `pnpm dev` from the repository root or `apps/web`; both use this file. Root development also reads `.env` as a fallback, while `pnpm start` uses the root `.env` for the combined production service. Environment templates are available for [web](apps/web/.env.example) and [voice](apps/voice/.env.example). See the [voice guide](apps/voice/README.md#enable-private-audio) for OpenAI credentials, speaker models, and audio storage.
+Put web development settings in the Git-ignored `apps/web/.env`. Run `pnpm dev` from the repository root or `apps/web`; both use this file. Root development also reads `.env` as a fallback, while `pnpm start` uses the root `.env` for the combined production service. Environment templates are available for [web](apps/web/.env.example) and [voice](apps/voice/.env.example). See the [voice guide](apps/voice/README.md#enable-private-audio) for AWS transcription access, speaker models, and audio storage.
 
 Document extraction and conversion also use Poppler, LibreOffice, and Tesseract. These system dependencies are included in the production image.
 

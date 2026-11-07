@@ -755,6 +755,21 @@ class Repository:
             )
         return receipt
 
+    def capture_resume_offset(self, session, case_id, hearing_id, *, lease, turn_id):
+        """Replay only audio after the last durably finalized word in this capture."""
+        with self._case(session, case_id, "write") as graph:
+            _live(session, graph, hearing_id)
+            self._require_lease(graph, hearing_id, lease)
+            captured = _turn_state(graph, hearing_id, turn_id)
+            if not captured:
+                not_found()
+            row = graph.tx.one(
+                "SELECT MAX(end_seconds) AS endpoint FROM voice_statement_spans "
+                "WHERE case_id=? AND hearing_id=? AND turn_id=?",
+                (case_id, hearing_id, turn_id),
+            )
+            return min(captured["duration_seconds"], float(row["endpoint"] or 0))
+
     def complete_capture(self, session, case_id, hearing_id, *, lease, epoch, turn_id):
         """Acknowledge a capture after ingest's final-result watermark passes it."""
         _stream_key(epoch)

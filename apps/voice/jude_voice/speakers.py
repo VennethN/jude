@@ -71,10 +71,21 @@ def process_recording(repo, job):
         if size >= BATCH_BYTES:
             assignments.update(window.label(batch))
             batch, size = [], 0
-        statement_id = turn["statement_id"]
         pcm = repo.storage.get(turn["object_key"])
-        batch.append((statement_id if statement_id in statements else None, pcm))
-        size += len(pcm)
+        if "statement_spans" in turn:
+            for span in turn["statement_spans"]:
+                if span["statement_id"] not in statements:
+                    continue
+                start = round(span["start"] * BYTES_PER_SECOND / 2) * 2
+                end = round(span["end"] * BYTES_PER_SECOND / 2) * 2
+                clip = pcm[start:end]
+                if clip:
+                    batch.append((span["statement_id"], clip))
+                    size += len(clip)
+        else:
+            statement_id = turn["statement_id"]
+            batch.append((statement_id if statement_id in statements else None, pcm))
+            size += len(pcm)
     assignments.update(window.label(batch))
     repo.finish_diarization(job, assignments)
 

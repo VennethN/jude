@@ -7,18 +7,21 @@ import { voiceProxy } from './scripts/voice-proxy.js';
 
 const repo = new URL('../../', import.meta.url);
 const rootEnv = new URL('.env', repo);
+const webEnv = new URL('.env', import.meta.url);
 
 export default defineConfig(({ command }) => {
   const localVoice = 'http://127.0.0.1:' + (process.env.VOICE_PORT || '3001');
   let origin = process.env.VOICE_ORIGIN;
-  // A Vite config reload can follow a local switch to the hosted gateway without ending the dev session.
-  if (command === 'serve' && (!origin || origin === localVoice) && existsSync(rootEnv)) {
-    origin = parseEnv(readFileSync(rootEnv, 'utf8')).VOICE_ORIGIN || origin;
+  // An explicitly configured local service must not fall back to the hosted gateway.
+  if (command === 'serve' && !origin) {
+    for (const file of [webEnv, rootEnv]) {
+      if (existsSync(file)) origin ||= parseEnv(readFileSync(file, 'utf8')).VOICE_ORIGIN;
+    }
   }
   const voiceTarget = new URL(origin || localVoice);
   if (command === 'serve') process.env.VOICE_ORIGIN = voiceTarget.origin;
   return {
-    envDir: fileURLToPath(repo),
+    envDir: fileURLToPath(new URL('.', import.meta.url)),
     plugins: [sveltekit()],
     ssr: {
       noExternal: [/^@jude\//],

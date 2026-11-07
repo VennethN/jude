@@ -42,6 +42,7 @@ ASSETS = Path(__file__).resolve().parents[1] / "docs/architecture/icons"
 ICON_BY_TITLE = {
     "CloudFront": "cloudfront", "CloudWatch Logs": "cloudwatch",
     "OpenAI API": "openai", "Internet Gateway": "internet-gateway",
+    "Amazon Transcribe": "transcribe",
     "Amazon ECR": "ecr", "Parameter Store": "parameter-store",
     "Secrets Manager": "secrets-manager", "Session Manager": "session-manager",
     "Users": "users", "GitHub": "github", "Actions": "actions", "Admin": "admin",
@@ -188,6 +189,8 @@ def generate(config, output, png):
     d.text(320, 85, "AWS Cloud", 27, bold=True)
     d.card(320, 132, 330, 88, "CloudFront", PURPLE, size=22)
     d.card(1860, 132, 200, 88, "OpenAI API", TEAL, size=17)
+    d.group(850, 96, 910, 154, "Asia Pacific (Singapore)", "ap-southeast-1")
+    d.card(1320, 178, 350, 60, "Amazon Transcribe", TEAL, size=20)
     d.text(485, 241, "Global edge · HTTPS / WebSocket", 17, color=MUTED, align="center")
     d.group(280, 268, 1520, 800, c["backend_region"], c["backend_region_code"])
     d.group(312, 374, 1456, 466, f'Amazon VPC · {c["vpc"]}', color=GREEN, fill="#fbfefb")
@@ -251,9 +254,10 @@ def generate(config, output, png):
     d.line([(320, 200), (264, 200), (264, 710), (392, 710)], BLUE, 2, arrow=True)
     d.line([(692, 674), (692, 682), (1216, 682), (1216, 604), (1266, 604)], INK, 2, arrow=True)
     d.line([(722, 614), (750, 614), (750, 514), (1212, 514), (1212, 348), (1960, 348), (1960, 220)], TEAL, 2, arrow=True)
-    d.line([(980, 602), (980, 514)], TEAL, 2)
+    d.line([(980, 602), (980, 490), (1186, 490), (1186, 258), (1495, 258), (1495, 238)], TEAL, 2, arrow=True)
     d.line([(1146, 654), (1216, 654)], INK, 2)
     label(1350, 348, "OpenAI HTTPS", TEAL)
+    label(1080, 490, "Speech / WSS", TEAL)
     label(1010, 682, "PostgreSQL / TLS")
     d.line([(116, 752), (116, 842)], ORANGE, 1.7, dashed=True, arrow=True)
     d.line([(200, 884), (224, 884), (224, 1054), (408, 1054), (408, 1024)], ORANGE, 1.7, dashed=True, arrow=True)

@@ -36,7 +36,7 @@
     Workspace
   } from '@jude/core/domain';
   import { needsReview } from '@jude/core/domain';
-  import { api, write } from '$lib/client';
+  import { api, write, ApiError } from '$lib/client';
   import Inspector from '$lib/evidence/Inspector.svelte';
   import { apiPath, assistantPath, casePath } from '$lib/evidence/records';
   import '$lib/evidence/evidence.css';
@@ -296,7 +296,7 @@
     }
   }
   function issueFrom(e: unknown) {
-    const reason = e instanceof Error ? e.message : '';
+    const reason = e instanceof ApiError ? e.code : e instanceof Error ? e.message : '';
     if (reason === 'capture_in_use')
       return en
         ? 'A microphone is already in use in another hearing or tab.'

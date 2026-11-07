@@ -1,6 +1,6 @@
 # Jude Voice
 
-Jude Voice is a Python service for private hearing recordings and speaker-labelled transcripts. It runs pyannote Community-1 on the voice host to distinguish speakers. OpenAI transcribes speech directly through its file and Realtime APIs. Counsel can confirm the speaker names and roles in Jude Web.
+Jude Voice is a Python service for private hearing recordings and speaker-labelled transcripts. Amazon Transcribe recognizes live and uploaded speech through its streaming API in Singapore. Python keeps AWS credentials server-side; speaker names remain human-assigned. Counsel can confirm the speaker names and roles in Jude Web.
 
 ## Run the service
 
@@ -18,14 +18,9 @@ The service-specific `.env.example` lists runtime settings. From the repository 
 
 ## Enable private audio
 
-Install the pinned ML dependencies in the voice environment. On Linux CPU hosts, install the CPU torch and torchaudio wheels first:
+Set `JUDE_TRANSCRIBE_REGION=ap-southeast-1`. The AWS credential chain uses the EC2 instance role in production and your AWS profile locally. Grant `transcribe:StartStreamTranscriptionWebSocket` in that region. No OpenAI or Hugging Face credential is needed for new audio. Amazon Transcribe supplies anonymous speaker labels; counsel assigns names and roles.
 
-```sh
-apps/voice/.venv/bin/python -m pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchaudio==2.8.0
-apps/voice/.venv/bin/python -m pip install -r apps/voice/requirements-diarization.txt
-```
-
-Accept the Community-1 model terms and provision a snapshot on the voice host. Set `JUDE_DIARIZATION_MODEL` to its absolute directory. To retrieve the pinned revision using an authorized Hugging Face account, set the value to `pyannote/speaker-diarization-community-1` and supply `HF_TOKEN`. Local model loading works offline. Set `OPENAI_API_KEY` in the voice environment. `OPENAI_PROJECT_ID`, `OPENAI_TRANSCRIPTION_MODEL` and `OPENAI_REALTIME_TRANSCRIPTION_MODEL` are optional. [Community-1 model and access terms](https://huggingface.co/pyannote/speaker-diarization-community-1) · [File transcription](https://developers.openai.com/api/docs/guides/speech-to-text) · [Realtime transcription](https://developers.openai.com/api/docs/guides/realtime-transcription)
+Jakarta has no Transcribe streaming endpoint. Audio is processed in Singapore; the application, database, and retained audio remain in Jakarta. Credentials and signed provider URLs stay inside Python. [Amazon Transcribe streaming](https://docs.aws.amazon.com/transcribe/latest/dg/streaming.html) · [AWS endpoints](https://docs.aws.amazon.com/general/latest/gr/transcribe.html)
 
 Set `VOICE_HOST`, `VOICE_PORT` and the public web `ORIGIN` for the deployment. Configure web with an internal `VOICE_ORIGIN`. Both apps share `DATABASE_URL` for PostgreSQL or an absolute `JUDE_DB_PATH` for local SQLite. Local audio uses `JUDE_FILES_DIR`. AWS audio uses a private S3 bucket and KMS key. [AWS deployment](docs/aws.md)
 
@@ -33,7 +28,11 @@ Set `VOICE_HOST`, `VOICE_PORT` and the public web `ORIGIN` for the deployment. C
 
 Confirm permission for an open hearing before recording or uploading audio. Uploads accept up to 25 MiB and 30 minutes. The voice service separates speech by anonymous speaker and transcribes each passage in its original language. A live microphone acknowledges each turn after it is saved. A disconnected browser queues its pending turns until the connection resumes.
 
-When the lawyer retains a live recording, a bounded background queue groups speakers while the transcript continues to arrive. A leased worker processes unresolved saved turns after the hearing ends. Transcript-only mode groups speakers using short-lived acoustic context in memory during the connection. Interrupted sessions and uncertain matches remain unidentified until enough evidence is available; counsel can review and name each predicted voice. Hand-confirmed labels are preserved. Acoustic context is scoped to the current recording connection, not an identity database across hearings.
+Live audio uses one ordered Amazon Transcribe stream per connection. Final word items are split at every speaker change, preserving an A → B → A conversation as three statements. Names stay human-assigned. Unknown voices stay unidentified, and automatic labels are scoped to their hearing and provider stream; reconnecting does not prove the same person's identity.
+
+The browser keeps pending audio until transcript completion is acknowledged. Stop drains the provider's final results before closing. Uploaded recordings use one stream for the file and retain the provider's speaker transitions. File processing is paced at audio speed.
+
+The optional pyannote Community-1 worker remains available for unresolved recordings created by the previous service. Its model and deployment instructions are in the [AWS guide](docs/aws.md#local-speaker-diarization); it is not required for new Amazon Transcribe recordings.
 
 | Endpoint | Purpose |
 | --- | --- |

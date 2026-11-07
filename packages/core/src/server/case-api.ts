@@ -498,6 +498,17 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
             throw new ApiError(409, 'already_recording', 'You already have a live hearing.');
         }
       }
+      if (resource === 'hearings' && method === 'POST' && act === 'end') {
+        const w = await workspaceIn(db, org, caseId, true);
+        const hearing = required(w.hearings, (h) => h.id === id);
+        if (w.caseRecord.label !== 'synthetic' && hearing.recordingPermission?.by !== session.user.id)
+          throw new ApiError(403, 'forbidden', 'Only the recording lawyer may end this hearing.');
+        const pending = await db.query(
+          'SELECT turn_id FROM voice_pending_transcripts WHERE case_id=$1 AND hearing_id=$2 LIMIT 1',
+          [caseId, id],
+        );
+        if (pending.length) throw new ApiError(409, 'audio_pending', 'Finish sending the pending audio before ending this hearing.');
+      }
       const result = await changeIn(db, org, caseId, (w) => {
         if (resource === 'hearings') {
           if (method === 'POST' && id === 'import' && !act) return importHearing(w, f, session.user.id);

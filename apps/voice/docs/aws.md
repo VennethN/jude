@@ -1,6 +1,6 @@
 # Hosting the voice service
 
-The Python voice service handles hearing HTTP and WebSocket requests under `/api/live/**`. The base image supports synthetic hearing replay and authorised playback of previously retained audio. To process new private recordings or live microphone input, run a pyannote target with the Community-1 weights and an OpenAI API key. The local pipeline assigns anonymous speaker turns and OpenAI transcribes speech.
+The Python voice service handles hearing HTTP and WebSocket requests under `/api/live/**`. The base image supports synthetic hearing replay and authorised playback of previously retained audio. To process new private recordings or live microphone input, use an AWS role with IAM permission for Amazon Transcribe. Amazon Transcribe recognizes speech in Singapore and labels anonymous speakers.
 
 ## Independent service
 
@@ -12,7 +12,7 @@ docker buildx build -f infra/docker/Dockerfile --platform linux/amd64 --target v
 
 The image runs `python -m jude_voice` with `PYTHONPATH=/app/apps/voice`, `VOICE_HOST=0.0.0.0` and `VOICE_PORT=3001`. Put it on a private subnet or application network. Set `VOICE_ORIGIN` on the web service to an internal HTTP origin such as `http://jude-voice:3001`. Set `ORIGIN` to the public HTTPS site on both services. Browsers use the public web origin for hearing HTTP requests and WebSocket upgrades. Each voice request checks the user session and case membership.
 
-Supply the shared PostgreSQL database, S3 originals bucket and KMS key to both services. For private-case transcription, set `OPENAI_API_KEY` and provision the model described below. The service’s `GET /healthz` checks database readiness. Supervise the processes independently, and release a compatible web and voice pair together.
+Supply the shared PostgreSQL database, S3 originals bucket and KMS key to both services. For private-case transcription, set `JUDE_TRANSCRIBE_REGION=ap-southeast-1`, grant `transcribe:StartStreamTranscriptionWebSocket` on the instance role. The model below is optional for unresolved legacy recordings. The service’s `GET /healthz` checks database readiness. Supervise the processes independently, and release a compatible web and voice pair together.
 
 The GitHub Actions release runs both processes in the `release-pyannote` container. Voice listens on loopback. CloudFront serves HTTPS and Caddy forwards requests to the web process. The launcher checks both database health endpoints before starting the proxy.
 
@@ -23,6 +23,8 @@ The GitHub Actions release runs both processes in the `release-pyannote` contain
 The gateway exposes `/healthz` and `/api/live/**` only. `/api/live/capabilities` reports readiness. Uploads use `/api/live/{caseId}/upload`; WebSockets use `wss://jude-voice.15.232.90.76.sslip.io/api/live/{caseId}/{hearingId}/socket`. Recording and audio requests require the existing `jude_session` cookie and case permissions. Use the gateway origin for the WebSocket `Origin` header. The gateway translates only its own origin to the web application's canonical origin; arbitrary origins still fail authorization checks. Browser development uses the web app's same-origin proxy, not credentialed wildcard CORS.
 
 ## Local speaker diarization
+
+This optional worker serves unresolved recordings from the previous service. New live and uploaded audio uses Amazon Transcribe speaker labels.
 
 The `voice-pyannote` and `release-pyannote` targets install the CPU builds of PyTorch and torchaudio along with pyannote.audio and TorchCodec. They share the same service code as the corresponding baseline targets. Keep the model snapshot outside the source and container build context.
 
@@ -37,7 +39,7 @@ For GitHub Actions deployments, install the complete snapshot under `/var/lib/ju
 | Parameter | Value |
 | --- | --- |
 | `/jude-dev/runtime/JUDE_DIARIZATION_MODEL` | `/models/community-1` |
-| `/jude-dev/runtime/OPENAI_API_KEY` | The voice service’s OpenAI credential |
+| `/jude-dev/runtime/JUDE_TRANSCRIBE_REGION` | `ap-southeast-1` (String; credentials come from the EC2 role) |
 
 The EC2 launcher mounts the snapshot read-only and loads it with networking disabled before replacing the running containers. An inaccessible or incomplete snapshot stops the release at this step. The inference worker uses the same offline mount.
 

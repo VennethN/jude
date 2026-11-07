@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import binascii
+import logging
 import math
 import os
 import re
@@ -21,12 +22,18 @@ from fastapi.responses import (
     StreamingResponse,
 )
 
-from .diarization import DiarizationError, diarization_available
+from .diarization import DiarizationError
 from .ingest import stream_turns
 from .limits import MAX_UPLOAD, UploadLimit
-from .providers import ProviderError, Realtime, transcribe_file, wav_header
+from .providers import (
+    ProviderError,
+    transcribe_file,
+    transcription_available,
+    wav_header,
+)
 from .repository import Repository, VoiceError
-from .speakers import SpeakerWindow, run_worker
+from .speakers import run_worker
+from .transcribe import TranscribeStream
 
 AUDIO_FORMATS = {".mp3", ".wav", ".mp4", ".m4a", ".mpeg", ".mpga", ".webm"}
 ID = re.compile(r"^[a-zA-Z0-9_-]{1,90}$")
@@ -63,7 +70,7 @@ app.add_middleware(UploadLimit)
 @app.get("/capabilities")
 @app.get("/api/live/capabilities")
 async def capabilities():
-    return {"transcription": bool(os.getenv("OPENAI_API_KEY")) and diarization_available()}
+    return {"transcription": await asyncio.to_thread(transcription_available)}
 
 
 @app.middleware("http")
@@ -313,8 +320,7 @@ async def socket(ws: WebSocket, case_id: str, hearing_id: str):
     if (
         not ws.headers.get("origin")
         or not allowed_origin(ws)
-        or not os.getenv("OPENAI_API_KEY")
-        or not diarization_available()
+        or not await asyncio.to_thread(transcription_available)
     ):
         await ws.close(code=1008)
         return
@@ -325,22 +331,27 @@ async def socket(ws: WebSocket, case_id: str, hearing_id: str):
             await receive_turns(ws, session, case_id, hearing_id, lease)
     except WebSocketDisconnect:
         pass
-    except VoiceError:
+    except VoiceError as exc:
+        logging.getLogger(__name__).warning("voice_socket_rejected code=%s", exc.code)
         await ws.close(code=1008)
 
 
 async def receive_turns(ws, session, case_id, hearing_id, lease):
     try:
-        await stream_turns(ws, repo, session, case_id, hearing_id, lease, decode_turn, Realtime, SpeakerWindow())
+        await stream_turns(ws, repo, session, case_id, hearing_id, lease, decode_turn, TranscribeStream)
     except WebSocketDisconnect:
         pass
-    except VoiceError:
+    except VoiceError as exc:
+        logging.getLogger(__name__).warning("voice_stream_rejected code=%s", exc.code)
         with suppress(RuntimeError, WebSocketDisconnect):
+            await ws.send_json({"type": "error", "code": exc.code})
             await ws.close(code=1008)
     except (ValueError, binascii.Error, KeyError):
+        logging.getLogger(__name__).warning("voice_stream_rejected code=invalid_capture")
         with suppress(RuntimeError):
             await ws.close(code=1003)
     except Exception:  # noqa: BLE001 - close the stream without exposing model or database errors
+        logging.getLogger(__name__).warning("voice_stream_rejected code=transcription_interrupted")
         with suppress(RuntimeError, WebSocketDisconnect):
             await ws.send_json({"type": "error", "code": "transcription_interrupted"})
             await ws.close(code=1011)

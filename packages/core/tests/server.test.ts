@@ -38,6 +38,47 @@ afterAll(async () => {
 });
 
 describe('case API', () => {
+  test('only the recording lawyer can end a hearing after pending audio is cleared', async () => {
+    const owner = browser(), outsider = browser();
+    const session = await owner.ok<SessionInfo>('auth/signup', 'POST', {
+      name: 'Recording lawyer', email: randomUUID() + '@example.test', password: 'Recording-1234',
+    });
+    await outsider.ok<SessionInfo>('auth/signup', 'POST', {
+      name: 'Other lawyer', email: randomUUID() + '@example.test', password: 'Recording-1234',
+    });
+    const c = await owner.ok<CaseRecord>('cases', 'POST', { title: 'Pending capture' });
+    const base = 'cases/' + c.id;
+    const hearing = await owner.ok<{ id: string }>(base + '/hearings', 'POST', {
+      title: 'Recording', date: '2026-11-07', flow: 'schedule',
+    });
+    const permission = { by: session.user.id, at: new Date().toISOString(), text: 'Permission granted' };
+    await mutateWorkspace(session.organization.id, c.id, (w) => {
+      const h = w.hearings.find(h => h.id === hearing.id)!;
+      h.mode = 'live';
+      h.recordingPermission = permission;
+    });
+    await transaction(async (db) => {
+      await db.query('INSERT INTO voice_turns(case_id,hearing_id,id,start_seconds,bytes) VALUES($1,$2,$3,0,48000)',
+        [c.id, hearing.id, 'pending']);
+      await db.query('INSERT INTO voice_pending_transcripts(case_id,hearing_id,turn_id,fingerprint) VALUES($1,$2,$3,$4)',
+        [c.id, hearing.id, 'pending', 'original-pcm']);
+    });
+    const end = base + '/hearings/' + hearing.id + '/end';
+    expect((await outsider.request(end, 'POST')).status).toBe(404);
+    const blocked = await owner.request(end, 'POST');
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ error: { code: 'audio_pending' } });
+    expect((await owner.ok<Workspace>(base + '/workspace')).hearings.find(h => h.id === hearing.id)!.mode).toBe('live');
+    await transaction(db => db.query('DELETE FROM voice_pending_transcripts WHERE case_id=$1 AND hearing_id=$2', [c.id, hearing.id]));
+    await mutateWorkspace(session.organization.id, c.id, (w) => {
+      w.hearings.find(h => h.id === hearing.id)!.recordingPermission = { ...permission, by: 'another-lawyer' };
+    });
+    expect((await owner.request(end, 'POST')).status).toBe(403);
+    await mutateWorkspace(session.organization.id, c.id, (w) => {
+      w.hearings.find(h => h.id === hearing.id)!.recordingPermission = permission;
+    });
+    expect((await owner.ok<{ mode: string }>(end, 'POST')).mode).toBe('recorded');
+  });
   test('each visitor has an isolated demo and their cookie resumes it', async () => {
     const a = browser(),
       b = browser();

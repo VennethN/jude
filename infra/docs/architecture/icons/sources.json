@@ -146,6 +146,12 @@
       "archive_path": "Architecture-Service-Icons_07312026/Arch_Security-Identity/64/Arch_AWS-Key-Management-Service_64.svg",
       "owner": "Amazon Web Services",
       "sha256": "5b3ed298ae380707f77ca21c2f417d0a7a36e70e59bfe9a5d8f281b8447ae750"
+    },
+    "transcribe": {
+      "source": "https://d1.awsstatic.com/onedam/marketing-channels/website/public/shared/architecture-icon-release/Icon-package_07312026.5846e92413caa21490223536cc97f1269e44fa92.zip",
+      "archive_path": "Architecture-Service-Icons_07312026/Arch_Artificial-Intelligence/64/Arch_Amazon-Transcribe_64.svg",
+      "owner": "Amazon Web Services",
+      "sha256": "406e94584cfc1c614b6f5cdee9c2f50e0c428edf1d86c6b43840c11a613f6c56"
     }
   }
 }
