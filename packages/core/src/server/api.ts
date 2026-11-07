@@ -135,7 +135,7 @@ async function handle(event: CoreRequest) {
     if (query.trim().length < 2) return { cases: [] };
     return transaction(async (db) => {
       const cases = await db.query<{ id: string }>(
-        'SELECT c.id FROM cases c JOIN case_members cm ON cm.case_id=c.id WHERE c.org_id=$1 AND cm.user_id=$2 AND c.deleted_at IS NULL ORDER BY c.id',
+        'SELECT c.id FROM cases c JOIN workspace_case_members cm ON cm.case_id=c.id WHERE c.org_id=$1 AND cm.user_id=$2 AND c.deleted_at IS NULL ORDER BY c.id',
         [org, session.user.id],
       );
       const matches = [];

@@ -46,6 +46,7 @@ import {
 import { jsonFields } from './request';
 import { authorizeCase, listMembers, setCaseMember } from './access';
 import { answerQuestion } from './providers/assistant';
+import { mergeEvidenceRanks, semanticMatches, type SourceRef } from './providers/semantic-retrieval';
 import { discoverLegal, legalDiscoveryMode, retainLegal } from './providers/pasal';
 
 const groups = [
@@ -61,7 +62,7 @@ const groups = [
   'legal',
   'replies',
 ] as const;
-export function caseHits(w: Workspace, query: string) {
+export function caseHits(w: Workspace, query: string, semantic: SourceRef[] = []) {
   const term = query.toLocaleLowerCase().trim();
   if (term.length < 2) return [];
   const base = '/case/' + encodeURIComponent(w.caseRecord.id);
@@ -97,9 +98,8 @@ export function caseHits(w: Workspace, query: string) {
       url: base + '/hearings/' + s.hearingId + '?s=' + s.id,
     })),
   ];
-  return hits
-    .filter((h) => h.text.toLocaleLowerCase().includes(term))
-    .slice(0, 80)
+  const lexical = hits.filter(h => h.text.toLocaleLowerCase().includes(term));
+  return mergeEvidenceRanks(lexical, semantic, hits, 80)
     .map((h) => {
       const start = Math.max(0, h.text.toLocaleLowerCase().indexOf(term) - 45);
       return { ...h, snippet: h.text.slice(start, start + 180) };
@@ -128,7 +128,7 @@ async function eventStream(event: CoreRequest, org: string, caseId: string) {
             first ??
             (await transaction(async (db) => {
               const [row] = await db.query<{ version: number }>(
-                'SELECT c.version FROM cases c JOIN case_members cm ON cm.case_id=c.id JOIN sessions s ON s.user_id=cm.user_id WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3 AND c.deleted_at IS NULL AND s.token_hash=$4 AND s.expires_at>$5',
+                'SELECT c.version FROM cases c JOIN workspace_case_members cm ON cm.case_id=c.id JOIN sessions s ON s.user_id=cm.user_id WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3 AND c.deleted_at IS NULL AND s.token_hash=$4 AND s.expires_at>$5',
                 [caseId, org, event.locals.session!.user.id, tokenHash, Date.now()],
               );
               return row?.version;
@@ -214,9 +214,11 @@ async function caseState(
     if (Number(stored.size)) await checkQuota(db, org, 'storage', Number(stored.size) / 1e9);
     if (Number(stored.boards)) await checkQuota(db, org, 'boards', Number(stored.boards));
   }
-  if (action === 'delete')
+  if (action === 'delete') {
     await db.query('UPDATE cases SET deleted_at=$1,version=version+1 WHERE id=$2', [Date.now(), id]);
-  else if (action === 'restore')
+    await db.query('DELETE FROM semantic_evidence WHERE case_id=$1', [id]);
+    await db.query('DELETE FROM semantic_case_state WHERE case_id=$1', [id]);
+  } else if (action === 'restore')
     await db.query('UPDATE cases SET deleted_at=NULL,version=version+1 WHERE id=$1', [id]);
   else if (Boolean(c.archived) !== (action === 'archive')) {
     const record = JSON.parse(c.record);
@@ -300,6 +302,7 @@ async function postMessage(
     contexts,
     lang,
     !session.user.guest && before.workspace!.caseRecord.label === 'private',
+    org,
   );
   const discovered = withLegal
     ? await discoverLegal(before.workspace!, text, [...contexts, ...(answer.citations ?? [])])
@@ -378,7 +381,11 @@ export async function caseRequest(event: CoreRequest, session: SessionInfo, case
         live: w.hearings.find((h) => h.mode === 'live') ?? null,
       };
     if (resource === 'bookmarks' && !id) return w.statements.filter((s) => s.flagged);
-    if (resource === 'search' && !id) return { hits: caseHits(w, event.url.searchParams.get('q') ?? '') };
+    if (resource === 'search' && !id) {
+      const query = (event.url.searchParams.get('q') ?? '').trim().slice(0, 2000);
+      const semantic = query.length >= 3 && !session.user.guest ? await semanticMatches(w, org, query) : [];
+      return { hits: caseHits(w, query, semantic) };
+    }
     if (resource === 'evidence' && !id)
       return {
         statements: w.statements,

@@ -12,7 +12,7 @@ export async function caseAccess(
   includeDeleted = false,
 ) {
   const [access] = await db.query<{ role: 'owner' | 'editor' | 'viewer' }>(
-    'SELECT cm.role FROM case_members cm JOIN cases c ON cm.case_id=c.id JOIN memberships m ON m.user_id=cm.user_id AND m.org_id=c.org_id WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3' +
+    'SELECT cm.role FROM workspace_case_members cm JOIN cases c ON cm.case_id=c.id JOIN memberships m ON m.user_id=cm.user_id AND m.org_id=c.org_id WHERE c.id=$1 AND c.org_id=$2 AND cm.user_id=$3' +
       (includeDeleted ? '' : ' AND c.deleted_at IS NULL'),
     [caseId, session.organization.id, session.user.id],
   );

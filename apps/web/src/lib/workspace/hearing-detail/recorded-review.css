@@ -1,0 +1,77 @@
+.hearing-detail:has(.player) {
+  [data-tone] {
+    --review-role-ink: var(--role-unknown-ink);
+    --review-role-paper: var(--role-unknown-soft);
+  }
+  :is([data-tone='judge'], [data-tone='judge_member']) {
+    --review-role-ink: var(--role-judge-ink);
+    --review-role-paper: var(--role-judge-soft);
+  }
+  [data-tone='opposing'] {
+    --review-role-ink: var(--role-opposing-ink);
+    --review-role-paper: var(--role-opposing-soft);
+  }
+  [data-tone='witness'] {
+    --review-role-ink: var(--role-witness-ink);
+    --review-role-paper: var(--role-witness-soft);
+  }
+  [data-tone='counsel'] {
+    --review-role-ink: var(--role-counsel-ink);
+    --review-role-paper: var(--role-counsel-soft);
+  }
+  [data-tone='party'] {
+    --review-role-ink: var(--role-party-ink);
+    --review-role-paper: var(--role-party-soft);
+  }
+
+  h1 { letter-spacing: -.01em; }
+  .transcript-panel.review { border-radius: 12px; padding-bottom: 10px; }
+  .review .review-tools { gap: 8px 12px; padding: 12px; }
+  .review .review-search { flex-basis: 220px; border-color: var(--line-strong); }
+  .review-search .icon-button { height: 34px; min-height: 34px; }
+  .review .review-count { min-height: 36px; padding: 0 10px 0 6px; font-size: 13px; }
+  .review .lines { padding: 4px 0 0; }
+  .review .lines article {
+    grid-template-columns: 24px 32px minmax(0, 1fr);
+    column-gap: 8px;
+    padding: 10px 12px 10px 4px;
+    border-radius: 6px;
+  }
+  .review .lines article:not(.chosen):has(.finding-link:not(.quiet)) {
+    background: color-mix(in srgb, var(--alert-soft) 35%, transparent);
+  }
+  .review .lines article.chosen { background: var(--selected); box-shadow: none; }
+  .review .lines .spoken { display: grid; gap: 3px; margin-inline-start: 4px; }
+  .review .lines .meta { min-height: 20px; margin-top: 6px; gap: 2px 8px; }
+  .review .lines .name { font-size: 13px; line-height: 1.5; color: var(--ink-strong); }
+  .review .lines .when { min-height: 20px; }
+  .review .lines .words { margin: 0; color: var(--ink-strong); }
+  .review .lines .sources { margin-top: 0; }
+  .review .lines .disc { margin: 0; background: var(--review-role-ink); }
+  .review .lines .flag { height: 32px; width: 24px; opacity: .8; }
+  .review .lines .flag:is(:focus-visible, :hover, [aria-pressed='true']) { opacity: 1; }
+  :is(.player .current, .review article) { --phrase: var(--alert); }
+  :is(.current[data-status='supported'], .review article:has(.pill[data-status='supported'])) { --phrase: var(--st-supported-dot); }
+  :is(.current[data-status='context_needed'], .review article:has(.pill[data-status='context_needed'])) { --phrase: var(--st-context-dot); }
+  :is(.current[data-status='insufficient_evidence'], .review article:has(.pill[data-status='insufficient_evidence'])) { --phrase: var(--st-insufficient-dot); }
+  :is(.player .current, .review article) mark.ev-mark {
+    color: inherit;
+    background: color-mix(in srgb, var(--phrase) 22%, transparent);
+    box-shadow: inset 0 -2px var(--phrase);
+    border-radius: 2px;
+    padding: 0 1px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  @media (pointer: coarse) {
+    .review .review-count { min-height: 44px; }
+    .review-search .icon-button { min-height: 42px; }
+  }
+}
+
+[data-theme='night'] .hearing-detail:has(.player) .review .lines .disc {
+  color: var(--review-role-ink);
+  background: var(--review-role-paper);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--tone) 38%, transparent);
+}

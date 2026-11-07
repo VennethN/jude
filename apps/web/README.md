@@ -23,7 +23,7 @@ The production server listens on `PORT` (default 3000). Its `/healthz` check que
 
 ## Project files
 
-Web source, browser tests, Playwright configuration and synthetic document generation live in this directory. `.env.example` documents server settings; it contains no credentials. Copy it to `.env` for Vite development. For `pnpm dev` from the repository root, export the required settings to the shell so both processes receive them. Production loads runtime secrets from SSM.
+Web source, browser tests, Playwright configuration and synthetic document generation live in this directory. Use this app’s `.env.example` as a settings reference. Put `DATABASE_URL` in the repository root’s Git-ignored `.env` to use PostgreSQL with `pnpm dev` or `pnpm start`. Both the web and voice processes receive it. For RDS, include `sslmode=verify-full` and set `sslrootcert` to the local CA bundle’s absolute path. Production loads runtime secrets from SSM.
 
 Run `pnpm test:e2e` from the repository root for browser tests. Shared backend tests live in `packages/core/tests` and run with `pnpm test`. The combined EC2 Dockerfile lives at `infra/docker/Dockerfile`; build it from the repository root to include both apps and shared migrations.
 
@@ -38,7 +38,7 @@ pnpm design:check
 
 ## Services
 
-OpenAI receives server-side requests for model-generated findings and assistant answers when `OPENAI_API_KEY` is configured. Source-only retrieval and the synthetic case work without credentials. Originals are served privately from local files or AWS S3 using `JUDE_S3_BUCKET`, `JUDE_S3_KMS_KEY` and `AWS_REGION`.
+The server calls OpenAI directly. GPT-6.1 Terra generates findings and Assistant answers. With PostgreSQL and `OPENAI_API_KEY`, a background worker embeds private case evidence with `text-embedding-3-small`. Case search, the Assistant, and hearing comparisons combine lexical matches with cosine similarity. Set `JUDE_SEMANTIC_SEARCH=false` to disable embedding requests. Guest examples and SQLite use local text search. Originals are served privately from local files or AWS S3 using `JUDE_S3_BUCKET`, `JUDE_S3_KMS_KEY` and `AWS_REGION`.
 
 The Assistant’s Pasal.id control includes legal references with a question. The synthetic case searches its labelled sample records. For private workspaces, set `JUDE_PASAL_TOKEN` on the web server. The Discovery API returns regulation metadata and links to read the source on Pasal.id. [Pasal.id Discovery API](https://pasal.id/en/api)
 

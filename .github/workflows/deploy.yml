@@ -60,6 +60,34 @@ jobs:
           path: apps/web/test-results/
           retention-days: 7
 
+  semantic-postgres:
+    name: pgvector semantic persistence
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres-vector:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: jude
+          POSTGRES_PASSWORD: jude_test
+          POSTGRES_DB: jude_semantic_test
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install test database extension as administrator
+        run: docker exec '${{ job.services.postgres-vector.id }}' psql -U jude -d jude_semantic_test -c 'CREATE EXTENSION vector'
+      - name: Check asynchronous semantic indexing and isolation
+        env:
+          JUDE_TEST_VECTOR_DATABASE_URL: postgresql://jude:jude_test@127.0.0.1:5432/jude_semantic_test
+        run: pnpm exec vitest run --config packages/core/vitest.config.ts packages/core/tests/semantic.test.ts
+
   voice:
     name: Voice checks
     runs-on: ubuntu-latest
@@ -97,7 +125,7 @@ jobs:
 
   deploy:
     name: Build and deploy to AWS
-    needs: [web, voice]
+    needs: [web, voice, semantic-postgres]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 45

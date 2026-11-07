@@ -110,7 +110,7 @@
       >
     </div>
   </header>
-  <div class="brief-body" class:loud={finding?.status === 'potential_inconsistency'}>
+  <div class="brief-body" data-status={finding?.status} class:loud={finding?.status === 'potential_inconsistency'}>
   {#if finding}
     <div class="headline">
       <div class="statusline"><StatusChip status={finding.status} {lang}/>
@@ -121,7 +121,7 @@
     </div>
     <section class="question">
       <h3>{en ? 'You could ask' : 'Bisa ditanyakan'}</h3>
-      <p>{finding.question}</p>
+      <p lang="id">{finding.question}</p>
       <button class="text-action" onclick={() => copy(finding.question)}><ClipboardCopy size={13}/>{en ? 'Copy question' : 'Salin pertanyaan'}</button>
     </section>
     {#if statement || source}<div class="source-pair">
@@ -208,6 +208,21 @@
   .speaker-dot[data-tone=opposing] { --speaker-paper:var(--role-opposing-soft); --speaker-ink:var(--role-opposing-ink); }
   .speaker-dot[data-tone=party] { --speaker-paper:var(--role-party-soft); --speaker-ink:var(--role-party-ink); }
   .detail-link { min-height:42px; font-size:13px; }
+  aside.quick:has(.brief-body[data-status]) { box-shadow:var(--shadow-raise); }
+  .look-head:has(+ [data-status]) { min-height:54px; padding-block:8px; }
+  .look-head:has(+ [data-status]) .icon-button { height:36px; min-width:36px; width:36px; }
+  .brief-body[data-status] { --phrase:var(--alert); }
+  .brief-body[data-status='supported'] { --phrase:var(--st-supported-dot); }
+  .brief-body[data-status='context_needed'] { --phrase:var(--st-context-dot); }
+  .brief-body[data-status='insufficient_evidence'] { --phrase:var(--st-insufficient-dot); }
+  [data-status] h2 { text-wrap:balance; }
+  [data-status] .question h3 { font-size:11.5px; color:var(--muted); }
+  [data-status] .question .text-action { position:relative; min-height:26px; font-size:13px; }
+  [data-status] .source-pair { border-color:color-mix(in srgb,var(--phrase) 30%,var(--line)); }
+  [data-status] .speaker-dot { width:18px; height:18px; font-size:8px; color:var(--on-accent); background:var(--speaker-ink,var(--role-unknown-ink)); }
+  [data-status] :global(mark.ev-mark) { padding:0 1px; border-radius:2px; color:inherit; background:color-mix(in srgb,var(--phrase) 22%,transparent); box-shadow:inset 0 -2px var(--phrase); box-decoration-break:clone; -webkit-box-decoration-break:clone; }
+  [data-status] .detail-link { border-radius:6px; box-shadow:var(--shadow-raise); }
+  :global([data-theme='night']) [data-status] .speaker-dot { color:var(--speaker-ink,var(--role-unknown-ink)); background:var(--speaker-paper,var(--role-unknown-soft)); }
   .trigger,.suggestions li { padding:10px 0; border-top:1px solid var(--line); }
   .trigger,.suggestions p { margin:0; line-height:1.5; }
   .suggestions { padding-left:18px; }
@@ -215,5 +230,7 @@
   @media(max-width:719px) {
     .quick.overlay .look-head { min-height:70px; padding:18px 10px 7px 18px; }
     .look-head .icon-button,.text-action { min-height:44px; }
+    .look-head:has(+ [data-status]) .icon-button { min-width:44px; min-height:44px; }
+    [data-status] .question .text-action::after { content:''; position:absolute; inset:-9px -4px; }
   }
 </style>

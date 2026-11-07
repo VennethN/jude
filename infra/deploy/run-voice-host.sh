@@ -6,27 +6,34 @@ export AWS_DEFAULT_REGION=ap-southeast-3 AWS_PAGER=""
 image=${JUDE_IMAGE:-jude:current}
 docker image inspect "$image" >/dev/null
 install -d -m 0700 /run/jude /etc/jude/certs
+runtime_env=/run/jude/app.env
 aws ssm get-parameters-by-path --path /jude-dev/runtime/ --with-decryption --output json |
   jq -er '.Parameters[] | (.Name | split("/") | last) as $key |
     if ($key | test("^[A-Z][A-Z0-9_]*$")) and (.Value | test("[\r\n]") | not)
-    then "\($key)=\(.Value)" else error("Invalid runtime setting") end' > /run/jude/app.env
+    then "\($key)=\(.Value)" else error("Invalid runtime setting") end' > "$runtime_env"
+
+# Verify the candidate image can read the provisioned model as its normal runtime user.
+model_options=(-e HF_HOME=/tmp/huggingface -e PYANNOTE_METRICS_ENABLED=0)
+model=$(sed -n 's/^JUDE_DIARIZATION_MODEL=//p' "$runtime_env")
+if [[ "$model" == /models/community-1 ]]; then
+  host_model=/var/lib/jude/models/community-1
+  if [[ ! -f "$host_model/config.yaml" ]]; then
+    echo "Install the Community-1 snapshot at $host_model before deploying the offline model." >&2
+    exit 1
+  fi
+  model_options+=(--mount "type=bind,src=$host_model,dst=$model,readonly" -e HF_HUB_OFFLINE=1)
+  if ! docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+    --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=256m -e HOME=/tmp "${model_options[@]}" \
+    --entrypoint /opt/jude-voice/bin/python "$image" -c \
+    'import sys; from pyannote.audio import Pipeline; sys.exit(not isinstance(Pipeline.from_pretrained(sys.argv[1]), Pipeline))' "$model"; then
+    echo "The release image could not load the offline Community-1 snapshot. Check its weights and UID 1000 read access." >&2
+    exit 1
+  fi
+fi
+
 curl -fsS --retry 4 https://truststore.pki.rds.amazonaws.com/ap-southeast-3/ap-southeast-3-bundle.pem \
   -o /etc/jude/certs/rds-ca.pem
 chmod 0644 /etc/jude/certs/rds-ca.pem
-# Validate the persistent, offline model before replacing running containers.
-model_mount=()
-model=$(sed -n 's/^JUDE_DIARIZATION_MODEL=//p' /run/jude/app.env)
-if [[ -n "$model" ]]; then
-  if [[ "$model" != /models/community-1 || ! -r /var/lib/jude/models/community-1/config.yaml ]]; then
-    echo 'Provision Community-1 and set JUDE_DIARIZATION_MODEL=/models/community-1.' >&2
-    exit 1
-  fi
-  model_mount=(--mount type=bind,src=/var/lib/jude/models/community-1,dst=/models/community-1,readonly -e HF_HUB_OFFLINE=1)
-  docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
-    --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=512m -e HOME=/tmp -e PYANNOTE_METRICS_ENABLED=0 \
-    "${model_mount[@]}" "$image" python -c \
-    'from pyannote.audio import Pipeline; Pipeline.from_pretrained("/models/community-1"); print("Offline diarization model ready")'
-fi
 docker network inspect jude >/dev/null 2>&1 || docker network create jude >/dev/null
 cat > /etc/jude/Caddyfile <<'CADDY'
 {
@@ -46,9 +53,9 @@ for container in jude-proxy jude-app; do
 done
 docker run -d --name jude-app --network jude --restart unless-stopped \
   --init --read-only --cap-drop ALL --security-opt no-new-privileges \
-  --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=1g --env-file /run/jude/app.env "${model_mount[@]}" \
+  --tmpfs /tmp:rw,nosuid,nodev,mode=1777,size=1g --env-file "$runtime_env" \
   -e NODE_EXTRA_CA_CERTS=/run/rds-ca.pem -e BODY_SIZE_LIMIT=64M -e HOME=/tmp \
-  -e HF_HOME=/tmp/huggingface -e PYANNOTE_METRICS_ENABLED=0 \
+  "${model_options[@]}" \
   --mount type=bind,src=/etc/jude/certs/rds-ca.pem,dst=/run/rds-ca.pem,readonly \
   --log-opt max-size=10m --log-opt max-file=3 "$image" >/dev/null
 for attempt in {1..60}; do

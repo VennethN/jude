@@ -14,7 +14,7 @@ export async function analyzeSaved(org: string, caseId: string, line: Statement)
     queued.text !== line.text
   )
     return;
-  const result = await analyzeStatement(workspace, line);
+  const result = await analyzeStatement(workspace, line, org);
   const references = result
     ? await discoverCitedLegal(workspace, [
         result.said ?? '',

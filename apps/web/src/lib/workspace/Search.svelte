@@ -16,6 +16,26 @@
   let dialog: HTMLDialogElement, input: HTMLInputElement;
   let query = $state(''), active = $state(0);
   const needle = $derived(query.trim().toLocaleLowerCase(lang));
+  let remote = $state<{ query: string; caseId: string; urls: string[] } | null>(null);
+
+  $effect(() => {
+    const term = needle, caseId = w.caseRecord.id;
+    if (term.length < 3 || w.caseRecord.label !== 'private') return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      try {
+        const response = await fetch('/api/cases/' + encodeURIComponent(caseId) + '/search?q=' + encodeURIComponent(term), {
+          signal: controller.signal
+        });
+        if (!response.ok) return;
+        const { hits } = await response.json() as { hits: { url: string }[] };
+        if (!controller.signal.aborted) remote = { query: term, caseId, urls: hits.map(hit => hit.url) };
+      } catch {
+        // Local results are already available while typing or offline.
+      }
+    }, 400);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  });
 
   const groups = $derived([
     { name: en ? 'Hearings' : 'Sidang', icon: Clock3, limit: 4, records: w.hearings.map((h) => ({
@@ -40,10 +60,15 @@
       href: base + '/hearings/' + encodeURIComponent(line.hearingId) + '?s=' + encodeURIComponent(line.id)
     })) }
   ]);
-  const hits = $derived(needle.length < 2 ? [] : groups.flatMap((group) =>
-    group.records.filter((row) => (row.title + ' ' + row.description).toLocaleLowerCase(lang).includes(needle))
-      .slice(0, group.limit).map((row) => ({ ...row, group: group.name, icon: group.icon }))
-  ));
+  const hits = $derived.by(() => {
+    if (needle.length < 2) return [];
+    const urls = remote?.query === needle && remote.caseId === w.caseRecord.id ? remote.urls : [];
+    const ranks = new Map(urls.map((url, i) => [url, i]));
+    return groups.flatMap(group => group.records.filter(row =>
+      ranks.has(row.href) || (row.title + ' ' + row.description).toLocaleLowerCase(lang).includes(needle)
+    ).sort((a, b) => (ranks.get(a.href) ?? Infinity) - (ranks.get(b.href) ?? Infinity))
+      .slice(0, group.limit).map(row => ({ ...row, group: group.name, icon: group.icon })));
+  });
   const selected = $derived(Math.min(active, Math.max(0, hits.length - 1)));
 
   function excerpt(value: string) {

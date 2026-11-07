@@ -14,7 +14,7 @@ PYTHONPATH=apps/voice apps/voice/.venv/bin/python -m jude_voice
 
 The service listens on `127.0.0.1:3001` by default. `GET /healthz` checks database access. The synthetic case exercises real session, replay and persistence paths with the base install. From the repository root, `pnpm dev` runs both apps and `pnpm test:voice` runs the Python suite. A Python-only checkout can run `PYTHONPATH=apps/voice apps/voice/.venv/bin/python -m unittest discover -s apps/voice/tests -v`.
 
-The service-specific `.env.example` lists runtime settings without credentials. Export these settings into the process environment; the Python service does not automatically load dotenv files. Production receives secrets from SSM. The shared EC2 image is built from `infra/docker/Dockerfile` using the repository root as its build context.
+The service-specific `.env.example` lists runtime settings. From the repository root, `pnpm dev`, `pnpm start` and `pnpm voice:start` load the root `.env`, including the shared `DATABASE_URL`. When launching Python directly, export the settings into its environment. Production receives secrets from SSM. The shared EC2 image is built from `infra/docker/Dockerfile` using the repository root as its build context.
 
 ## Enable private audio
 

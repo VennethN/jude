@@ -72,6 +72,7 @@ export function followStory(root: HTMLElement, onLayout: (layout: MotionLayout) 
   const values = new Map<HTMLElement, Map<string, string>>();
   let wheel: Lenis | null = null;
   let frame = 0;
+  let needsResize = false;
 
   function write(element: HTMLElement, key: string, value: number) {
     const next = value.toFixed(3);
@@ -108,20 +109,58 @@ export function followStory(root: HTMLElement, onLayout: (layout: MotionLayout) 
     driftBoxes.forEach((box, index) => write(drifters[index], 'd', Math.max(-1, Math.min(1, (box.top + box.height / 2 - vh / 2) / vh))));
   }
 
+  function paint(time: number) {
+    if (!wheel) return;
+    if (needsResize) {
+      wheel.resize();
+      needsResize = false;
+    }
+    wheel.raf(Math.max(time, wheel.time));
+    draw();
+    frame = wheel.isScrolling === 'smooth' ? requestAnimationFrame(paint) : 0;
+  }
+
   function request() {
-    if (!motion.matches || frame) return;
-    frame = requestAnimationFrame(() => { frame = 0; draw(); });
+    if (!wheel || frame || document.hidden) return;
+    // Start this gesture's clock here so time spent at rest cannot advance its first frame.
+    wheel.time = performance.now();
+    frame = requestAnimationFrame(paint);
+  }
+
+  function nativeScroll() {
+    // A scrollbar drag or history jump can interrupt a section link already easing to its target.
+    if (wheel?.isScrolling === 'smooth' && Math.abs(scrollY - wheel.animatedScroll) > 1) {
+      wheel.stop();
+      wheel.start();
+    }
+    request();
+  }
+
+  function resize() {
+    needsResize = true;
+    request();
+  }
+
+  function cancel() {
+    cancelAnimationFrame(frame);
+    frame = 0;
+  }
+
+  function visibility() {
+    if (document.hidden) cancel();
+    else request();
   }
 
   function sync() {
     onLayout({ moving: motion.matches, desktop: motion.matches && wide.matches, phoneDesk: motion.matches && tallPhone.matches });
     if (motion.matches) {
       if (!wheel) {
-        wheel = new Lenis({ autoRaf: true, lerp: .11 });
-        wheel.on('scroll', draw);
+        wheel = new Lenis({ autoRaf: false, autoResize: false, lerp: .11 });
+        wheel.on('virtual-scroll', request);
       }
-      request();
+      resize();
     } else {
+      cancel();
       wheel?.destroy();
       wheel = null;
       for (const [node, fields] of values) for (const key of fields.keys()) node.style.removeProperty('--' + key);
@@ -129,10 +168,12 @@ export function followStory(root: HTMLElement, onLayout: (layout: MotionLayout) 
     }
   }
 
-  const resized = new ResizeObserver(() => { wheel?.resize(); request(); });
+  const resized = new ResizeObserver(resize);
   resized.observe(root);
-  window.addEventListener('scroll', request, { passive: true });
-  window.addEventListener('resize', request);
+  resized.observe(document.documentElement);
+  window.addEventListener('scroll', nativeScroll, { passive: true });
+  window.addEventListener('resize', resize);
+  document.addEventListener('visibilitychange', visibility);
   const queries = [motion, wide, tallPhone];
   for (const query of queries) query.addEventListener('change', sync);
   sync();
@@ -141,7 +182,9 @@ export function followStory(root: HTMLElement, onLayout: (layout: MotionLayout) 
     scrollTo(target: HTMLElement | 0, immediate = false) {
       if (wheel) {
         wheel.resize();
+        needsResize = false;
         wheel.scrollTo(target, { immediate });
+        request();
       } else if (target === 0) {
         window.scrollTo({ top: 0, behavior: 'instant' });
       } else {
@@ -149,11 +192,13 @@ export function followStory(root: HTMLElement, onLayout: (layout: MotionLayout) 
       }
     },
     destroy() {
-      cancelAnimationFrame(frame);
+      cancel();
       wheel?.destroy();
+      wheel = null;
       resized.disconnect();
-      window.removeEventListener('scroll', request);
-      window.removeEventListener('resize', request);
+      window.removeEventListener('scroll', nativeScroll);
+      window.removeEventListener('resize', resize);
+      document.removeEventListener('visibilitychange', visibility);
       for (const query of queries) query.removeEventListener('change', sync);
     },
   };

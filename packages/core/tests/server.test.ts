@@ -13,7 +13,7 @@ import type {
 } from '../src/domain';
 import { browser } from './api-client';
 import { transaction } from '../src/server/db';
-import { mutateWorkspace } from '../src/server/cases';
+import { mutateWorkspace, seedOrganization } from '../src/server/cases';
 import { runAnalysisWorker } from '../src/server/jobs';
 import { purgeExpired, retentionMs } from '../src/server/retention';
 import { getOriginal, putOriginal } from '../src/server/providers/storage';
@@ -66,9 +66,21 @@ describe('case API', () => {
     const a = browser(),
       email = randomUUID() + '@example.test',
       password = 'Pribadi-1234';
-    await a.ok('auth/signup', 'POST', { name: 'Advokat', email, password });
+    const session = await a.ok<SessionInfo>('auth/signup', 'POST', { name: 'Advokat', email, password });
+    expect(session.demo).toBeNull();
+    expect((await a.ok<{ cases: CaseRecord[] }>('cases')).cases).toEqual([]);
     const key = randomUUID();
     const first = await a.ok<CaseRecord>('cases', 'POST', { title: 'Perkara A' }, key);
+    // Reproduce the example records created by an older release for an account with real work.
+    const legacy = await transaction(async (db) => {
+      await seedOrganization(db, session.organization.id);
+      return db.query<{ id: string }>('SELECT id FROM cases WHERE org_id=$1 AND synthetic=1', [session.organization.id]);
+    });
+    expect(legacy.length).toBeGreaterThan(1);
+    expect((await a.ok<SessionInfo>('me')).demo).toBeNull();
+    expect((await a.ok<{ cases: CaseRecord[] }>('cases')).cases.map(c => c.id)).toEqual([first.id]);
+    expect((await a.ok<{ cases: unknown[] }>('search?q=Gudang')).cases).toEqual([]);
+    for (const {id} of legacy) expect((await a.request('cases/' + id + '/workspace')).status).toBe(404);
     expect((await a.ok<CaseRecord>('cases', 'POST', { title: 'Perkara A' }, key)).id).toBe(first.id);
     const attempts = await Promise.all([
       a.request('cases', 'POST', { title: 'Perkara B' }),
@@ -172,9 +184,7 @@ describe('case API', () => {
     expect(invited.organization.id).toBe(admin.organization.id);
     const c = await owner.ok<CaseRecord>('cases', 'POST', { title: 'Restricted' }),
       base = 'cases/' + c.id;
-    expect(
-      (await member.ok<{ cases: CaseRecord[] }>('cases')).cases.every((row) => row.label === 'synthetic'),
-    ).toBe(true);
+    expect((await member.ok<{ cases: CaseRecord[] }>('cases')).cases).toEqual([]);
     expect((await member.request(base + '/workspace')).status).toBe(404);
     await owner.ok(base + '/members/' + user.user.id, 'PUT', { role: 'viewer' });
     expect((await member.ok<Workspace>(base + '/workspace')).caseRecord.id).toBe(c.id);

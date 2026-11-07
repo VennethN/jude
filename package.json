@@ -8,16 +8,16 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "node scripts/start.mjs --dev",
+    "dev": "node --env-file-if-exists=.env scripts/start.mjs --dev",
     "build": "pnpm --filter @jude/web build",
-    "start": "node scripts/start.mjs",
+    "start": "node --env-file-if-exists=.env scripts/start.mjs",
     "check": "pnpm --filter @jude/web check",
     "test": "vitest run --config packages/core/vitest.config.ts",
     "test:e2e": "playwright test --config apps/web/playwright.config.ts",
     "design:check": "pnpm --filter @jude/web design:check",
     "design:install": "impeccable install --providers=codex --scope=project --yes",
     "test:voice": "node scripts/voice.mjs test",
-    "voice:start": "node scripts/voice.mjs"
+    "voice:start": "node --env-file-if-exists=.env scripts/voice.mjs"
   },
   "dependencies": {
     "@jude/core": "workspace:*",
