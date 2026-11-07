@@ -1,7 +1,7 @@
 import type { Lang } from '@jude/core/domain';
-import type { CaptureState, Recorder } from '../microphone';
+import type { CaptureState, LiveTranscriptTurn, Recorder } from '../microphone';
 
-type Session = { key: string; state: CaptureState; partial: string; elapsed: number; runningSince: number };
+type Session = { key: string; state: CaptureState; partial?: LiveTranscriptTurn; elapsed: number; runningSince: number };
 let active = $state<Session | null>(null);
 let device: Recorder | undefined;
 let release: (() => void) | undefined;
@@ -21,7 +21,7 @@ export async function connectCapture(
   const key = [userId, caseId, hearingId].join('/');
   if (active) throw new Error('capture_in_use');
   const elapsed = startedAt ? Math.max(0, (Date.now() - Date.parse(startedAt)) / 1000) : 0;
-  active = { key, state: 'connecting', partial: '', elapsed, runningSince: 0 };
+  active = { key, state: 'connecting', elapsed, runningSince: 0 };
   try {
     if (navigator.locks) {
       await new Promise<void>((resolve, reject) => {
@@ -54,8 +54,8 @@ export async function connectCapture(
         active.runningSince = state === 'recording' || state === 'offline' ? now : 0;
         active.state = state;
       },
-      (text) => {
-        if (active?.key === key) active.partial = text;
+      (turn) => {
+        if (active?.key === key) active.partial = turn;
       },
       language
     );

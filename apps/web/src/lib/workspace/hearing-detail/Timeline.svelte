@@ -4,7 +4,7 @@
   import type { Finding, Hearing, Lang, Speaker, Statement } from '@jude/core/domain';
   import { needsReview } from '@jude/core/domain';
   import { timecode } from '../format';
-  import { voice } from './people';
+  import { speakerTurns, speakerShares } from './people';
   let {
     hearing,
     lines,
@@ -12,6 +12,7 @@
     findings,
     lang,
     current,
+    duration,
     seek,
     openFinding
   }: {
@@ -21,28 +22,19 @@
     findings: Finding[];
     lang: Lang;
     current: number;
+    duration: number;
     seek: (time: number) => void;
     openFinding: (id: string) => void;
   } = $props();
   let en = $derived(lang === 'en'),
-    length = $derived(Math.max(hearing.duration ?? 0, lines.at(-1)?.t ?? 0, 1)),
+    length = $derived(Math.max(duration, 1)),
     position = $derived(Math.min(current, length));
   let ready = $state(false);
   onMount(() => {
     ready = true;
   });
-  let turns = $derived(
-    lines.map((line, i) => {
-      const person = voice(speakers, line.speakerId, lang);
-      const end = Math.min(lines[i + 1]?.t ?? length, length, line.t + Math.max(5, line.text.length / 11));
-      return { line, person, span: Math.max(0, end - line.t) };
-    })
-  );
-  let people = $derived(
-    turns
-      .map((turn) => turn.person)
-      .filter((p, i, all) => all.findIndex((o) => o.person?.id === p.person?.id) === i)
-  );
+  const turns = $derived(speakerTurns(lines, speakers, lang, length));
+  const people = $derived(speakerShares(turns));
   let markerWidth = $state(0);
   let marked = $derived.by(() => {
     const ends: number[] = [];
@@ -50,10 +42,11 @@
     const result = findings.filter(f => needsReview(f) && times.has(f.statementId)).map(f => ({ f, time: times.get(f.statementId)! }));
     return result.sort((a, b) => a.time - b.time).map(item => {
       const x = Math.max(13, Math.min(markerWidth - 13, item.time / length * markerWidth));
-      const nextFree = ends.findIndex(end => end + 26 <= x);
-      const row = nextFree < 0 ? ends.length : nextFree;
-      ends[row] = x;
-      return { ...item, x, row };
+      const row = ends.findIndex(end => Math.max(x, end + 19) <= Math.min(markerWidth - 10, x + 18));
+      const lane = row < 0 ? ends.length : row;
+      const point = ends[lane] === undefined ? x : Math.max(x, ends[lane] + 19);
+      ends[lane] = point;
+      return { ...item, x: point, row:lane };
     });
   });
   let markRows = $derived(markerWidth ? Math.max(1, ...marked.map(mark => mark.row + 1)) : 1);
@@ -76,21 +69,21 @@
   </header>
   {#if marked.length}<div class="mark-row">
       <small>{en ? 'Findings' : 'Temuan'}</small>
-      <div bind:clientWidth={markerWidth} style:height={markRows * 26 + 'px'}>
+      <div bind:clientWidth={markerWidth} style:height={markRows * 23 + 'px'}>
         {#each marked as item (item.f.id)}<button
             title={item.f.title[lang]}
             aria-label={item.f.title[lang] + ' · ' + timecode(item.time)}
             style:left={markerWidth ? item.x + 'px' : (100 * item.time) / length + '%'}
-            style:top={(markerWidth ? item.row : 0) * 26 + 'px'}
-            onclick={() => openFinding(item.f.id)}><b></b></button
+            style:top={(markerWidth ? item.row : 0) * 23 + 'px'}
+            onclick={() => openFinding(item.f.id)}><b class:conflict={item.f.status === 'potential_inconsistency'} aria-hidden="true"><i>!</i></b></button
           >{/each}
       </div>
     </div>{/if}
   <div class="lanes">
-    {#each people as p (p.person?.id ?? p.name)}<div class="lane">
-        <span class="name" data-tone={p.role}><i></i>{p.name}</span>
+    {#each people as p (p.id)}<div class="lane">
+        <span class="name" data-tone={p.role}><i>{p.letters}</i><b>{p.name}</b><small>{p.share}%</small></span>
         <div class="track" aria-hidden="true">
-          {#each turns.filter((t) => t.person.person?.id === p.person?.id) as t (t.line.id)}<b
+          {#each turns.filter((t) => (t.person.person?.id ?? t.line.speakerId) === p.id) as t (t.line.id)}<b
               data-tone={p.role}
               style:left={(100 * t.line.t) / length + '%'}
               style:width={(100 * t.span) / length + '%'}
@@ -118,12 +111,6 @@
       oninput={(e) => seek(Number(e.currentTarget.value))}
     />
   </div>
-  <div class="ruler" aria-hidden="true">
-    <span>00:00</span><span>{timecode(Math.floor(length / 2))}</span><span>{timecode(length)}</span>
-  </div>
-  <div class="legend">
-    {#each people as p (p.person?.id ?? p.name)}<span data-tone={p.role}><i></i>{p.name}</span>{/each}
-  </div>
 </section>
 
 <style>
@@ -136,10 +123,7 @@
     container-type: inline-size;
   }
   header,
-  .legend,
-  .legend span,
   h2,
-  .ruler,
   .name,
   .mark-row {
     display: flex;
@@ -156,7 +140,6 @@
     gap: 0.45rem;
   }
   .timeline header > span,
-  .ruler,
   .mark-row small {
     font: 400 0.7rem/1.18 var(--mono);
     color: var(--muted);
@@ -203,8 +186,7 @@
     grid-template-columns: var(--gutter) 1fr;
     align-items: center;
   }
-  .name,
-  .legend span {
+  .name {
     gap: 0.3rem;
     color: var(--muted);
     font-size: 0.7rem;
@@ -213,8 +195,7 @@
   .name {
     padding-right: 0.35rem;
   }
-  .name i,
-  .legend i {
+  .name i {
     display: block;
     width: 6px;
     height: 6px;
@@ -263,41 +244,21 @@
     outline-offset: 3px;
     border-radius: 2px;
   }
-  .ruler {
-    justify-content: space-between;
-    margin: 0.4rem 0 0 var(--gutter);
-    font-size: 0.65rem;
+  .compact-track { display:none; }
+  .mark-row button { width:21px; height:23px; }
+  .mark-row b { width:16px; height:16px; display:grid; place-items:center; background:var(--st-context-dot,var(--accent)); border-radius:50% 50% 50% 1px; transform:rotate(-45deg); }
+  .mark-row b.conflict { background:var(--alert); }
+  .mark-row b i { transform:rotate(45deg); color:var(--surface); font:700 10px var(--sans); }
+  @container(max-width:500px) {
+    .lanes,.mark-row { --gutter:0px; }
+    .lane,.mark-row small { display:none; }
+    .compact-track { display:block; height:22px; border-block:2px solid var(--surface); }
   }
-  .legend,
-  .compact-track {
-    display: none;
-  }
-  @container (max-width:500px) {
-    .lanes,
-    .mark-row,
-    .ruler {
-      --gutter: 0px;
-    }
-    .lane,
-    .mark-row small {
-      display: none;
-    }
-    .compact-track {
-      display: block;
-      height: 12px;
-      margin-block: 9px;
-    }
-    .legend {
-      display: flex;
-      gap: 4px 0.65rem;
-      flex-wrap: wrap;
-      margin-top: 0.55rem;
-    }
-    .legend span {
-      font-size: 0.68rem;
-    }
-    .ruler {
-      margin-top: 0.12rem;
-    }
-  }
+  .timeline { --gutter:clamp(120px,15vw,188px); border:0; background:transparent; padding:0; }
+  .timeline header { display:none; }
+  .name { gap:5px; padding-right:6px; min-width:0; }
+  .name i { display:grid; place-items:center; width:18px; height:18px; border-radius:50%; flex:none; color:white; background:var(--tone); font:600 8px/1 var(--sans); }
+  .name b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font:600 11.5px/1.4 var(--sans); }
+  .name small { font:400 10.5px/1.4 var(--sans); font-variant-numeric:tabular-nums; }
+  .lane { min-height:22px; }
 </style>

@@ -2,6 +2,8 @@
   import { onMount, tick } from 'svelte';
   import { ArrowUpRight, BookOpenText, ChevronLeft, ChevronRight, ClipboardCopy, X } from '@lucide/svelte';
   import type { Finding, Lang, Reply, Workspace } from '@jude/core/domain';
+  import Dialog from '../Dialog.svelte';
+  import SheetHandle from '../SheetHandle.svelte';
   import Match from '$lib/evidence/Match.svelte';
   import SourceAvailability from '$lib/evidence/SourceAvailability.svelte';
   import { casePath, local, sourceOf, statuses } from '$lib/evidence/records';
@@ -9,6 +11,7 @@
   import { voice } from './people';
   let {
     workspace: w,
+    inline,
     lang,
     finding,
     reply,
@@ -17,6 +20,7 @@
     close
   }: {
     workspace: Workspace;
+    inline: boolean;
     lang: Lang;
     finding?: Finding;
     reply?: Reply;
@@ -30,23 +34,10 @@
     first = $derived(finding?.sources[0]),
     source = $derived(first ? sourceOf(w, { kind: 'passage', id: first.passageId }, lang) : undefined);
   let previous = $derived(finding ? findings.findIndex((f) => f.id === finding?.id) : -1);
-  let wide = $state(false),
-    dialog = $state<HTMLDialogElement>(),
-    heading = $state<HTMLHeadingElement>(),
-    status = $state('');
+  let heading = $state<HTMLHeadingElement>(), status = $state('');
   onMount(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const media = window.matchMedia('(min-width: 1250px)');
-    const update = () => (wide = media.matches);
-    update();
-    media.addEventListener('change', update);
-    return () => {
-      media.removeEventListener('change', update);
-      before?.focus({ preventScroll: true });
-    };
-  });
-  $effect(() => {
-    if (dialog && !wide && !dialog.open) dialog.showModal();
+    return () => { if (before?.isConnected) before.focus({preventScroll:true}); };
   });
   $effect(() => {
     if (subject) {
@@ -66,7 +57,7 @@
       /input|textarea|select/i.test((e.target as HTMLElement)?.tagName)
     )
       return;
-    if (e.key === 'Escape' && wide) {
+    if (e.key === 'Escape' && inline) {
       e.preventDefault();
       close();
     } else if (finding && ['j', 'k'].includes(e.key.toLowerCase())) {
@@ -87,6 +78,7 @@
 <svelte:window onkeydown={keys} />
 {#snippet content()}
   <div class="look-head">
+    {#if !inline}<SheetHandle dismiss={close}/>{/if}
     <span class="folio"><BookOpenText size={16} />{en ? 'Quick look' : 'Lihat sekilas'}</span>
     <div>
       {#if finding && findings.length > 1}<button
@@ -155,18 +147,10 @@
   {/if}
   {#if status}<p class="small muted" role="status">{status}</p>{/if}
 {/snippet}
-{#if wide}<aside class="quick" aria-label={en ? 'Quick look' : 'Lihat sekilas'}>{@render content()}</aside>
-{:else}<dialog
-    class="quick"
-    bind:this={dialog}
-    aria-labelledby="brief-title"
-    oncancel={(e) => {
-      e.preventDefault();
-      close();
-    }}
-  >
-    {@render content()}
-  </dialog>{/if}
+{#if inline}<aside class="quick" aria-label={en ? 'Quick look' : 'Lihat sekilas'}>{@render content()}</aside>
+{:else}<Dialog title={en ? 'Quick look' : 'Lihat sekilas'} {lang} {close} side>
+  <div class="quick overlay">{@render content()}</div>
+</Dialog>{/if}
 
 <style>
   .quick {
@@ -180,23 +164,14 @@
   }
   aside.quick {
     position: sticky;
-    top: 1rem;
+    top: var(--hearing-sticky,68px);
   }
-  dialog.quick {
-    position: fixed;
-    inset: 0 0 0 auto;
-    height: 100dvh;
-    max-height: 100dvh;
-    margin: 0;
-    width: min(29rem, 100%);
-    max-width: 100%;
-    border: 0;
-    border-inline-start: 1px solid var(--line);
-    border-radius: 0;
-    overflow: auto;
-  }
-  dialog::backdrop {
-    background: color-mix(in srgb, var(--ink) 35%, transparent);
+  :global(dialog.side:has(.quick.overlay)) { width:min(560px,100%); }
+  .quick.overlay { border:0; padding:20px; }
+  .look-head { position:relative; }
+  @media(max-width:719px) {
+    .quick.overlay { padding:0 16px 22px; }
+    .quick.overlay .look-head { padding-top:20px; }
   }
   .look-head,
   .look-head > div,
@@ -263,7 +238,7 @@
     color: var(--accent);
   }
   .quick .button {
-    margin-top: 1rem;
+    margin-top: var(--hearing-sticky,68px);
   }
   .trigger {
     margin: 0.75rem 0;

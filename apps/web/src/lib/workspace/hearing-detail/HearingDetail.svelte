@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { invalidate, replaceState } from '$app/navigation';
+  import { goto, invalidate, replaceState } from '$app/navigation';
   import { page } from '$app/state';
-  import { tick, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import {
     ArrowLeft,
     ArrowRight,
@@ -11,6 +11,8 @@
     ChevronRight,
     MessageSquareReply,
     FileText,
+    Ellipsis,
+    MessageSquare,
     Mic,
     Moon,
     Pause,
@@ -19,8 +21,7 @@
     Search,
     SlidersHorizontal,
     Square,
-    Sun,
-    Volume2
+    Sun
   } from '@lucide/svelte';
   import type {
     Finding,
@@ -36,18 +37,21 @@
   import { needsReview } from '@jude/core/domain';
   import { api, write } from '$lib/client';
   import Inspector from '$lib/evidence/Inspector.svelte';
-  import { apiPath, assistantPath, casePath, statuses } from '$lib/evidence/records';
+  import { apiPath, assistantPath, casePath } from '$lib/evidence/records';
   import '$lib/evidence/evidence.css';
   import Dialog from '../Dialog.svelte';
   import HearingForm from '../HearingForm.svelte';
   import { formatDate, timecode } from '../format';
   import Transcript from './Transcript.svelte';
-  import Timeline from './Timeline.svelte';
+  import HearingTransport from './HearingTransport.svelte';
   import QuickLook from './QuickLook.svelte';
+  import LiveFindingCallout from './LiveFindingCallout.svelte';
   import HearingFindings from './HearingFindings.svelte';
   import VoiceDialog from './VoiceDialog.svelte';
+  import type { LiveTranscriptTurn } from '../microphone';
+  import { runReplay } from './replay';
   import { getCapture, connectCapture, pauseCapture, stopCapture } from './active-recording.svelte';
-  import { voice } from './people';
+  import { speakerShares, speakerTurns, voice } from './people';
   import './hearing.css';
 
   let {
@@ -93,7 +97,15 @@
       )
   );
   let currentReply = $derived(replies.find((r) => r.statementId === lines.at(-1)?.id));
-  let now = $state(0);
+  let now = $state(0), replayClock = $state(0), spoken = $state<LiveTranscriptTurn>();
+  $effect(() => {
+    if (!live || !synthetic || replayPaused || replayDone) return;
+    const initial = untrack(() => Math.max(replayClock, lines.at(-1)?.t ?? 0));
+    const started = performance.now();
+    replayClock = initial;
+    const timer = setInterval(() => replayClock = initial + (performance.now() - started) / 1000, 200);
+    return () => clearInterval(timer);
+  });
   $effect(() => {
     if (!live || synthetic) return;
     now = Date.now();
@@ -104,7 +116,7 @@
   });
   let elapsed = $derived(
     synthetic
-      ? (lines.at(-1)?.t ?? 0)
+      ? Math.max(replayClock, lines.at(-1)?.t ?? 0)
       : capture
         ? capture.elapsed + (capture.runningSince ? Math.max(0, (now - capture.runningSince) / 1000) : 0)
         : h.startedAt && now
@@ -113,7 +125,6 @@
   );
   let replayPaused = $state(false),
     replayDone = $state(false),
-    retry = $state(0),
     busy = $state(false),
     issue = $state(''),
     boardNotice = $state('');
@@ -126,12 +137,48 @@
   let finding = $derived(findings.find((f) => f.id === brief)),
     reply = $derived(replies.find((r) => r.id === replyId)),
     quick = $derived(!!(finding || reply));
+  let stageWidth = $state(0), ready = $state(false);
+  onMount(() => { ready = true; });
+  let findingOpener: HTMLElement | undefined;
   let audio = $state<HTMLAudioElement>(),
     transcript = $state<Transcript>(),
     pos = $state(0),
     picked = $state(''),
     playing = $state(false),
     audioError = $state(false);
+  let playbackRate = $state(1), audioLength = $state(0);
+  const replay = $derived(synthetic && h.mode === 'recorded' && !h.audio && lines.length > 0);
+  const canPlay = $derived(!!h.audio || replay);
+  const trackLength = $derived(audioLength || h.duration || lines.at(-1)?.t || 0);
+  const participants = $derived(speakerShares(speakerTurns(lines, w.speakers, lang, trackLength)));
+  function setRate(value: number) {
+    playbackRate = value;
+    if (audio) audio.playbackRate = value;
+  }
+  function togglePlayer() {
+    if (playing) {
+      if (audio) audio.pause();
+      else playing = false;
+    } else void playAt(pos >= trackLength ? 0 : pos, false);
+  }
+  $effect(() => {
+    if (!replay || !playing) return;
+    const rate = playbackRate;
+    let last = performance.now();
+    const timer = setInterval(() => {
+      const now = performance.now();
+      pos = Math.min(trackLength, pos + ((now - last) / 1000) * rate);
+      last = now;
+      picked = lines.findLast((line) => line.t <= pos)?.id ?? '';
+      if (pos >= trackLength) playing = false;
+    }, 150);
+    return () => clearInterval(timer);
+  });
+  function askHearing(event: MouseEvent) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    replaceState(page.url, { ...page.state, judeOpenAssistant: { caseId: w.caseRecord.id } });
+  }
   let sizes = [14, 16, 19, 23],
     textSize = $derived(sizes[account.prefs.liveTextSize ?? 1] ?? 16);
   let queryLine = $derived(page.url.searchParams.get('s') || ''),
@@ -192,6 +239,7 @@
   function showFinding(id: string, remember = true) {
     const f = findings.find((f) => f.id === id);
     if (f) {
+      if (remember && !brief && document.activeElement instanceof HTMLElement) findingOpener = document.activeElement;
       const changed = brief !== id;
       brief = id;
       replyId = '';
@@ -202,7 +250,7 @@
         next.searchParams.set('f', id);
         next.searchParams.set('s', picked);
         next.searchParams.delete('play');
-        if (next.href !== page.url.href) replaceState(next, page.state);
+        if (next.href !== page.url.href) void goto(next, { replaceState:true, keepFocus:true, noScroll:true, state:page.state });
       }
       if (changed && f.isNew)
         void write(apiPath(w, 'findings/' + encodeURIComponent(f.id)), 'PATCH', {}).catch(() => {});
@@ -218,19 +266,21 @@
     }
   }
   function closeQuick() {
+    const id = brief;
+    const opener = findingOpener;
+    findingOpener = undefined;
     brief = '';
+    if (id) void tick().then(() => {
+      const fallback = document.querySelector<HTMLElement>(`.finding-index a[href$="/${CSS.escape(id)}"],.finding-link[data-fid="${CSS.escape(id)}"]`);
+      (opener?.isConnected && opener !== document.body ? opener : fallback)?.focus({ preventScroll:true });
+    });
     replyId = '';
     if (page.url.searchParams.has('f')) {
       const next = new URL(page.url);
       next.searchParams.delete('f');
       if (picked) next.searchParams.set('s', picked);
-      replaceState(next, page.state);
+      void goto(next, { replaceState:true, keepFocus:true, noScroll:true, state:page.state });
     }
-  }
-  function peek(e: MouseEvent, id: string) {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-    e.preventDefault();
-    showFinding(id);
   }
   function issueFrom(e: unknown) {
     const reason = e instanceof Error ? e.message : '';
@@ -249,15 +299,18 @@
       : 'Tindakan belum selesai. Periksa koneksi dan coba lagi.';
   }
   function seek(t: number, scroll = true) {
-    pos = Math.max(0, t);
+    pos = Math.max(0, trackLength ? Math.min(trackLength, t) : t);
     if (audio && Number.isFinite(audio.duration)) audio.currentTime = Math.min(pos, audio.duration);
     const s = lines.findLast((s) => s.t <= pos);
     picked = s?.id ?? '';
     if (scroll && s) transcript?.reveal(s.id);
   }
-  async function playAt(t: number) {
-    seek(t);
-    if (!audio) return;
+  async function playAt(t: number, scroll = true) {
+    seek(t, scroll);
+    if (!audio) {
+      if (replay) playing = true;
+      return;
+    }
     try {
       await audio.play();
       issue = '';
@@ -277,7 +330,6 @@
     const line = lines.findLast((s) => s.t <= pos);
     if (line && line.id !== picked) {
       picked = line.id;
-      if (playing) transcript?.reveal(line.id);
     }
   }
   $effect(() => {
@@ -296,45 +348,28 @@
         return;
       }
       if (found && brief !== found.id) showFinding(found.id, false);
-      if (play && h.audio) void playAt(line.t);
+      if (play && canPlay) void playAt(line.t);
       else seek(line.t);
     });
   });
   $effect(() => {
     const hId = h.id,
       cId = w.caseRecord.id,
-      enabled = live && synthetic && !replayPaused && !replayDone,
-      attempt = retry;
+      enabled = live && synthetic && !replayPaused && !replayDone;
     if (!enabled) return;
-    let cancelled = false,
-      timer: ReturnType<typeof setTimeout>;
-    let cursor = untrack(() => lines.filter((s) => s.id.startsWith('replay-' + hId + '-')).length);
-    const advance = async () => {
-      try {
-        const next = await api<{ cursor: number; done: boolean; pause?: number }>(
-          '/api/live/' + encodeURIComponent(cId) + '/' + encodeURIComponent(hId) + '/replay',
-          'POST',
-          { cursor }
-        );
-        cursor = next.cursor;
-        await invalidate('jude:case');
-        if (cancelled) return;
-        replayDone = next.done;
-        if (!next.done) timer = setTimeout(advance, Math.max(900, next.pause ?? 3600));
-      } catch {
-        if (!cancelled) {
-          replayPaused = true;
-          issue = en
-            ? 'Replay paused. Resume to reconnect.'
-            : 'Putar ulang dijeda. Lanjutkan untuk menghubungkan kembali.';
-        }
-      }
-    };
-    timer = setTimeout(advance, attempt ? 500 : 3200);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
+    const controller = new AbortController();
+    const path = '/api/live/' + encodeURIComponent(cId) + '/' + encodeURIComponent(hId) + '/replay';
+    const cursor = untrack(() => lines.filter(line => line.id.startsWith('replay-' + hId + '-')).length);
+    const previous = untrack(() => spoken);
+    void runReplay(path, cursor, previous, controller.signal, turn => spoken = turn,
+      () => invalidate('jude:case')).then(() => {
+        if (!controller.signal.aborted) replayDone = true;
+      }).catch(() => {
+        if (controller.signal.aborted) return;
+        replayPaused = true;
+        issue = en ? 'Replay paused. Resume to reconnect.' : 'Putar ulang dijeda. Lanjutkan untuk menghubungkan kembali.';
+      });
+    return () => controller.abort();
   });
   async function setPrefs(p: Preferences) {
     try {
@@ -407,10 +442,9 @@
       /input|textarea|select/i.test(t.tagName)
     )
       return;
-    if (e.key === ' ' && audio && !quick && !/button|a|audio/i.test(t.tagName)) {
+    if (e.key === ' ' && canPlay && !quick && !/button|a|audio/i.test(t.tagName)) {
       e.preventDefault();
-      if (audio.paused) void playAt(pos);
-      else audio.pause();
+      togglePlayer();
     }
     if (e.key.toLowerCase() === 'f' && !quick) {
       e.preventDefault();
@@ -422,44 +456,79 @@
 <svelte:window onkeydown={keys} />
 <svelte:head><title>{h.title[lang]} · Jude</title></svelte:head>
 
-<article class="hearing-detail">
+{#snippet liveControls()}
+  <div class="session-control" data-tour="live-controls">
+        <div class="session-label">
+          <Radio size={17} /><b class="status-word">{liveStatus}</b>
+          {#if synthetic}<small class="compact-status">{en ? 'Replay' : 'Contoh'}</small>{/if}<span>{timecode(elapsed)}</span>
+        </div>
+        <div class="control-actions">
+          {#if synthetic && !replayDone}<button
+              class="button playback-toggle"
+              aria-label={replayPaused ? (en ? 'Resume' : 'Lanjutkan') : (en ? 'Pause' : 'Jeda')}
+              onclick={() => {
+                replayPaused = !replayPaused;
+                if (!replayPaused) {
+                  issue = '';
+                }
+              }}
+              >{#if replayPaused}<Play size={14}/><span>{en ? 'Resume' : 'Lanjutkan'}</span>{:else}<Pause size={14}/><span>{en ? 'Pause' : 'Jeda'}</span>{/if}</button
+            >
+          {:else if canRecord && !capture}<button
+              class="button"
+              onclick={() => {
+                issue = '';
+                dialog = 'capture';
+              }}><Mic size={15} />{en ? 'Connect microphone' : 'Hubungkan mikrofon'}</button
+            >
+          {:else if capture && canRecord}<button
+              class="button"
+              disabled={['connecting', 'draining'].includes(capture.state)}
+              onclick={() => pauseCapture(key, capture?.state !== 'paused')}
+              >{#if capture.state === 'paused'}<Play size={14} />{en ? 'Resume' : 'Lanjutkan'}{:else}<Pause
+                  size={14}
+                />{en ? 'Pause' : 'Jeda'}{/if}</button
+            >{/if}
+          {#if ownSession}<button class="button end" onclick={() => (dialog = 'end')}
+              ><Square size={12} />{en ? 'End hearing' : 'Akhiri sidang'}</button
+            >{/if}
+        </div>
+      </div>
+{/snippet}
+
+<article class="hearing-detail" class:live-view={live || scheduled} class:running={live}>
   <a class="back" href={base + '/hearings'}><ArrowLeft size={15} />{en ? 'All hearings' : 'Semua sidang'}</a>
   <header class="hearing-heading">
-    <div>
-      <p class="folio-line">
-        <span>{en ? 'Hearing' : 'Sidang'} {String(h.number).padStart(2, '0')}</span><i></i>{formatDate(
-          h.date,
-          lang,
-          true
-        )}{#if synthetic}<i></i>{en ? 'Synthetic material' : 'Materi sintetis'}{/if}
-      </p>
-      <h1>{h.title[lang]}</h1>
-    </div>
-    {#if !scheduled}<button
-        class="icon-button options"
-        aria-label={en ? 'Hearing view options' : 'Opsi tampilan sidang'}
-        title={en ? 'View options' : 'Opsi tampilan'}
-        onclick={() => (dialog = 'view')}><SlidersHorizontal size={18} /></button
-      >{/if}
+    <h1><span>{en ? 'Hearing' : 'Sidang'} {h.number}</span> {h.title[lang]}</h1>
+    {#if !scheduled}<div class="head-actions">
+      {#if live}{@render liveControls()}{/if}
+      {#if !live}<a class="button ask-hearing" href={assistantPath(w, {kind:'hearing', id:h.id})} onclick={askHearing}>
+        <MessageSquare size={15}/>{en ? 'Ask assistant' : 'Tanya asisten'}
+      </a>{/if}
+      <button class="icon-button options" aria-label={en ? 'Hearing view options' : 'Opsi tampilan sidang'}
+        title={en ? 'View options' : 'Opsi tampilan'} onclick={() => (dialog = 'view')}>
+        {#if live}<SlidersHorizontal size={17}/>{:else}<Ellipsis size={18}/>{/if}
+      </button>
+    </div>{/if}
   </header>
+  {#if !live && !scheduled}<p class="hearing-meta">
+    {new Intl.DateTimeFormat(en ? 'en-GB' : 'id-ID', {weekday:'long', day:'numeric', month:'long', year:'numeric', timeZone:'Asia/Jakarta'}).format(new Date(h.date))}
+    · {modeName}{h.duration ? ' · ' + Math.round(h.duration / 60) + (en ? ' min' : ' mnt') : ''}{#if synthetic}
+      <span class="meta-sample"> · {en ? 'Synthetic material' : 'Materi sintetis'}</span>{/if}
+  </p>{/if}
   {#if issue && dialog !== 'capture'}<div class="notice" role="alert">{issue}</div>{/if}
   {#if scheduled}
     <div class="appointment">
-      <div class="date-leaf">
-        <CalendarDays size={19} /><strong>{h.date.slice(-2)}</strong><span
-          >{new Intl.DateTimeFormat(en ? 'en-GB' : 'id-ID', {
-            month: 'long',
-            year: 'numeric',
-            timeZone: 'Asia/Jakarta'
-          }).format(new Date(h.date))}</span
-        >
-      </div>
       <section>
-        <p class="folio-line">{modeName}</p>
-        <h2>{formatDate(h.date, lang)}</h2>
-        <p>
-          {[h.time ? h.time.replace('.', ':') + ' WIB' : '', w.caseRecord.court].filter(Boolean).join(' · ')}
-        </p>
+        <h2>{en ? 'This hearing has not started.' : 'Sidang ini belum dimulai.'}</h2>
+        <p class="schedule-meta"><CalendarDays size={15} /> {formatDate(h.date, lang)}{h.time ? ' · ' + h.time + ' WIB' : ''}
+          {w.caseRecord.court ? ' · ' + w.caseRecord.court : ''}</p>
+        {#if w.speakers.some(person => !person.alias && ['counsel','opposing'].includes(person.role))}
+          <div class="schedule-counsel"><h3>{en ? 'Counsel in this case' : 'Kuasa hukum perkara ini'}</h3>
+            <p>{en ? 'Select your side to see responses prepared for your counsel.' : 'Pilih pihak Anda untuk melihat tanggapan yang disiapkan bagi kuasa hukum Anda.'}</p>
+            <button class="button" onclick={() => dialog = 'counsel'}>{en ? 'Choose counsel' : 'Pilih kuasa hukum'}</button>
+          </div>
+        {/if}
         {#if activeOther}<p class="muted">
             {en ? 'Another hearing is already in progress.' : 'Sidang lain sedang berlangsung.'}
           </p>
@@ -483,106 +552,44 @@
       </section>
     </div>
   {:else}
-    {#if live}<div class="session-control" data-tour="live-controls">
-        <div class="session-label">
-          <Radio size={17} /><b>{liveStatus}</b><span>{timecode(elapsed)}</span>
-        </div>
-        <div class="control-actions">
-          {#if synthetic && !replayDone}<button
-              class="button"
-              onclick={() => {
-                replayPaused = !replayPaused;
-                if (!replayPaused) {
-                  issue = '';
-                  retry++;
-                }
-              }}
-              >{#if replayPaused}<Play size={14} />{en ? 'Resume' : 'Lanjutkan'}{:else}<Pause size={14} />{en
-                  ? 'Pause'
-                  : 'Jeda'}{/if}</button
-            >
-          {:else if canRecord && !capture}<button
-              class="button"
-              onclick={() => {
-                issue = '';
-                dialog = 'capture';
-              }}><Mic size={15} />{en ? 'Connect microphone' : 'Hubungkan mikrofon'}</button
-            >
-          {:else if capture && canRecord}<button
-              class="button"
-              disabled={['connecting', 'draining'].includes(capture.state)}
-              onclick={() => pauseCapture(key, capture?.state !== 'paused')}
-              >{#if capture.state === 'paused'}<Play size={14} />{en ? 'Resume' : 'Lanjutkan'}{:else}<Pause
-                  size={14}
-                />{en ? 'Pause' : 'Jeda'}{/if}</button
-            >{/if}
-          {#if ownSession}<button class="button end" onclick={() => (dialog = 'end')}
-              ><Square size={12} />{en ? 'End hearing' : 'Akhiri sidang'}</button
-            >{/if}
-        </div>
-      </div>
+    {#if live}
       {#if currentReply}<button class="turn" onclick={() => showReply(currentReply.id)}
           ><MessageSquareReply size={16} />{en ? 'Your turn' : 'Giliran Anda'} · {currentReply.suggestions
             .length}
           {en ? 'suggestions' : 'saran'}<ChevronRight size={14} /></button
         >{/if}
-    {:else}<div class="mode-head">
-        <span
-          >{#if h.audio}<Volume2 size={16} />{:else}<FileText size={16} />{/if}{modeName}</span
-        >
-        {#if !h.audio}<small
-            >{h.mode === 'imported'
-              ? en
-                ? 'Text from the filed transcript'
-                : 'Teks dari risalah yang diimpor'
-              : synthetic
-                ? en
-                  ? 'Example transcript · no audio recording'
-                  : 'Transkrip contoh · tanpa rekaman audio'
-                : en
-                  ? 'Transcript retained without audio'
-                  : 'Transkrip tersimpan tanpa audio'}</small
-          >{/if}
-      </div>{/if}
-    <div class="hearing-stage" class:open={quick}>
+    {/if}
+    {#if !live && canPlay}
+      {#if h.audio}<audio class="hearing-audio" preload="metadata" src={h.audio} bind:this={audio}
+        onloadedmetadata={() => {
+          if (audio && Number.isFinite(audio.duration)) audioLength = audio.duration;
+          if (audio) { audio.playbackRate = playbackRate; if (pos > 0) audio.currentTime = pos; }
+        }} ontimeupdate={heard} onplay={() => (playing = true)} onpause={() => (playing = false)}
+        onerror={() => { audioError = true; playing = false; }}></audio>{/if}
+      <HearingTransport hearing={h} {lines} {findings} speakers={w.speakers} {lang} current={pos} duration={trackLength}
+        {playing} rate={playbackRate} error={audioError} seek={(time) => seek(time, false)} toggle={togglePlayer}
+        {setRate} openFinding={showFinding}/>
+    {:else if !live}
+      <div class="text-notice"><FileText size={15}/>
+        <span>{h.mode === 'imported' ? (en ? 'Text from imported minutes' : 'Teks dari risalah yang diimpor') :
+          (synthetic ? (en ? 'Example transcript · no audio recording' : 'Transkrip contoh · tanpa rekaman audio') :
+          (en ? 'Transcript retained without audio' : 'Transkrip tersimpan tanpa audio'))}</span>
+        {#if synthetic && h.mode === 'imported'}<small class="compact-status">{en ? 'Sample' : 'Contoh'}</small>{/if}
+        {#if lines.length}<input type="range" min="0" max={Math.max(1,trackLength)} step="1" value={pos} disabled={!ready}
+          aria-label={en ? 'Seek transcript timeline' : 'Geser linimasa transkrip'} aria-valuetext={timecode(pos)}
+          oninput={(event) => seek(Number(event.currentTarget.value))}
+          onkeydown={(event) => {
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+              event.preventDefault(); seek(pos + (event.key === 'ArrowRight' ? 10 : -10));
+            }
+          }}/>{/if}
+      </div>
+    {/if}
+    <div class="hearing-stage" class:open={quick} class:inline={stageWidth >= 900} bind:clientWidth={stageWidth}>
       <div class="hear-reading">
-        {#if !live && lines.length}<Timeline
-            hearing={h}
-            {lines}
-            {findings}
-            openFinding={showFinding}
-            speakers={w.speakers}
-            {lang}
-            current={pos}
-            seek={(n) => seek(n)}
-          />{/if}
-        {#if h.audio && !live}<div class="audio-row">
-            <audio
-              controls
-              preload="metadata"
-              src={h.audio}
-              bind:this={audio}
-              onloadedmetadata={() => {
-                if (audio && pos > 0) audio.currentTime = pos;
-              }}
-              ontimeupdate={heard}
-              onplay={() => (playing = true)}
-              onpause={() => (playing = false)}
-              onerror={() => (audioError = true)}
-            ></audio>{#if audioError}<p role="alert">
-                {en
-                  ? 'Audio could not be opened. The transcript is available below.'
-                  : 'Audio belum dapat diputar. Transkrip tersedia di bawah.'}
-              </p>{/if}
-          </div>{/if}
-        {#if live && alerts[0]}{@const top = alerts[0]}<a
-            class="live-finding"
-            href={base + '/findings/' + top.id}
-            onclick={(e) => peek(e, top.id)}
-            data-tour="live-attention"
-            ><p>{statuses[top.status][lang]} <span>· {timecode(times.get(top.statementId) ?? 0)}</span></p>
-            <strong>{top.title[lang]}</strong><span>{top.question}</span><ChevronRight size={16} /></a
-          >{/if}
+        {#if live}<LiveFindingCallout workspace={w} {lang} {alerts} hearingId={h.id} selected={brief}
+          paused={synthetic ? replayPaused || replayDone : capture?.state === 'paused'}
+          onPreview={(finding) => showFinding(finding.id)} />{/if}
         <Transcript
           bind:this={transcript}
           workspace={w}
@@ -591,9 +598,11 @@
           {findings}
           {replies}
           {live}
-          partial={capture?.partial ?? ''}
+          partial={synthetic ? spoken : capture?.partial}
+          speaking={synthetic ? !replayPaused && !replayDone : capture?.state === 'recording'}
+          partialStatus={synthetic ? (en ? 'Paused' : 'Dijeda') : capture?.state === 'offline' ? (en ? 'Reconnecting…' : 'Menghubungkan kembali…') : liveStatus}
           selected={picked}
-          audio={!!h.audio}
+          audio={canPlay}
           {textSize}
           anchored={!!queryLine || !!queryFinding}
           inspect={(kind, id) => (inspect = { kind, id })}
@@ -604,7 +613,8 @@
           {jump}
         />
       </div>
-      {#if quick}<QuickLook
+      {#if quick && stageWidth}<QuickLook
+          inline={stageWidth >= 900}
           workspace={w}
           {lang}
           {finding}
@@ -613,9 +623,21 @@
           select={showFinding}
           close={closeQuick}
         />
-      {:else}<aside class="hearing-margin" aria-label={en ? 'Hearing context' : 'Konteks sidang'}>
+      {:else if !quick && !live}<aside class="hearing-margin" aria-label={en ? 'Hearing context' : 'Konteks sidang'}>
         <HearingFindings {findings} {times} {lang} {live} casePath={base} hearingId={h.id}
           bookmarked={lines.some((line) => line.flagged)} onPreview={(item) => showFinding(item.id)} />
+        {#if !live && participants.length}<section class="participants" aria-label={en ? 'Participants' : 'Peserta'}>
+          <h2>{en ? 'Participants' : 'Peserta'}</h2>
+          {#each participants as person (person.id)}
+            <div class="participant" data-tone={person.role}>
+              <span class="person-disc" aria-hidden="true">{person.letters}</span>
+              <button disabled={!person.raw} onclick={() => (edit = person.raw)}>{person.name}
+                <span class="share-bar"><i style:width={person.share + '%'}></i></span>
+              </button>
+              <small title={en ? 'Estimated speaking time' : 'Perkiraan waktu bicara'}>{person.share}%</small>
+            </div>
+          {/each}
+        </section>{/if}
       </aside>{/if}
     </div>
   {/if}
@@ -735,7 +757,7 @@
           await tick();
           await transcript?.openSearch();
         }}><Search size={16} />{en ? 'Search transcript' : 'Cari transkrip'}</button
-      ><a class="button" href={assistantPath(w, { kind: 'hearing', id: h.id })}
+      ><a class="button" href={assistantPath(w, { kind: 'hearing', id: h.id })} onclick={(event) => { askHearing(event); if (event.defaultPrevented) dialog = ''; }}
         >{en ? 'Ask about this hearing' : 'Tanyakan sidang ini'}<ArrowUpRight size={15} /></a
       >
     </div></Dialog
