@@ -25,9 +25,19 @@ variable "app_image_digest" {
 }
 
 variable "app_instance_type" {
-  description = "x86-64 EC2 instance for the web app, OCR, and document conversion."
+  description = "x86-64 EC2 instance for the web and voice services, OCR, and document conversion."
   type        = string
   default     = "t3.medium"
+}
+
+variable "app_root_volume_gb" {
+  description = "Encrypted gp3 root volume in GiB, including containers and any provisioned diarization weights."
+  type        = number
+  default     = 30
+  validation {
+    condition     = var.app_root_volume_gb >= 30 && var.app_root_volume_gb <= 16384 && floor(var.app_root_volume_gb) == var.app_root_volume_gb
+    error_message = "Set the root volume to a whole number from 30 to 16384 GiB."
+  }
 }
 
 variable "app_ami_id" {

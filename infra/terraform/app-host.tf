@@ -79,7 +79,7 @@ resource "aws_instance" "web" {
   root_block_device {
     encrypted   = true
     volume_type = "gp3"
-    volume_size = 30
+    volume_size = var.app_root_volume_gb
   }
   user_data_base64 = base64gzip(join("\n", ["#cloud-config", yamlencode({
     write_files = [

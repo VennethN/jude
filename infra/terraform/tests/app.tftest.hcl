@@ -46,10 +46,15 @@ run "private_database_with_web_host" {
     app_hostname            = "case.example.org"
     app_image_digest        = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     app_ami_id              = "ami-00000000000000000"
+    app_root_volume_gb      = 96
   }
   assert {
     condition     = length(aws_instance.web) == 1 && aws_instance.web[0].metadata_options[0].http_tokens == "required"
     error_message = "A pinned release needs one IMDSv2-only application host."
+  }
+  assert {
+    condition     = aws_instance.web[0].root_block_device[0].encrypted && aws_instance.web[0].root_block_device[0].volume_size == 96
+    error_message = "The host needs an encrypted operator-sized volume for containers and optional model weights."
   }
   assert {
     condition     = aws_s3_bucket_public_access_block.files[0].block_public_policy && aws_s3_bucket_public_access_block.files[0].restrict_public_buckets
