@@ -137,8 +137,17 @@
   let finding = $derived(findings.find((f) => f.id === brief)),
     reply = $derived(replies.find((r) => r.id === replyId)),
     quick = $derived(!!(finding || reply));
-  let stageWidth = $state(0), ready = $state(false);
-  onMount(() => { ready = true; });
+  let stageWidth = $state(0), playerHeight = $state(0), ready = $state(false);
+  let systemDark = $state(false);
+  const night = $derived(account.prefs.theme === 'night' || (account.prefs.theme === 'system' && systemDark));
+  onMount(() => {
+    ready = true;
+    const media = matchMedia('(prefers-color-scheme: dark)');
+    const changed = () => systemDark = media.matches;
+    changed();
+    media.addEventListener('change', changed);
+    return () => media.removeEventListener('change', changed);
+  });
   let findingOpener: HTMLElement | undefined;
   let audio = $state<HTMLAudioElement>(),
     transcript = $state<Transcript>(),
@@ -151,6 +160,8 @@
   const canPlay = $derived(!!h.audio || replay);
   const trackLength = $derived(audioLength || h.duration || lines.at(-1)?.t || 0);
   const participants = $derived(speakerShares(speakerTurns(lines, w.speakers, lang, trackLength)));
+  const hasContext = $derived(findings.length > 0 || participants.length > 0 || lines.some(line => line.flagged));
+  const findingQueue = $derived(finding && needsReview(finding) ? findings.filter(needsReview) : findings);
   function setRate(value: number) {
     playbackRate = value;
     if (audio) audio.playbackRate = value;
@@ -496,7 +507,7 @@
       </div>
 {/snippet}
 
-<article class="hearing-detail" class:live-view={live || scheduled} class:running={live}>
+<article class="hearing-detail" class:live-view={live || scheduled} class:running={live} style:--player-height={(!live && canPlay ? playerHeight : 0) + 'px'}>
   <a class="back" href={base + '/hearings'}><ArrowLeft size={15} />{en ? 'All hearings' : 'Semua sidang'}</a>
   <header class="hearing-heading">
     <h1><span>{en ? 'Hearing' : 'Sidang'} {h.number}</span> {h.title[lang]}</h1>
@@ -566,7 +577,7 @@
           if (audio) { audio.playbackRate = playbackRate; if (pos > 0) audio.currentTime = pos; }
         }} ontimeupdate={heard} onplay={() => (playing = true)} onpause={() => (playing = false)}
         onerror={() => { audioError = true; playing = false; }}></audio>{/if}
-      <HearingTransport hearing={h} {lines} {findings} speakers={w.speakers} {lang} current={pos} duration={trackLength}
+      <HearingTransport bind:height={playerHeight} hearing={h} {lines} {findings} speakers={w.speakers} {lang} current={pos} duration={trackLength}
         {playing} rate={playbackRate} error={audioError} seek={(time) => seek(time, false)} toggle={togglePlayer}
         {setRate} openFinding={showFinding}/>
     {:else if !live}
@@ -585,7 +596,7 @@
           }}/>{/if}
       </div>
     {/if}
-    <div class="hearing-stage" class:open={quick} class:inline={stageWidth >= 900} bind:clientWidth={stageWidth}>
+    <div class="hearing-stage" class:open={quick} class:has-context={!live && !quick && hasContext} class:inline={stageWidth >= 850} bind:clientWidth={stageWidth}>
       <div class="hear-reading">
         {#if live}<LiveFindingCallout workspace={w} {lang} {alerts} hearingId={h.id} selected={brief}
           paused={synthetic ? replayPaused || replayDone : capture?.state === 'paused'}
@@ -614,16 +625,17 @@
         />
       </div>
       {#if quick && stageWidth}<QuickLook
-          inline={stageWidth >= 900}
+          inline={stageWidth >= 850}
           workspace={w}
           {lang}
           {finding}
           {reply}
-          {findings}
+          findings={findingQueue}
+          play={!live && canPlay ? (t) => playAt(t, false) : undefined}
           select={showFinding}
           close={closeQuick}
         />
-      {:else if !quick && !live}<aside class="hearing-margin" aria-label={en ? 'Hearing context' : 'Konteks sidang'}>
+      {:else if !quick && !live && hasContext}<aside class="hearing-margin" aria-label={en ? 'Hearing context' : 'Konteks sidang'}>
         <HearingFindings {findings} {times} {lang} {live} casePath={base} hearingId={h.id}
           bookmarked={lines.some((line) => line.flagged)} onPreview={(item) => showFinding(item.id)} />
         {#if !live && participants.length}<section class="participants" aria-label={en ? 'Participants' : 'Peserta'}>
@@ -744,8 +756,8 @@
       ><button
         class="button"
         onclick={() =>
-          setPrefs({ theme: document.documentElement.dataset.theme === 'night' ? 'paper' : 'night' })}
-        >{#if account.prefs.theme === 'night'}<Sun size={16} />{en
+          setPrefs({ theme: night ? 'paper' : 'night' })}
+        >{#if night}<Sun size={16} />{en
             ? 'Paper appearance'
             : 'Tampilan kertas'}{:else}<Moon size={16} />{en
             ? 'Courtroom night mode'
@@ -758,7 +770,8 @@
           await transcript?.openSearch();
         }}><Search size={16} />{en ? 'Search transcript' : 'Cari transkrip'}</button
       ><a class="button" href={assistantPath(w, { kind: 'hearing', id: h.id })} onclick={(event) => { askHearing(event); if (event.defaultPrevented) dialog = ''; }}
-        >{en ? 'Ask about this hearing' : 'Tanyakan sidang ini'}<ArrowUpRight size={15} /></a
-      >
+        >{en ? 'Ask about this hearing' : 'Tanyakan sidang ini'}<ArrowUpRight size={15} /></a>
+      {#if !live && stageWidth < 1000 && hasContext}<HearingFindings {findings} {times} {lang} casePath={base} hearingId={h.id}
+        bookmarked={lines.some(line => line.flagged)} onPreview={item => { dialog = ''; showFinding(item.id); }} />{/if}
     </div></Dialog
   >{/if}

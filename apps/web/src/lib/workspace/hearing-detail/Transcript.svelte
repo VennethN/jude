@@ -2,6 +2,7 @@
   import { tick, untrack } from 'svelte';
   import {
     ArrowDown,
+    ArrowRight,
     ArrowUpRight,
     Bookmark,
     MessageSquareReply,
@@ -13,6 +14,7 @@
   import type { Finding, Lang, Reply, Speaker, Statement, Workspace } from '@jude/core/domain';
   import { write } from '$lib/client';
   import { needsReview } from '@jude/core/domain';
+  import ReviewMark from '$lib/evidence/ReviewMark.svelte';
   import FindingLink from '$lib/evidence/FindingLink.svelte';
   import { apiPath, casePath } from '$lib/evidence/records';
   import Match from '$lib/evidence/Match.svelte';
@@ -224,7 +226,7 @@
         onclick={() => (saved = !saved)}><Bookmark size={14}/>{kept}</button>{/if}
       {#if remaining}
         <a class="review-count" href={casePath(w) + '/findings?hearing=' + encodeURIComponent(lines[0]?.hearingId ?? '')}>
-          {remaining} {en ? 'to review' : 'perlu dicek'}
+          <ReviewMark status={findings.find(needsReview)!.status} size={18}/><strong>{remaining} {en ? 'to review' : 'perlu dicek'}</strong><span>{en ? 'See all in Findings' : 'Lihat semua di Temuan'}</span><ArrowRight size={13}/>
         </a>
       {/if}
     </header>
@@ -636,4 +638,7 @@
   .counsel-avatar { display:inline-grid; place-items:center; width:23px; height:23px; border-radius:50%; color:white; background:var(--role-counsel); font:600 9px var(--sans); }
   .you-label { font:600 12px var(--sans); }
   @media(max-width:719px) { .you-label { display:none; } }
+  .review-count { gap:6px; background:none; color:var(--ink-strong,var(--ink)); }
+  .review-count span { margin-left:5px; color:var(--muted); font-weight:400; }
+  .review-count:hover span { text-decoration:underline; }
 </style>

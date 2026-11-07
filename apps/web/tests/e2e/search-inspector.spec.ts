@@ -65,11 +65,22 @@ test('phone sheets follow the finger and dismiss only after a full pull', async 
     const touch = await context.newCDPSession(page);
     await page.goto('/demo/documents/d1?p=d1p4');
     await page.waitForLoadState('networkidle');
+    const citation = page.locator('button.margin-mark[data-pid="d1p4"]');
     const sheets = [
       { trigger: page.getByRole('button', { name: 'Cari dalam perkara' }), title: 'Cari dalam berkas perkara' },
-      { trigger: page.locator('button.margin-mark[data-pid="d1p4"]'), title: 'Kutipan berkas' },
+      { trigger: citation, title: 'Kutipan berkas' },
     ];
     for (const { trigger, title } of sheets) {
+      if (trigger === citation) {
+        const frame = page.locator('.frame').filter({has: trigger});
+        const canvas = frame.locator('canvas');
+        const width = Number(await canvas.getAttribute('width'));
+        const reference = await trigger.evaluateHandle(node => node);
+        await page.setViewportSize({width: 382, height: 844});
+        await expect.poll(async () => Number(await canvas.getAttribute('width'))).toBeLessThan(width);
+        expect(await reference.evaluate(node => node.isConnected)).toBe(true);
+        await reference.dispose();
+      }
       await trigger.tap();
       const sheet = page.getByRole('dialog', { name: title });
       await expect(sheet).toBeVisible();
