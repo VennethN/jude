@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import { goto, invalidateAll } from '$app/navigation';
-  import { untrack } from 'svelte';
+  import { onMount, untrack } from 'svelte';
   import {
     Plus,
     Minus,
@@ -25,9 +25,12 @@
 
   let { workspace: w, lang }: { workspace: Workspace; lang: Lang } = $props();
   let id = $derived(lang === 'id');
+  let interactive = $state(false);
+  onMount(() => { interactive = true; });
   let requested = $derived(page.url.searchParams.get('board'));
   let dataBoard = $derived(w.boards.find((b) => b.id === requested) || w.boards[0]);
   let recent = $state<Board>();
+  let removed = $state<{ id: string; name: string }>();
   let board = $derived(
     recent && recent.id === dataBoard?.id && recent.version >= dataBoard.version ? recent : dataBoard
   );
@@ -170,7 +173,9 @@
       problem = '';
       try {
         if (action === 'delete' && board) {
-          await api(apiPath(w, 'boards/' + encodeURIComponent(board.id)), 'DELETE');
+          const deleting = { id: board.id, name: board.name };
+          await api(apiPath(w, 'boards/' + encodeURIComponent(deleting.id)), 'DELETE');
+          removed = deleting;
           recent = undefined;
           await invalidateAll();
           await goto(url(), { replaceState: true });
@@ -188,6 +193,20 @@
       }
     }
     if (!problem) mode = null;
+  }
+  async function restoreBoard() {
+    if (!removed || busy) return;
+    busy = true;
+    problem = '';
+    try {
+      const restored = await api<Board>(apiPath(w, 'boards/' + encodeURIComponent(removed.id) + '/restore'), 'POST', {});
+      removed = undefined;
+      await invalidateAll();
+      await goto(url(restored.id), { replaceState: true, noScroll: true });
+      feedback = id ? 'Papan dipulihkan.' : 'Board restored.';
+    } catch (e) {
+      problem = e instanceof Error ? e.message : id ? 'Papan belum dipulihkan.' : 'Could not restore the board.';
+    } finally { busy = false; }
   }
   async function add(ref: BoardRef, custom?: string) {
     await persist((b) => {
@@ -292,6 +311,7 @@
   <div class="ev-inline">
     {#if w.boards.length}<select
         class="ev-select"
+        disabled={!interactive || busy}
         aria-label={id ? 'Pilih papan' : 'Choose board'}
         value={board?.id}
         onchange={(e) => {
@@ -302,12 +322,14 @@
       >{/if}
     <button
       class="ev-button"
+      disabled={!interactive || busy}
       onclick={() => {
         mode = 'new';
         name = '';
       }}><Plus size={15} />{id ? 'Papan baru' : 'New board'}</button
     >{#if board}<button
         class="ev-icon"
+        disabled={!interactive || busy}
         aria-label={id ? 'Ganti nama papan' : 'Rename board'}
         onclick={() => {
           mode = 'rename';
@@ -315,6 +337,7 @@
         }}><Pencil size={15} /></button
       ><button
         class="ev-icon"
+        disabled={!interactive || busy}
         aria-label={id ? 'Hapus papan' : 'Delete board'}
         onclick={() => (mode = 'delete')}><Trash2 size={15} /></button
       >{/if}
@@ -322,6 +345,7 @@
   <button
     class="ev-button primary"
     data-tour="board-add"
+    disabled={!interactive || busy}
     aria-expanded={picker}
     onclick={() => (picker = !picker)}><Plus size={16} />{id ? 'Tambahkan bukti' : 'Add evidence'}</button
   >
@@ -386,6 +410,8 @@
         </li>{:else}<li>{id ? 'Tidak ada hasil.' : 'No results.'}</li>{/each}
     </ul>
   </section>{/if}
+{#if removed}<div class="ev-notice ev-inline" role="status"><span>{removed.name} · {id ? 'Papan dihapus.' : 'Board deleted.'}</span>
+  <button class="ev-button" disabled={busy} onclick={restoreBoard}>{id ? 'Urungkan' : 'Undo'}</button></div>{/if}
 {#if problem}<p class="ev-error" role="alert">{problem}</p>{/if}
 <p class="ev-meta save-state" role="status">{busy ? (id ? 'Menyimpan…' : 'Saving…') : feedback}</p>
 {#if board?.cards.length}

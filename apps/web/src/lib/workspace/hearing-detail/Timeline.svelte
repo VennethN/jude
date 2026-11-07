@@ -43,12 +43,20 @@
       .map((turn) => turn.person)
       .filter((p, i, all) => all.findIndex((o) => o.person?.id === p.person?.id) === i)
   );
-  let marked = $derived(
-    findings
-      .filter(needsReview)
-      .map((f) => ({ f, line: lines.find((s) => s.id === f.statementId) }))
-      .filter((item) => item.line)
-  );
+  let markerWidth = $state(0);
+  let marked = $derived.by(() => {
+    const ends: number[] = [];
+    const times = new Map(lines.map(line => [line.id, line.t]));
+    const result = findings.filter(f => needsReview(f) && times.has(f.statementId)).map(f => ({ f, time: times.get(f.statementId)! }));
+    return result.sort((a, b) => a.time - b.time).map(item => {
+      const x = Math.max(13, Math.min(markerWidth - 13, item.time / length * markerWidth));
+      const nextFree = ends.findIndex(end => end + 26 <= x);
+      const row = nextFree < 0 ? ends.length : nextFree;
+      ends[row] = x;
+      return { ...item, x, row };
+    });
+  });
+  let markRows = $derived(markerWidth ? Math.max(1, ...marked.map(mark => mark.row + 1)) : 1);
   function arrow(event: KeyboardEvent) {
     if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       event.preventDefault();
@@ -68,11 +76,12 @@
   </header>
   {#if marked.length}<div class="mark-row">
       <small>{en ? 'Findings' : 'Temuan'}</small>
-      <div>
+      <div bind:clientWidth={markerWidth} style:height={markRows * 26 + 'px'}>
         {#each marked as item (item.f.id)}<button
             title={item.f.title[lang]}
-            aria-label={item.f.title[lang] + ' · ' + timecode(item.line!.t)}
-            style:left={(100 * item.line!.t) / length + '%'}
+            aria-label={item.f.title[lang] + ' · ' + timecode(item.time)}
+            style:left={markerWidth ? item.x + 'px' : (100 * item.time) / length + '%'}
+            style:top={(markerWidth ? item.row : 0) * 26 + 'px'}
             onclick={() => openFinding(item.f.id)}><b></b></button
           >{/each}
       </div>
@@ -156,9 +165,7 @@
     font-style: normal;
     margin: 0 0.1rem;
   }
-  .mark-row {
-    height: 24px;
-  }
+
   .mark-row small {
     width: var(--gutter);
     color: var(--accent);
@@ -171,8 +178,8 @@
   .mark-row button {
     position: absolute;
     top: 0;
-    height: 24px;
-    width: 24px;
+    height: 26px;
+    width: 26px;
     transform: translateX(-50%);
     display: grid;
     place-items: center;
@@ -288,12 +295,6 @@
     }
     .legend span {
       font-size: 0.68rem;
-    }
-    .mark-row {
-      height: 18px;
-    }
-    .mark-row button {
-      height: 18px;
     }
     .ruler {
       margin-top: 0.12rem;

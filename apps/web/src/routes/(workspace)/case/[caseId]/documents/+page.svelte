@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { invalidateAll } from '$app/navigation';
+  import { goto, invalidateAll } from '$app/navigation';
   import { onMount } from 'svelte';
   import { Search, Upload, FileText, ChevronRight, MessageSquare, BookOpenText } from '@lucide/svelte';
   import type { PageData } from './$types';
@@ -14,7 +14,9 @@
   let id = $derived(data.lang === 'id');
   let input: HTMLInputElement;
   let interactive = $state(false);
-  onMount(() => { interactive = true; });
+  onMount(() => {
+    interactive = true;
+  });
   let query = $state('');
   let busy = $state(false);
   let activeFile = $state('');

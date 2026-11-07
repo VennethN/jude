@@ -1,3 +1,4 @@
+import { displaySpeaker } from '$lib/workspace/format';
 import type {
   Board,
   Citation,
@@ -105,7 +106,7 @@ export function sourceOf(w: Workspace, ref: RecordRef, lang: Lang, board?: Board
     case 'statement': {
       const line = w.statements.find((r) => r.id === ref.id);
       const hearing = line && w.hearings.find((r) => r.id === line.hearingId);
-      const name = line && w.speakers.find((r) => r.id === line.speakerId)?.label;
+      const name = line && displaySpeaker(w.speakers, line.speakerId, lang);
       return (
         line &&
         hearing &&

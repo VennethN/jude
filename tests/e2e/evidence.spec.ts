@@ -55,3 +55,18 @@ test('a phone keeps a grouped evidence map inside its own scrolling viewport', a
   expect(dimensions.document).toBeLessThanOrEqual(dimensions.viewport);
   expect(dimensions.map).toBeGreaterThan(dimensions.viewport);
 });
+
+test('undo board deletion keeps its identity and opens the restored board', async ({ page }) => {
+  await page.goto('/demo/findings?view=board');
+  await page.getByRole('button', { name: 'Papan baru' }).click();
+  await page.getByLabel('Nama papan').fill('Catatan persiapan');
+  await page.getByRole('button', { name: 'Simpan', exact: true }).click();
+  const selector = page.getByRole('combobox', { name: 'Pilih papan' });
+  await expect(selector.locator('option:checked')).toHaveText('Catatan persiapan');
+  const boardId = await selector.inputValue();
+  await page.getByRole('button', { name: 'Hapus papan' }).click();
+  await page.getByRole('button', { name: 'Hapus', exact: true }).click();
+  await page.getByRole('button', { name: 'Urungkan' }).click();
+  await expect(selector).toHaveValue(boardId);
+  await expect(selector.locator('option:checked')).toHaveText('Catatan persiapan');
+});
