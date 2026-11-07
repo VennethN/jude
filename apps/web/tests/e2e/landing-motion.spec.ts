@@ -49,7 +49,21 @@ test('evidence pages glide to section shortcuts and follow scrolling in both dir
 		await scrub(how,at);
 		await expect.poll(()=>rule.evaluate(n=>new DOMMatrix(getComputedStyle(n).transform).a)).toBeCloseTo(1-(1-at)**3,1);
 	}
-  // A wheel notch passes through intermediate positions while the exhibit stays put.
+  // The page rests between gestures. Its first wheel movement after resting must still ease in.
+  await expect.poll(() => page.evaluate(async () => {
+    const original = window.requestAnimationFrame;
+    let callbacks = 0;
+    window.requestAnimationFrame = callback => original.call(window, time => {
+      callbacks++;
+      callback(time);
+    });
+    try {
+      await new Promise<void>(resolve => setTimeout(resolve, 400));
+      return callbacks;
+    } finally {
+      window.requestAnimationFrame = original;
+    }
+  })).toBe(0);
   await page.mouse.move(1120,610);
   const [positionsAfterWheel] = await Promise.all([
     page.evaluate(() => new Promise<number[]>(resolve => {
@@ -64,6 +78,7 @@ test('evidence pages glide to section shortcuts and follow scrolling in both dir
     })),
     page.mouse.wheel(0, 545),
   ]);
+  expect(positionsAfterWheel.find(p => p > 0)).toBeLessThan(450);
   expect(new Set(positionsAfterWheel.filter(p => p > 0 && p < 540)).size).toBeGreaterThan(3);
   expect(positionsAfterWheel.at(-1)).toBeGreaterThan(515);
 });
