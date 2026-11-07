@@ -2,30 +2,42 @@
   let { monochrome = false }: { monochrome?: boolean } = $props();
 </script>
 
-<span class="jude-lockup">
-  <img src={monochrome ? '/brand/jude-mono.png' : '/brand/jude-primary.png'}
-    alt="" width="468" height="743" draggable="false" />
-  <span class="jude-name">jude.</span>
+<span class="jude-lockup" aria-hidden="true">
+  <span class="jude-initial" class:monochrome></span>
+  <span class="jude-name">ude.</span>
 </span>
 
 <style>
   .jude-lockup {
     display: inline-flex;
     align-items: center;
-    gap: .32em;
     vertical-align: middle;
     font-family: Rufina, Georgia, serif;
     line-height: 1;
     white-space: nowrap;
   }
-  img {
-    display: block;
+  .jude-initial {
     flex: none;
-    height: var(--jude-mark-height, .88em);
-    width: auto;
-    max-width: none;
+    height: .88em;
+    aspect-ratio: 468 / 743;
+    transform: translateY(.035em);
+    background: url('/brand/jude-primary.png') center / contain no-repeat;
   }
-  .jude-name { display: var(--jude-name-display, inline); }
+  .jude-initial.monochrome {
+    background: currentColor;
+    mask: url('/brand/jude-mono.png') center / contain no-repeat;
+  }
+  .jude-name {
+    display: var(--jude-name-display, inline);
+    margin-inline-start: -.035em;
+  }
+  @media (forced-colors: active) {
+    .jude-lockup .jude-initial {
+      forced-color-adjust: none;
+      background: LinkText;
+      mask: url('/brand/jude-mono.png') center / contain no-repeat;
+    }
+  }
   @media (max-width: 420px) {
     :global(.pub-header) .jude-lockup { font-size: clamp(31px, calc(24vw - 46px), 1em); }
   }
