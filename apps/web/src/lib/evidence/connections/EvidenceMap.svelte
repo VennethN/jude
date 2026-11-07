@@ -1,6 +1,8 @@
 <script lang="ts">
   import { ArrowLeft, ArrowRight, Maximize2, Minus, Plus, Search } from '@lucide/svelte';
   import { untrack } from 'svelte';
+  import { goto } from '$app/navigation';
+  import MapColumnIndex from './MapColumnIndex.svelte';
   import type { Lang, Relation, Workspace } from '@jude/core/domain';
   import { clock as fmtClock, casePath } from '../records';
   import { statusRelation, type Pairing, type Kind as EvidenceKind } from '../graph';
@@ -216,12 +218,8 @@
       );
     return { columns, cells, width: Math.max(x - COL_GAP + PAD, 1), height: bottom + PAD };
   });
-  // One header style per kind of column, chosen by the narrowest of them, so the headers read alike.
-  let narrowest = $derived.by(() => {
-    const m: Record<string, number> = {};
-    for (const c of layout.columns) m[c.kind] = Math.min(m[c.kind] ?? Infinity, c.w);
-    return m;
-  });
+  let selectedColumn = $state('');
+  let previewColumn = $state('');
   // Relation names lead a chip, so they start with a capital.
   const cap = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
@@ -460,7 +458,10 @@
     if (layout.height * f.k > pz.vh - HEAD_H - 16) f.y = HEAD_H;
     return f;
   }
-  const showAll = () => pz.flyTo(grouped && gathered ? pz.frame(gathered.bounds, 0.3, 1.2) : overview());
+  function showAll() {
+    selectedColumn = '';
+    pz.flyTo(grouped && gathered ? pz.frame(gathered.bounds, 0.3, 1.2) : overview());
+  }
 
   // The camera follows the selection: the gathered group, or the whole case. A group too big to
   // read whole is framed around the open card instead, at a zoom where it reads.
@@ -901,11 +902,16 @@
     active = c.key;
     onchoose(c.key, keyboard);
   }
-  function onheader(col: Column) {
-    if (col.kind === 'document') onchoose('document:' + col.id);
+  function onheader(col: Column, keyboard: boolean) {
+    if (!col.cells.length) {
+      const section = col.kind === 'document' ? '/documents/' : '/hearings/';
+      void goto(casePath(workspace) + section + encodeURIComponent(col.id));
+      return;
+    }
+    selectedColumn = col.key;
+    if (col.kind === 'document') onchoose('document:' + col.id, keyboard);
     else {
       const cs = col.cells;
-      if (!cs.length) return;
       pz.flyTo(
         pz.frame(
           {
@@ -1013,6 +1019,11 @@
     <p class="empty muted">{t('cx.map.empty')}</p>
   {:else}
     <p class="sr-only" id="cx-map-desc">{t('cx.map.desc')}</p>
+    <div class="map-frame">
+    {#if !grouped}
+      <MapColumnIndex columns={layout.columns} {workspace} {lang} selected={selectedColumn}
+        choose={onheader} preview={(key) => (previewColumn = key)} />
+    {/if}
     <div
       class="view map {zoom}"
       data-progress={p}
@@ -1061,7 +1072,7 @@
               {@const open = c.key === focus}
               <svelte:element
                 this={open ? 'div' : 'button'}
-                class="cell"
+                class="cell" class:indexed={!grouped && (previewColumn || selectedColumn) === col.key}
                 data-key={c.key}
                 class:thin={!card && !open}
                 class:open
@@ -1171,39 +1182,6 @@
             <span class="tabular count">{h.n}</span>
           </span>
         {/each}
-      {:else}
-        <div class="heads">
-          {#each layout.columns as col (col.key)}
-            {@const w = col.w * pz.k}
-            {@const kw = (narrowest[col.kind] ?? col.w) * pz.k}
-            <button
-              class="col-head"
-              class:tight={kw < 110}
-              class:tiny={kw < 58}
-              class:on={selected === `document:${col.id}`}
-              style:left="{pz.sx(col.x)}px"
-              style:width="{Math.max(w, 30)}px"
-              title={col.name}
-              aria-label={col.kind === 'document'
-                ? t('cx.map.exploreDoc', { name: col.name })
-                : t('cx.map.zoomTo', { name: col.name })}
-              tabindex="-1"
-              onclick={() => onheader(col)}
-            >
-              <span class="name">
-                <KindIcon
-                  speakers={workspace.speakers}
-                  kind={col.kind === 'hearing' ? 'hearing' : col.kind === 'findings' ? 'finding' : 'document'}
-                  size={14}
-                />
-                <span class="label">{col.name}</span>
-                {#if col.short}<span class="short tabular">{col.short}</span>{/if}
-                {#if col.live}<span class="live-dot" aria-hidden="true"></span>{/if}
-              </span>
-              <span class="sub">{col.count ? t('cx.map.count', { n: col.count }) : t('cx.map.none')}</span>
-            </button>
-          {/each}
-        </div>
       {/if}
 
       {#if peek}
@@ -1224,6 +1202,7 @@
           <span class="clamp-2" class:doc-text={peek.kind === 'passage'}>{d.text}</span>
         </div>
       {/if}
+    </div>
     </div>
     <p class="hint xsmall muted">
       {grouped
@@ -1603,85 +1582,8 @@
     left: -10000px;
   }
 
-  .heads {
-    position: absolute;
-    z-index: 6;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 58px;
-    border-bottom: 1px solid var(--line);
-    background: color-mix(in srgb, var(--surface) 94%, transparent);
-    overflow: hidden;
-    cursor: default;
-  }
-  .col-head {
-    position: absolute;
-    top: 8px;
-    display: grid;
-    gap: 1px;
-    padding: 4px 8px;
-    border-radius: var(--radius-control);
-    text-align: left;
-    color: var(--ink-strong);
-    min-width: 0;
-  }
-  button.col-head:hover {
-    background: var(--sunken);
-  }
-  .col-head.on {
-    background: var(--selected);
-  }
-  .col-head .name {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-width: 0;
-    font-size: 13px;
-    font-weight: 600;
-  }
-  .col-head .label {
-    min-width: 0;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .col-head .sub {
-    font-size: 11.5px;
-    color: var(--muted);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .col-head .short {
-    display: none;
-  }
-  /* Narrow columns: the name wraps to two lines; narrower still, a hearing keeps its number. */
-  .col-head.tight {
-    padding: 4px 5px;
-  }
-  .col-head.tight .name {
-    align-items: flex-start;
-    font-size: 11.5px;
-  }
-  .col-head.tight .label {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    -webkit-box-orient: vertical;
-    white-space: normal;
-    line-height: 1.22;
-  }
-  .col-head.tight .sub {
-    display: none;
-  }
-  .col-head.tiny .label {
-    display: none;
-  }
-  .col-head.tiny .short {
-    display: inline;
-  }
-
+  .map-frame { position:relative; min-width:0; }
+  .cell.indexed { border-color:var(--selected-line); box-shadow:inset 0 0 0 1px var(--selected-line); }
   .type-tag {
     position: absolute;
     z-index: 5;
