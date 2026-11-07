@@ -10,7 +10,7 @@ const caseFiles = [
   '**/board-opening.spec.ts',
   '**/case-*.spec.ts',
   '**/connections*.spec.ts',
-  '**/{evidence,findings,record-navigation,search-inspector}.spec.ts',
+  '**/{evidence,findings,reader-index,record-navigation,search-inspector}.spec.ts',
 ];
 const groups = [
   { name: 'case-file', testMatch: caseFiles },
