@@ -10,12 +10,14 @@
     Minus,
     Plus,
     Search,
-    ScanText
+    ScanText,
+    Trash2
   } from '@lucide/svelte';
   import type { InspectTarget, Lang, Workspace } from '@jude/core/domain';
   import { apiPath, assistantPath, boardPath, casePath, local, statuses } from './records';
   import Match from './Match.svelte';
   import Inspector from './Inspector.svelte';
+  import DocumentRemoval from './DocumentRemoval.svelte';
   import PdfSheet from './PdfSheet.svelte';
   import './evidence.css';
 
@@ -53,6 +55,7 @@
     }))
   );
   let inspect = $state<InspectTarget | null>(null);
+  let deleting = $state(false);
   let copied = $state('');
   let searchResults = $derived(
     query.trim() ? list.filter((p) => p.text.toLowerCase().includes(query.trim().toLowerCase())) : []
@@ -172,9 +175,16 @@
       <h1>{doc.title}</h1>
       <p>{local(doc.kind, lang)} · {doc.file} · {doc.pages} {id ? 'halaman' : 'pages'}</p>
     </div>
-    <a class="ev-button" href={original} download
-      ><Download size={16} />{id ? 'Unduh asli' : 'Download original'}</a
-    >
+    <div class="ev-actions">
+      <a class="ev-button" href={original} download
+        ><Download size={16} />{id ? 'Unduh asli' : 'Download original'}</a
+      ><button
+        class="ev-icon"
+        aria-label={id ? 'Hapus dokumen' : 'Remove document'}
+        title={id ? 'Hapus dokumen' : 'Remove document'}
+        onclick={() => (deleting = true)}><Trash2 size={16} /></button
+      >
+    </div>
   </header>
   <div class="ev-tabs" data-tour="doc-view-switch">
     {#if pdfUrl}<a href={url({ view: null })} aria-current={!textView ? 'page' : undefined}
@@ -347,6 +357,14 @@
     </aside>
   </div>
 </div>
+{#if deleting}<DocumentRemoval
+    workspace={w}
+    {lang}
+    {doc}
+    close={() => (deleting = false)}
+    removed={(result) =>
+      goto(casePath(w) + '/documents', { invalidateAll: true, state: { judeRemovedDocument: result } })}
+  />{/if}
 {#if inspect}<Inspector workspace={w} {lang} target={inspect} close={() => (inspect = null)} />{/if}
 
 <style>

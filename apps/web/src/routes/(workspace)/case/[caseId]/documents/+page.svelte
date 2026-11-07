@@ -1,7 +1,18 @@
 <script lang="ts">
-  import { goto, invalidateAll } from '$app/navigation';
+  import { goto, invalidateAll, replaceState } from '$app/navigation';
+  import { page } from '$app/state';
+  import { api } from '$lib/client';
+  import DocumentRemoval from '$lib/evidence/DocumentRemoval.svelte';
   import { onMount } from 'svelte';
-  import { Search, Upload, FileText, ChevronRight, MessageSquare, BookOpenText } from '@lucide/svelte';
+  import {
+    Search,
+    Upload,
+    FileText,
+    ChevronRight,
+    MessageSquare,
+    BookOpenText,
+    Trash2
+  } from '@lucide/svelte';
   import type { PageData } from './$types';
   import { apiPath, assistantPath, casePath, dateLabel, local } from '$lib/evidence/records';
   import type { CaseDocument } from '@jude/core/domain';
@@ -34,6 +45,36 @@
   );
   let citedDocument = $derived(w.documents.find((d) => d.id === citedPassage?.docId));
   let citedPhrase = $derived(pendingFinding?.sources.find((s) => s.passageId === citedPassage?.id)?.match);
+  type RemovedDocument = { caseId: string; id: string; title: string; citedFindings: number };
+  let deleting = $state<CaseDocument>();
+  let undoBusy = $state(false),
+    undoError = $state('');
+  let removed = $derived((page.state as { judeRemovedDocument?: RemovedDocument }).judeRemovedDocument);
+  async function afterRemoval(result: RemovedDocument) {
+    deleting = undefined;
+    ready = ready.filter((row) => row.id !== result.id);
+    replaceState('', { ...page.state, judeRemovedDocument: result });
+    await invalidateAll();
+  }
+  async function restoreDocument() {
+    if (!removed || undoBusy) return;
+    undoBusy = true;
+    undoError = '';
+    try {
+      const restored = await api<CaseDocument>(
+        apiPath(w, 'documents/' + encodeURIComponent(removed.id) + '/restore'),
+        'POST',
+        {}
+      );
+      await invalidateAll();
+      replaceState('', { ...page.state, judeRemovedDocument: undefined });
+      ready = [restored];
+    } catch {
+      undoError = id ? 'Dokumen belum dipulihkan. Coba lagi.' : 'Could not restore the document. Try again.';
+    } finally {
+      undoBusy = false;
+    }
+  }
   let term = $derived(query.trim().toLowerCase());
   let docs = $derived(
     w.documents.filter(
@@ -137,6 +178,32 @@
       >
     </div>
   </header>
+  {#if removed?.caseId === w.caseRecord.id && !w.documents.some((d) => d.id === removed?.id)}<div
+      class="ev-notice ev-inline removed"
+      role="status"
+    >
+      <span
+        ><strong>{removed.title}</strong> · {id
+          ? 'Dokumen dihapus.'
+          : 'Document removed.'}{#if removed.citedFindings}
+          {removed.citedFindings}
+          {id
+            ? 'temuan mengutip berkas ini.'
+            : removed.citedFindings === 1
+              ? 'finding cites this file.'
+              : 'findings cite this file.'}{/if}</span
+      ><button class="ev-button" disabled={undoBusy} onclick={restoreDocument}
+        >{id ? 'Urungkan' : 'Undo'}</button
+      >
+    </div>{/if}
+  {#if undoError}<p class="ev-error" role="alert">{undoError}</p>{/if}
+  {#if deleting}<DocumentRemoval
+      workspace={w}
+      lang={data.lang}
+      doc={deleting}
+      close={() => (deleting = undefined)}
+      removed={afterRemoval}
+    />{/if}
   {#if dragging}<div class="drop-notice" role="status">
       <Upload size={18} />{id ? 'Lepaskan berkas untuk mengunggah' : 'Drop files to upload'}
     </div>{/if}
@@ -182,8 +249,15 @@
               <span class="file-info"
                 >{doc.file}<span class="ev-meta">{doc.pages} {id ? 'halaman' : 'pages'}</span></span
               >
-              <span class="ev-meta date">{dateLabel(doc.added, data.lang)}</span><ChevronRight size={16} />
+              <span class="ev-meta date">{dateLabel(doc.added, data.lang)}</span>
             </a>
+            <button
+              class="file-action"
+              aria-label={(id ? 'Hapus dokumen ' : 'Remove document ') + doc.title}
+              title={id ? 'Hapus dokumen' : 'Remove document'}
+              disabled={!interactive || busy}
+              onclick={() => (deleting = doc)}><Trash2 size={16} /></button
+            >
           </li>
         {/each}
       </ul>
@@ -270,10 +344,36 @@
   .ev-search {
     width: min(100%, 30rem);
   }
+  .files li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 2.5rem;
+    align-items: center;
+    gap: 0.2rem;
+  }
+  .file-action {
+    justify-self: end;
+    width: 36px;
+    min-height: 40px;
+    display: grid;
+    place-items: center;
+    background: transparent;
+    color: var(--muted);
+    border: 0;
+    border-radius: 0.3rem;
+    cursor: pointer;
+  }
+  .file-action:hover,
+  .file-action:focus-visible {
+    background: var(--wash);
+    color: var(--accent);
+  }
+  .removed {
+    justify-content: space-between;
+  }
   .files a {
     color: var(--ink);
     display: grid;
-    grid-template-columns: 42px minmax(0, 1fr) minmax(5rem, 10%) minmax(6.5rem, 12%) 20px;
+    grid-template-columns: 42px minmax(0, 1fr) minmax(5rem, 10%) minmax(6.5rem, 12%);
     gap: 1rem;
     align-items: center;
     padding: 1rem 0.55rem;
@@ -391,7 +491,7 @@
   }
   @container (max-width:680px) {
     .files a {
-      grid-template-columns: 30px minmax(0, 1fr) auto;
+      grid-template-columns: 30px minmax(0, 1fr);
       gap: 0.65rem;
       padding: 0.9rem 0;
     }

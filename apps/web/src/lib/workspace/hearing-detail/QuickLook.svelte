@@ -3,6 +3,7 @@
   import { ArrowUpRight, BookOpenText, ChevronLeft, ChevronRight, ClipboardCopy, X } from '@lucide/svelte';
   import type { Finding, Lang, Reply, Workspace } from '@jude/core/domain';
   import Match from '$lib/evidence/Match.svelte';
+  import SourceAvailability from '$lib/evidence/SourceAvailability.svelte';
   import { casePath, local, sourceOf, statuses } from '$lib/evidence/records';
   import { timecode } from '../format';
   import { voice } from './people';
@@ -123,7 +124,9 @@
         <h3><a href={source.href}>{source.label} <ArrowUpRight size={12} /></a></h3>
         <p>“<Match text={first?.match || source.text} />”</p>
       </section>{/if}
-    <a class="button" href={casePath(w) + '/findings/' + encodeURIComponent(finding.id)}
+    <SourceAvailability {finding} {lang} /><a
+      class="button"
+      href={casePath(w) + '/findings/' + encodeURIComponent(finding.id)}
       >{en ? 'Details in Findings' : 'Detail di Temuan'}<ArrowUpRight size={15} /></a
     >
   {:else if reply}

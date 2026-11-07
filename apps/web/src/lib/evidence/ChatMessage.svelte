@@ -37,7 +37,13 @@
   </header>
   {#if m.contexts?.length && m.role === 'user'}<p class="ev-meta">
       {id ? 'Konteks' : 'Context'} · {m.contexts
-        .map((c) => sourceOf(w, c, lang)?.label)
+        .map((c) =>
+          'unavailable' in c && c.unavailable
+            ? id
+              ? 'Sumber dihapus'
+              : 'Source removed'
+            : sourceOf(w, c, lang)?.label
+        )
         .filter(Boolean)
         .join(' · ')}
     </p>{/if}
@@ -50,7 +56,10 @@
             aria-label={(id ? 'Sumber ' : 'Source ') + (idx + 1) + ' · ' + src.label}
             onclick={() => inspect(ref)}>{idx + 1}</button
           >{:else}<a class="citation" href={src.href} title={src.label}>{idx + 1}</a
-          >{/if}{:else}{segment}{/if}{/each}
+          >{/if}{:else if ref?.unavailable}<span
+          class="missing-marker"
+          title={id ? 'Sumber dihapus' : 'Source removed'}>{segment}</span
+        >{:else}{segment}{/if}{/each}
   </div>
   {#if m.citations?.length}<details data-tour="assistant-citations">
       <summary
@@ -61,6 +70,16 @@
               {#if canInspect(ref)}<button class="source-link" onclick={() => inspect(ref)}
                   >{src.label}</button
                 >{:else}<a class="source-link" href={src.href}>{src.label}</a>{/if}
+            </li>{:else}<li class="removed-citation">
+              <strong
+                >{ref.unavailable
+                  ? id
+                    ? 'Sumber dihapus'
+                    : 'Source removed'
+                  : id
+                    ? 'Sumber tidak tersedia'
+                    : 'Source unavailable'}</strong
+              >{#if ref.snapshot}<p>{ref.snapshot}</p>{/if}
             </li>{/if}{/each}
       </ol>
     </details>{/if}
@@ -72,6 +91,20 @@
 </article>
 
 <style>
+  .missing-marker {
+    color: var(--muted);
+    font: 600 0.72rem/1.2 var(--sans);
+  }
+  .removed-citation {
+    color: var(--muted);
+  }
+  .removed-citation strong {
+    font: 600 0.8rem var(--sans);
+  }
+  .removed-citation p {
+    font: 400 0.83rem/1.45 var(--mono);
+    margin: 0.15rem 0 0.5rem;
+  }
   .message {
     padding: 1.1rem 0;
     max-width: 80ch;

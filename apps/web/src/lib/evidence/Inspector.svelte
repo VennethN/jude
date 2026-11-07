@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import SourceAvailability from './SourceAvailability.svelte';
   import {
     ArrowUpRight,
     BookOpen,
@@ -94,7 +95,8 @@
         >
       {/if}
     </div>
-    {#if finding}<p>{local(finding.explanation, lang)}</p>{/if}
+    {#if finding}<p>{local(finding.explanation, lang)}</p>
+      <SourceAvailability {finding} {lang} />{/if}
   {:else}<h2 id="source-title" class="ev-title">
       {id ? 'Sumber tidak tersedia' : 'Source unavailable'}
     </h2>{/if}
