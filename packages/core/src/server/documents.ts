@@ -303,12 +303,7 @@ export async function uploadDocument(org: string, caseId: string, form: FormData
     if (read.viewer) await putOriginal(attachments[1].object_key, read.viewer, mimeTypes.PDF);
     const saved = await transaction((db) =>
       idempotent(db, org, scope, key, async () => {
-        await checkQuota(
-          db,
-          org,
-          'storage',
-          attachments.reduce((sum, a) => sum + Number(a.byte_length), 0) / 1e9,
-        );
+        await checkQuota(db, org, 'storage', file.size / 1e9);
         await changeIn(db, org, caseId, (w) => {
           w.documents.push(doc);
           w.passages.push(...passages);

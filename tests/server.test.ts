@@ -1,15 +1,26 @@
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import type { RequestEvent } from '@sveltejs/kit';
+type RequestEvent = Parameters<typeof endpoint>[0];
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Board, CaseDocument, CaseRecord, SessionInfo, Thread, Workspace } from '../packages/core/src/domain';
+import type {
+  Board,
+  CaseDocument,
+  CaseRecord,
+  SessionInfo,
+  Thread,
+  Workspace,
+} from '../packages/core/src/domain';
 import { endpoint } from '../packages/core/src/server/api';
 import { sessionFromToken } from '../packages/core/src/server/auth';
 import { transaction } from '../packages/core/src/server/db';
 import { mutateWorkspace } from '../packages/core/src/server/cases';
 import { runAnalysisWorker } from '../packages/core/src/server/jobs';
+import { getOriginal, putOriginal } from '../packages/core/src/server/providers/storage';
+import { meter } from '../packages/core/src/server/billing';
+import { storeFile } from '../packages/core/src/server/documents';
+import { repositoryRoot } from '../packages/core/src/server/workspace-paths';
 
 let temporary: string;
 beforeAll(async () => {
@@ -272,5 +283,84 @@ describe('case API', () => {
     expect(
       (await a.request('cases/' + restored.id + '/documents/' + data.documents[0].id + '/original')).status,
     ).toBe(200);
+  });
+  test('synthetic originals and all linked records round-trip through the archive', async () => {
+    const a = browser(),
+      session = await a.ok<SessionInfo>('auth/demo', 'POST'),
+      source = 'cases/' + session.demo!.caseId;
+    expect(repositoryRoot(join(repositoryRoot(), 'apps/web'))).toBe(repositoryRoot());
+    const original = await a.request(source + '/documents/d4/original');
+    expect(original.headers.get('content-type')).toContain('wordprocessingml');
+    expect([...new Uint8Array(await original.arrayBuffer()).slice(0, 2)]).toEqual([80, 75]);
+    await a.ok(source + '/findings/f1', 'PATCH', { reviewed: true, note: 'Reviewed source' });
+    const zip = await a.request(source + '/export');
+    expect(zip.status).toBe(200);
+    const f = new FormData();
+    f.set('file', new File([await zip.arrayBuffer()], 'synthetic.jude'));
+    const imported = await a.ok<CaseRecord>('cases/import', 'POST', f);
+    const w = await a.ok<Workspace>('cases/' + imported.id + '/workspace');
+    const finding = w.findings.find((item) => item.note === 'Reviewed source')!;
+    expect(finding.reviewed).toBe(true);
+    expect(w.statements.some((s) => s.id === finding.statementId)).toBe(true);
+    expect(w.passages.some((p) => p.id === finding.sources[0].passageId)).toBe(true);
+    expect(w.threads.filter((t) => t.sample)).toHaveLength(4);
+    const sourceDoc = w.documents.find((d) => d.file === 'DOCX')!;
+    expect(sourceDoc.original).toContain(imported.id);
+    expect(sourceDoc.pdf).toContain('/viewer');
+  });
+
+  test('archive transfers include private recordings and only retained microphone turns', async () => {
+    const a = browser(),
+      session = await a.ok<SessionInfo>('auth/demo', 'POST'),
+      org = session.organization.id;
+    const c = await a.ok<CaseRecord>('cases', 'POST', { title: 'Private recording' }),
+      base = 'cases/' + c.id;
+    const h = await a.ok<{ id: string }>(base + '/hearings/import', 'POST', {
+      title: 'Recording',
+      date: '2026-11-07',
+      turns: [{ speaker: 'Counsel', time: 0, text: 'A statement.' }],
+    });
+    const audio = new Uint8Array([82, 73, 70, 70, 4, 0, 0, 0, 87, 65, 86, 69]),
+      pcm = new Uint8Array([0, 0, 3, 0]);
+    const prefix = [org, c.id, h.id].join('/');
+    await putOriginal(prefix + '/audio', audio, 'audio/wav');
+    await putOriginal(prefix + '/turn-one.pcm', pcm, 'application/octet-stream');
+    await transaction(async (db) => {
+      await storeFile(db, {
+        case_id: c.id,
+        entity_id: h.id,
+        kind: 'audio',
+        object_key: prefix + '/audio',
+        file_name: 'hearing.wav',
+        mime: 'audio/wav',
+        byte_length: audio.length,
+      });
+      await db.query(
+        'INSERT INTO voice_turns(case_id,hearing_id,id,start_seconds,bytes,object_key) VALUES($1,$2,$3,0,4,$4),($1,$2,$5,1,8,NULL)',
+        [c.id, h.id, 'turn-one', prefix + '/turn-one.pcm', 'turn-two'],
+      );
+      await meter(db, org, 'hours', 0.5);
+    });
+    const bill = await a.ok<{ usage: { hours: { used: number }; storage: { used: number } } }>('billing');
+    expect(bill.usage.hours.used).toBeCloseTo(0.5 / 3600);
+    expect(bill.usage.storage.used).toBe((audio.length + pcm.length) / 1e9);
+    const zip = await a.request(base + '/export'),
+      form = new FormData();
+    form.set('file', new File([await zip.arrayBuffer()], 'recording.jude'));
+    const restored = await a.ok<CaseRecord>('cases/import', 'POST', form);
+    const state = await a.ok<Workspace>('cases/' + restored.id + '/workspace'),
+      restoredHearing = state.hearings[0];
+    expect(restoredHearing.audio).toBe('/api/live/' + restored.id + '/' + restoredHearing.id + '/audio');
+    expect(await getOriginal([org, restored.id, restoredHearing.id, 'audio'].join('/'))).toEqual(
+      Buffer.from(audio),
+    );
+    const turns = await transaction((db) =>
+      db.query<{ object_key: string | null }>(
+        'SELECT object_key FROM voice_turns WHERE case_id=$1 ORDER BY start_seconds',
+        [restored.id],
+      ),
+    );
+    expect(await getOriginal(turns[0].object_key!)).toEqual(Buffer.from(pcm));
+    expect(turns[1].object_key).toBeNull();
   });
 });

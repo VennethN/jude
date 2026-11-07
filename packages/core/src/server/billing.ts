@@ -8,7 +8,7 @@ const period = () => new Date().toISOString().slice(0, 7);
 export async function meter(db: Database, orgId: string, quota: 'hours' | 'questions', amount: number) {
   await db.query(
     'INSERT INTO usage_counts(org_id,period,quota,amount) VALUES($1,$2,$3,$4) ON CONFLICT(org_id,period,quota) DO UPDATE SET amount=usage_counts.amount+excluded.amount',
-    [orgId, period(), quota, quota==='hours'?Math.round(amount*1_000):amount],
+    [orgId, period(), quota, quota === 'hours' ? Math.round(amount * 1_000) : amount],
   );
 }
 export async function billing(db: Database, orgId: string) {

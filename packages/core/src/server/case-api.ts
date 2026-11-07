@@ -420,7 +420,7 @@ export async function caseRequest(event: RequestEvent, session: SessionInfo, cas
           if (method === 'POST' && id === 'import' && !act) return importHearing(w, f, session.user.id);
           if (method === 'POST' && !id) return addHearing(w, f, session.user.id);
           if (method === 'POST' && act === 'start') return startHearing(w, id, f, session.user.id);
-          if (method==='POST' && act==='end') return endHearing(w,id);
+          if (method === 'POST' && act === 'end') return endHearing(w, id);
           if (method === 'PATCH' && id && !act) return patchHearing(w, id, f);
         }
         if (resource === 'speakers' && method === 'PATCH' && id && !act) return patchSpeaker(w, id, f);

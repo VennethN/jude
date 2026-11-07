@@ -1,4 +1,10 @@
 import { demoAssetsDirectory } from './workspace-paths';
+import {
+  includeAudio,
+  restoreAudio,
+  insertArchivedTurns,
+  type ArchivedAttachment as Attachment,
+} from './archive-audio';
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
@@ -23,7 +29,7 @@ import {
 } from './validation';
 import { getOriginal, putOriginal, removeOriginal } from './providers/storage';
 
-const limits = { zip: 32 * 1024 * 1024, expanded: 96 * 1024 * 1024, entries: 700 };
+const limits = { zip: 48 * 1024 * 1024, expanded: 96 * 1024 * 1024, entries: 6000 };
 const jsonBytes = (value: unknown) => strToU8(JSON.stringify(value));
 const collections = [
   'hearings',
@@ -39,14 +45,6 @@ const collections = [
   'replies',
 ] as const;
 type Collection = (typeof collections)[number];
-interface Attachment {
-  entity_id: string;
-  kind: string;
-  object_key: string;
-  file_name: string;
-  mime: string;
-  byte_length: number | string;
-}
 const mimes = {
   PDF: 'application/pdf',
   TXT: 'text/plain',
@@ -99,24 +97,20 @@ export async function exportArchive(org: string, caseId: string) {
       d.pdf &&
       /^\/demo\/documents\/d[1-7]\.pdf$/.test(d.pdf)
     ) {
-      const bytes = await readFile(
-        join(demoAssetsDirectory(), basename(d.pdf)),
-      );
+      const bytes = await readFile(join(demoAssetsDirectory(), basename(d.pdf)));
       files[d.file === 'PDF' ? filePath(d, 'original') : filePath(d, 'viewer')] = bytes;
       size += bytes.byteLength;
       if (d.file === 'DOCX') {
-        const word = await readFile(
-          join(
-            demoAssetsDirectory(),
-            basename(d.pdf, '.pdf') + '.docx',
-          ),
-        );
+        const word = await readFile(join(demoAssetsDirectory(), basename(d.pdf, '.pdf') + '.docx'));
         files[filePath(d, 'original')] = word;
         size += word.byteLength;
       }
     }
   }
+  await includeAudio(files, w, objects, limits.expanded - size);
   const zip = zipSync(files, { level: 1 });
+  if (zip.length > limits.zip || Object.keys(files).length > limits.entries)
+    throw new ApiError(413, 'file_too_large', 'The case exceeds the archive size limit.');
   return new Response(new Uint8Array(zip), {
     headers: {
       'Content-Type': 'application/vnd.jude.case+zip',
@@ -401,6 +395,10 @@ export async function importArchive(org: string, form: FormData, creator?: strin
         return (
           entry.name === 'case.json' ||
           entry.name === 'manifest.json' ||
+          entry.name === 'audio/index.json' ||
+          /^audio\/[\w-]+\/(recording\.(mp3|wav|m4a|mp4|mpeg|mpga|webm|ogg|flac)|[\w-]+\.pcm)$/.test(
+            entry.name,
+          ) ||
           /^documents\/[\w-]+\/(original\.(pdf|docx|md|txt)|viewer\.pdf)$/.test(entry.name)
         );
       },
@@ -414,6 +412,7 @@ export async function importArchive(org: string, form: FormData, creator?: strin
   }
   const { w, maps, original } = decoded;
   const attachments: Attachment[] = [];
+  const pending = new Set<string>();
   let committed = false;
   try {
     for (const src of original) {
@@ -434,12 +433,15 @@ export async function importArchive(org: string, form: FormData, creator?: strin
           mime,
           byte_length: bytes.length,
         });
+        pending.add(object_key);
         await putOriginal(object_key, bytes, mime);
         if (kind === 'original') doc.original = base + '/original';
         if (kind === 'viewer' || doc.file === 'PDF') doc.pdf = base + '/' + kind;
       }
       doc.status = w.passages.some((p) => p.docId === doc.id) ? 'ready' : 'text_unavailable';
     }
+    const turns = await restoreAudio(files, w, maps, org, attachments, pending);
+    const audioBytes = turns.reduce((total, t) => total + (t.object_key ? t.bytes : 0), 0);
     await transaction(async (db) => {
       await checkQuota(db, org, 'cases', 1);
       await checkQuota(db, org, 'boards', w.boards.length);
@@ -447,14 +449,17 @@ export async function importArchive(org: string, form: FormData, creator?: strin
         db,
         org,
         'storage',
-        attachments.reduce((sum, a) => sum + Number(a.byte_length), 0) / 1e9,
+        attachments
+          .filter((a) => a.kind !== 'viewer')
+          .reduce((sum, a) => sum + Number(a.byte_length), audioBytes) / 1e9,
       );
       await insertWorkspace(db, org, w, creator);
       for (const a of attachments) await storeFile(db, { ...a, case_id: w.caseRecord.id });
+      await insertArchivedTurns(db, w.caseRecord.id, turns);
     });
     committed = true;
     return w.caseRecord;
   } finally {
-    if (!committed) await Promise.allSettled(attachments.map((a) => removeOriginal(a.object_key)));
+    if (!committed) await Promise.allSettled([...pending].map(removeOriginal));
   }
 }

@@ -12,8 +12,11 @@ export function repositoryRoot(start = process.cwd()) {
   }
 }
 
-export const migrationsDirectory = () => process.env.JUDE_MIGRATIONS_DIR || join(repositoryRoot(), 'migrations');
-export const demoAssetsDirectory = () => process.env.JUDE_DEMO_ASSETS_DIR || join(repositoryRoot(), 'apps/web/static/demo/documents');
-export const databasePath = () => process.env.JUDE_DB_PATH || join(repositoryRoot(), '.jude-data/workspace.sqlite');
-export const originalsDirectory = () => process.env.JUDE_FILES_DIR || join(repositoryRoot(), '.jude-data/files');
-
+export const migrationsDirectory = () =>
+  process.env.JUDE_MIGRATIONS_DIR || join(repositoryRoot(), 'migrations');
+export const demoAssetsDirectory = () =>
+  process.env.JUDE_DEMO_ASSETS_DIR || join(repositoryRoot(), 'apps/web/static/demo/documents');
+export const databasePath = () =>
+  process.env.JUDE_DB_PATH || join(repositoryRoot(), '.jude-data/workspace.sqlite');
+export const originalsDirectory = () =>
+  process.env.JUDE_FILES_DIR || join(repositoryRoot(), '.jude-data/files');
