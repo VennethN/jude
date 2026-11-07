@@ -58,6 +58,10 @@ RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu 
     && pip install --no-cache-dir -r /tmp/diarization-requirements.txt \
     && python -c "from torchcodec.decoders import AudioDecoder; from pyannote.audio import Pipeline"
 
+FROM diarization-dependencies AS voiceprint-model
+COPY apps/voice/jude_voice/voiceprint_model.py /tmp/voiceprint_model.py
+RUN python /tmp/voiceprint_model.py /opt/jude-models/wespeaker
+
 FROM voice-dependencies AS voice
 ARG JUDE_REVISION=development
 ENV JUDE_REVISION=$JUDE_REVISION
@@ -72,6 +76,8 @@ CMD ["python", "-m", "jude_voice"]
 
 FROM voice AS voice-pyannote
 COPY --from=diarization-dependencies /opt/jude-voice /opt/jude-voice
+COPY --from=voiceprint-model /opt/jude-models /opt/jude-models
+ENV JUDE_VOICEPRINT_MODEL=/opt/jude-models/wespeaker/pytorch_model.bin
 
 FROM web AS combined
 USER root
@@ -87,5 +93,7 @@ CMD ["node", "scripts/start.mjs"]
 
 FROM combined AS release-pyannote
 COPY --from=diarization-dependencies /opt/jude-voice /opt/jude-voice
+COPY --from=voiceprint-model /opt/jude-models /opt/jude-models
+ENV JUDE_VOICEPRINT_MODEL=/opt/jude-models/wespeaker/pytorch_model.bin
 
 FROM combined AS release

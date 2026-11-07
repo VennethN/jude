@@ -6,7 +6,9 @@ from uuid import uuid4
 from anyio import CancelScope
 
 from .providers import ProviderError
+from .repository import anonymous_id
 from .transcribe import TranscribeStream
+from .voiceprints import VoiceprintSession
 
 MAX_IN_FLIGHT = 3
 MAX_CAPTURES = 4096
@@ -25,15 +27,18 @@ async def write_transaction(fn, *args, **kwargs):
 
 
 async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
-                       realtime=None, speakers=None):
+                       realtime=None, speakers=None, voiceprints=None):
     """A socket owns exactly one provider epoch; capture ACKs never mean completion.
 
     The optional factory exists for transport tests. Legacy speaker grouping is
-    deliberately unused: AWS labels already belong to this continuous epoch.
+    deliberately unused. Optional acoustic matching links native AWS labels to
+    stored case voices without blocking transcript completion.
     """
     factory = realtime or TranscribeStream
     epoch = uuid4().hex
     scope = (session, case_id, hearing_id)
+    fingerprints = VoiceprintSession(lambda source, pcm:
+        voiceprints.submit((session, case_id), hearing_id, source, pcm)) if voiceprints else None
     language = "en" if ws.query_params.get("lang") == "en" else "id"
     writer = asyncio.Lock()
     captures = []  # metadata only; PCM is released after each ordered send
@@ -136,6 +141,8 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
                 pending[tid] = capture
                 sent_seconds += duration
                 last_end = start + duration
+                if fingerprints:
+                    fingerprints.append(pcm)
                 await provider.send_audio(pcm)
                 await send({"type": "accepted", "id": tid})
                 # Bound provider bookkeeping and unresolved capture metadata. The browser
@@ -159,6 +166,9 @@ async def stream_turns(ws, repo, session, case_id, hearing_id, lease, decode,
                 await send({"type": "transcript", **receipt})
                 watermark = max(watermark, event["end"])
                 await complete(watermark)
+                if fingerprints:
+                    fingerprints.final(event["segments"], lambda label:
+                        anonymous_id(hearing_id, "", f"transcribe:{epoch}:{label}"))
             if not ending:
                 raise ProviderError("Transcription ended before recording stopped.")
             await complete(float("inf"))

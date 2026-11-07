@@ -16,6 +16,7 @@ from uuid import uuid4
 from .config import plan_quotas
 from .database import Database, Transaction
 from .storage import Storage
+from .voiceprints import cosine, normalized
 
 
 def now_ms():
@@ -188,15 +189,29 @@ def _meter(tx, org, period, seconds):
     )
 
 
-def _anonymous(graph, hearing_id, statement_id, speaker):
+def anonymous_id(hearing_id, statement_id, speaker):
     if speaker is not None and (not isinstance(speaker, str) or not speaker or len(speaker) > 512):
         invalid()
     # A missing prediction cannot establish that two statements were spoken by one person.
     key = (speaker or statement_id).encode()
     prefix = "cluster" if speaker else "pending"
-    voice_id = f"voice-{prefix}-" + hashlib.sha256(hearing_id.encode() + b"/" + key).hexdigest()[:32]
+    return f"voice-{prefix}-" + hashlib.sha256(hearing_id.encode() + b"/" + key).hexdigest()[:32]
+
+
+def _anonymous(graph, hearing_id, statement_id, speaker):
+    voice_id = anonymous_id(hearing_id, statement_id, speaker)
     if not graph.get("speakers", voice_id):
         graph.put("speakers", {"id": voice_id, "label": "", "role": "unknown", "confirmed": False})
+    source = graph.need("speakers", voice_id)
+    # Explicit corrections to the original voice override an automatic binding.
+    if source.get("confirmed") or source.get("label") or source.get("alias") or source.get("role", "unknown") != "unknown":
+        return voice_id
+    binding = graph.tx.one(
+        "SELECT speaker_id FROM voiceprint_bindings WHERE case_id=? AND hearing_id=? AND source_speaker=?",
+        (graph.id, hearing_id, voice_id),
+    )
+    if binding and graph.get("speakers", binding["speaker_id"]):
+        return binding["speaker_id"]
     return voice_id
 
 
@@ -731,6 +746,68 @@ class Repository:
                 (now_ms(), case_id, hearing_id, turn_id),
             )
             return {"id": turn_id, "statementId": sid}
+
+    def match_voiceprint(self, session, case_id, hearing_id, *, source, model, embedding):
+        """Match only this case's voices; explicit human labels remain authoritative."""
+        vector = normalized(embedding)
+        _stream_key(model)
+        with self._case(session, case_id, "write") as graph:
+            _private(session, graph)
+            hearing = graph.need("hearings", hearing_id)
+            if hearing.get("closed") or hearing.get("recordingPermission", {}).get("by") != session.user_id:
+                raise VoiceError(403, "recording_permission", "Only the recording lawyer may match this audio.")
+            speaker = graph.need("speakers", source)
+            lines = [line for line in graph.all("statements")
+                     if line["hearingId"] == hearing_id and line["speakerId"] == source]
+            prior = graph.tx.one(
+                "SELECT speaker_id FROM voiceprint_bindings WHERE case_id=? AND hearing_id=? AND source_speaker=?",
+                (case_id, hearing_id, source),
+            )
+            if prior:
+                return prior["speaker_id"]
+            if not lines:
+                return None
+            profiles = graph.tx.all("SELECT * FROM voiceprints WHERE case_id=? AND model=?", (case_id, model))
+            fixed = (speaker.get("confirmed") or speaker.get("label") or speaker.get("alias")
+                     or speaker.get("role", "unknown") != "unknown")
+            target = speaker.get("alias") or source
+            ranked = {}
+            for profile in profiles:
+                candidate = graph.get("speakers", profile["speaker_id"])
+                old = json.loads(profile["embedding"])
+                if not candidate or len(old) != len(vector):
+                    continue
+                key = candidate.get("alias") or candidate["id"]
+                ranked[key] = max(ranked.get(key, -1), cosine(vector, normalized(old)))
+            scores = sorted(ranked.items(), key=lambda item: item[1], reverse=True)
+            if not fixed and scores and scores[0][1] >= 0.55:
+                # A near tie is not evidence that two people are the same person.
+                if len(scores) > 1 and scores[0][1] - scores[1][1] < 0.05:
+                    return None
+                target = scores[0][0]
+            existing = next((profile for profile in profiles if profile["speaker_id"] == target), None)
+            if existing:
+                old = json.loads(existing["embedding"])
+                if len(old) != len(vector):
+                    return None
+                count = min(existing["samples"], 49)
+                vector = normalized([a * count + b for a, b in zip(old, vector, strict=True)])
+                graph.tx.execute("UPDATE voiceprints SET embedding=?,samples=? WHERE case_id=? AND speaker_id=? AND model=?",
+                                 (pack(vector), count + 1, case_id, target, model))
+            elif len(profiles) < 200:
+                graph.tx.execute("INSERT INTO voiceprints(case_id,speaker_id,model,embedding) VALUES(?,?,?,?)",
+                                 (case_id, target, model, pack(vector)))
+            else:
+                return None
+            graph.tx.execute(
+                "INSERT INTO voiceprint_bindings(case_id,hearing_id,source_speaker,speaker_id) VALUES(?,?,?,?)",
+                (case_id, hearing_id, source, target),
+            )
+            if not fixed and source != target:
+                for line in lines:
+                    line["speakerId"] = target
+                    graph.put("statements", line)
+            return target
 
     def begin_capture(self, session, case_id, hearing_id, *, lease, epoch, turn_id, start, pcm, keep):
         """Persist PCM before streaming; reconnects may attach it to another epoch."""
