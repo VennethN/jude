@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 from anyio import CancelScope, sleep_forever
 from fastapi import WebSocketDisconnect
 from fastapi.testclient import TestClient
+
 from jude_voice import app as transport
 from jude_voice.diarization import SpeakerTurn
 from jude_voice.providers import Realtime, wav_header, windows
