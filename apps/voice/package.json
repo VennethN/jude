@@ -15,7 +15,14 @@
     "@jude/core": "workspace:*",
     "openai": "^6.0.0",
     "ws": "^8.22.1",
-    "@sveltejs/kit": "^2.70.4"
+    "@sveltejs/kit": "^2.70.4",
+    "@aws-sdk/client-s3": "^3.1164.0",
+    "@aws-sdk/client-sesv2": "^3.1164.0",
+    "@aws-sdk/s3-request-presigner": "^3.1164.0",
+    "@node-rs/argon2": "^2.2.2",
+    "fflate": "^0.8.2",
+    "pdfjs-dist": "^6.5.438",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/ws": "^8.18.2",

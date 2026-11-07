@@ -12,11 +12,19 @@
     "@jude/voice": "workspace:*",
     "@fontsource/courier-prime": "^5.3.0",
     "@lucide/svelte": "^1.64.0",
-    "pdfjs-dist": "^6.5.438"
+    "pdfjs-dist": "^6.5.438",
+    "@aws-sdk/client-s3": "^3.1164.0",
+    "@aws-sdk/client-sesv2": "^3.1164.0",
+    "@aws-sdk/s3-request-presigner": "^3.1164.0",
+    "@node-rs/argon2": "^2.2.2",
+    "fflate": "^0.8.2",
+    "openai": "^6.0.0",
+    "pg": "^8.23.1",
+    "@sveltejs/kit": "^2.70.4",
+    "ws": "^8.22.1"
   },
   "devDependencies": {
     "@sveltejs/adapter-node": "^5.5.8",
-    "@sveltejs/kit": "^2.70.4",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/node": "^24.19.2",
     "svelte": "^5.57.3",
