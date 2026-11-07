@@ -55,9 +55,8 @@
   );
   let currentId = $state(untrack(() => (threadId && threadId !== 'new' ? threadId : '')));
   let result = $state<Thread>();
-  let thread = $derived(
-    result?.id === currentId && result ? result : w.threads.find((t) => t.id === currentId),
-  );
+  let savedThread = $derived(w.threads.find((t) => t.id === currentId));
+  let thread = $derived(result?.id === currentId && (!savedThread || result.updated >= savedThread.updated) ? result : savedThread);
   let draft = $state(
     untrack(() => initialDraft || (!compact ? (page.state as { judeDraft?: string }).judeDraft : '') || ''),
   );
@@ -237,7 +236,7 @@
     text = text.trim();
     if (!text || busy) return;
     const attached = contexts.length ? [...contexts] : [{ kind: 'case' } as const];
-    const typed = draft, question = { text, lang, contexts: attached, withLegal: searchLaw };
+    const typed = draft, question = { text, lang, contexts: attached, withLegal };
     const initialSlot = attemptSlot(currentId);
     const controller = new AbortController();
     activeRequest = controller;
@@ -253,9 +252,11 @@
     void scrollToLatest(true);
     let path = '';
     try {
-      const attempt = await claimAttempt(initialSlot, JSON.stringify(question), lastAttempt);
+      const attempt = await claimAttempt(initialSlot, JSON.stringify(question), previousCount, lastAttempt);
       if (controller.signal.aborted) return;
       lastAttempt = attempt;
+      // A lost receipt can be retried after the workspace already received the saved pair.
+      previousCount = Math.min(previousCount, attempt.startCount);
       if (!currentId) {
         const created = await api<Thread>(apiPath(w, 'threads'), 'POST', { title: text.slice(0, 100) }, {
           'Idempotency-Key': attempt.key,
@@ -286,6 +287,7 @@
       pending = partial = undefined;
       forgetAttempt(initialSlot, attempt);
       forgetAttempt(threadSlot, attempt);
+      forgetAttempt(attemptSlot(''), attempt);
       lastAttempt = undefined;
       workspaceRequest('POST', path, 200);
       // The received thread is already saved, even if refreshing the surrounding workspace fails.

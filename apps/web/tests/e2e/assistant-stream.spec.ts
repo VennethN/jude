@@ -163,20 +163,34 @@ test('an interrupted delivery can be retried from a reopened drawer without a se
   await expect.poll(() => page.evaluate(() => window.answerGate.keys.length)).toBe(1);
   await release(page, 'paragraph');
   await expect(dialog.locator('.message.response')).toHaveCount(1);
+  const originalKey = await page.evaluate(() => window.answerGate.keys[0]);
   await release(page, 'lost');
   await expect(dialog.getByRole('alert')).toContainText('Sambungan terputus');
   await expect(field).toHaveValue(question);
   await expect(dialog.locator('.reading')).toHaveCount(0);
   await dialog.getByRole('button', { name: 'Tutup asisten' }).click();
+  // Reload the saved thread, including the committed answer whose receipt was lost.
+  await openWorkspace(page, page.url());
   await open.click();
   await field.fill(question);
   await field.press('Enter');
-  await expect.poll(() => page.evaluate(() => window.answerGate.keys.length)).toBe(2);
+  await expect.poll(() => page.evaluate(() => window.answerGate.keys.length)).toBe(1);
   const { keys, path } = await page.evaluate(() => ({ keys: window.answerGate.keys, path: window.answerGate.path }));
-  expect(keys[0]).toBe(keys[1]);
+  expect(keys[0]).toBe(originalKey);
+  await expect(dialog.locator('.message.question')).toHaveCount(1);
   await release(page, 'complete');
   await expect(dialog.locator('.message.question')).toHaveCount(1);
   const thread: Thread = await (await page.request.get(path)).json();
   expect(thread.messages.map(message => message.role)).toEqual(['user', 'assistant']);
   expect(thread.messages[0].contexts).toEqual([{ kind: 'documents' }]);
+
+  await dialog.getByRole('button', { name: 'Percakapan baru' }).click();
+  await field.fill(question);
+  await field.press('Enter');
+  await expect.poll(() => page.evaluate(() => window.answerGate.keys.length)).toBe(2);
+  const fresh = await page.evaluate(() => ({ keys: window.answerGate.keys, path: window.answerGate.path }));
+  expect(fresh.keys[1]).not.toBe(keys[0]);
+  expect(fresh.path).not.toBe(path);
+  await release(page, 'complete');
+  await expect(dialog.locator('.message.question')).toHaveCount(1);
 });
