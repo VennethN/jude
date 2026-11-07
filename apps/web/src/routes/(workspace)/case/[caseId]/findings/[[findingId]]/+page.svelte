@@ -494,12 +494,15 @@
     }
   }
   @container (max-width:335px) {
+    .queue-tabs {
+      padding-inline: 2px;
+    }
     .queue-tabs .count {
       min-width: 14px;
-      padding-inline: 3px;
+      padding-inline: 2px;
     }
     .queue-tabs a {
-      padding-inline: 2px;
+      padding-inline: 1px;
       font-size: 11px;
       gap: 1px;
     }
