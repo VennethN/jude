@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/state';
 	import Icon from './Icon.svelte';
+	import LoginCover from './LoginCover.svelte';
 	import { localized, planById, type Language } from '@jude/core/plans';
 	import type { AccountMode } from './forms.server';
 	let { lang, mode, form }: { lang: Language; mode: AccountMode; form?: { ok?: boolean; error?: string; email?: string; name?: string } | null } = $props();
@@ -33,35 +34,43 @@
 	});
 </script>
 <svelte:head><title>{current.title[lang]} · Jude</title><meta name="robots" content="noindex"/><meta name="referrer" content="strict-origin"/></svelte:head>
+{#snippet accountFields()}
+	{#if form?.ok && mode === 'reset'}
+		<p class="pub-feedback" role="status">{hasResetToken ? (isId ? 'Kata sandi telah diubah. Anda bisa masuk kembali.' : 'Your password has been changed. You can sign in again.') : (isId ? 'Jika alamat ini terdaftar, tautan pengaturan ulang akan dikirim melalui email.' : 'If this email is registered, a password reset link will be sent.')}</p>
+		<a class="pub-textlink" href="/login">{isId ? 'Kembali ke halaman masuk' : 'Back to sign in'}<Icon name="arrow"/></a>
+	{:else}
+		<form class="pub-form" method="POST" use:enhance={() => {
+			submitting = true;
+			return async ({ update }) => { try { await update({ reset: false }); } finally { submitting = false; } };
+		}}>
+			<input type="hidden" name="lang" value={lang}/>
+			{#if form?.error}<p class="pub-feedback error" role="alert">{(errors[form.error] ?? errors.request_failed)[lang]}</p>{/if}
+			{#if mode === 'signup' || mode === 'invite'}<label>{isId ? 'Nama lengkap' : 'Full name'}<input name="name" required autocomplete="name" maxlength="100" value={form?.name ?? ''}/></label>{/if}
+			{#if mode !== 'invite' && !hasResetToken}<label>Email<input name="email" type="email" required autocomplete="email" maxlength="254" value={form?.email ?? ''}/></label>{/if}
+			{#if mode !== 'reset' || hasResetToken}<label>{isId ? 'Kata sandi' : 'Password'}<input name="password" type="password" required minlength={mode === 'login' ? undefined : 8} maxlength="256" autocomplete={mode === 'login' ? 'current-password' : 'new-password'}/>{#if mode !== 'login'}<em>{isId ? 'Gunakan minimal 8 karakter.' : 'Use at least 8 characters.'}</em>{/if}</label>{/if}
+			{#if mode === 'login'}<a class="forgot" href="/reset">{isId ? 'Lupa kata sandi?' : 'Forgot password?'}</a>{/if}
+			<button class="pub-button" disabled={submitting}>{submitting ? (isId ? 'Memproses…' : 'Working…') : hasResetToken ? (isId ? 'Simpan kata sandi' : 'Save password') : current.button[lang]}<Icon name="arrow"/></button>
+		</form>
+		<div class="account-links">
+			{#if mode === 'login'}<span>{isId ? 'Belum punya akun?' : 'New to Jude?'}</span><a href={'/signup' + nextQuery}>{isId ? 'Buat akun' : 'Create an account'}</a>
+			{:else if mode === 'signup'}<span>{isId ? 'Sudah punya akun?' : 'Already have an account?'}</span><a href={'/login' + nextQuery}>{isId ? 'Masuk' : 'Sign in'}</a>
+			{:else}<a href="/login">{isId ? 'Kembali ke halaman masuk' : 'Back to sign in'}</a>{/if}
+		</div>
+	{/if}
+{/snippet}
+
+{#if mode === 'login'}
+	<LoginCover title={current.title[lang]} lead={current.lead[lang]}>{@render accountFields()}</LoginCover>
+{:else}
 <section class="account">
 	<div class="sheet">
 		<h1>{current.title[lang]}</h1>
 		<p class="lead">{hasResetToken ? (isId ? 'Pilih kata sandi baru untuk akun Anda.' : 'Choose a new password for your account.') : current.lead[lang]}</p>
 		{#if mode === 'signup' && (selectedPlan === 'pro' || selectedPlan === 'firm')}<p class="plan-note">{planById(selectedPlan).name[lang]} · {isId ? 'Uji coba 14 hari tanpa kartu.' : '14-day trial without a card.'}</p>{/if}
-		{#if form?.ok && mode === 'reset'}
-			<p class="pub-feedback" role="status">{hasResetToken ? (isId ? 'Kata sandi telah diubah. Anda bisa masuk kembali.' : 'Your password has been changed. You can sign in again.') : (isId ? 'Jika alamat ini terdaftar, tautan pengaturan ulang akan dikirim melalui email.' : 'If this email is registered, a password reset link will be sent.')}</p>
-			<a class="pub-textlink" href="/login">{isId ? 'Kembali ke halaman masuk' : 'Back to sign in'}<Icon name="arrow"/></a>
-		{:else}
-			<form class="pub-form" method="POST" use:enhance={() => {
-				submitting = true;
-				return async ({ update }) => { try { await update({ reset: false }); } finally { submitting = false; } };
-			}}>
-				<input type="hidden" name="lang" value={lang}/>
-				{#if form?.error}<p class="pub-feedback error" role="alert">{(errors[form.error] ?? errors.request_failed)[lang]}</p>{/if}
-				{#if mode === 'signup' || mode === 'invite'}<label>{isId ? 'Nama lengkap' : 'Full name'}<input name="name" required autocomplete="name" maxlength="100" value={form?.name ?? ''}/></label>{/if}
-				{#if mode !== 'invite' && !hasResetToken}<label>Email<input name="email" type="email" required autocomplete="email" maxlength="254" value={form?.email ?? ''}/></label>{/if}
-				{#if mode !== 'reset' || hasResetToken}<label>{isId ? 'Kata sandi' : 'Password'}<input name="password" type="password" required minlength={mode === 'login' ? undefined : 8} maxlength="256" autocomplete={mode === 'login' ? 'current-password' : 'new-password'}/>{#if mode !== 'login'}<em>{isId ? 'Gunakan minimal 8 karakter.' : 'Use at least 8 characters.'}</em>{/if}</label>{/if}
-				{#if mode === 'login'}<a class="forgot" href="/reset">{isId ? 'Lupa kata sandi?' : 'Forgot password?'}</a>{/if}
-				<button class="pub-button" disabled={submitting}>{submitting ? (isId ? 'Memproses…' : 'Working…') : hasResetToken ? (isId ? 'Simpan kata sandi' : 'Save password') : current.button[lang]}<Icon name="arrow"/></button>
-			</form>
-			<div class="account-links">
-				{#if mode === 'login'}<span>{isId ? 'Belum punya akun?' : 'New to Jude?'}</span><a href={'/signup' + nextQuery}>{isId ? 'Buat akun' : 'Create an account'}</a>
-				{:else if mode === 'signup'}<span>{isId ? 'Sudah punya akun?' : 'Already have an account?'}</span><a href={'/login' + nextQuery}>{isId ? 'Masuk' : 'Sign in'}</a>
-				{:else}<a href="/login">{isId ? 'Kembali ke halaman masuk' : 'Back to sign in'}</a>{/if}
-			</div>
-		{/if}
+		{@render accountFields()}
 	</div>
 </section>
+{/if}
 <style>
 	.account { display:grid; place-items:center; padding:clamp(40px,6vw,84px) 20px; min-height:calc(100svh - 188px); background:#17382c url('/public/case-cloth.webp') center/1100px; background-blend-mode:soft-light; }
 	.sheet { width:min(100%,455px); padding:clamp(24px,4vw,46px); background:#f8f4e9 url('/public/ivory-paper.webp') center/640px; box-shadow:0 14px 35px #0c211a50; border-radius:3px; }
