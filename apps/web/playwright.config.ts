@@ -12,12 +12,14 @@ const caseFiles = [
   '**/connections*.spec.ts',
   '**/{evidence,findings,reader-index,record-navigation,search-inspector}.spec.ts',
 ];
+const navigationFiles = ['**/workspace-*.spec.ts'];
 const groups = [
   { name: 'case-file', testMatch: caseFiles },
-  { name: 'workspace', testIgnore: caseFiles },
+  { name: 'navigation', testMatch: navigationFiles },
+  { name: 'workspace', testIgnore: [...caseFiles, ...navigationFiles] },
 ];
 
-// Independent local workspaces let both groups exercise the ordinary guest request limit.
+// Each group has its own guest quota and database, as an ordinary installation would.
 const local = external ? [] : groups.map((project, index) => {
   const port = basePort + index * 2;
   return {

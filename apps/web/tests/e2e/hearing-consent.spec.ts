@@ -1,4 +1,5 @@
-import { expect, test } from '@playwright/test';
+import { expect } from '@playwright/test';
+import { test } from './fixtures/practice';
 
 for (const { lang, width } of [{ lang: 'id', width: 390 }, { lang: 'en', width: 1440 }]) {
   test(`recording consent excludes closed hearings at ${width}px in ${lang}`, async ({ page, context, baseURL }, info) => {
@@ -7,21 +8,27 @@ for (const { lang, width } of [{ lang: 'id', width: 390 }, { lang: 'en', width: 
     await page.setViewportSize({ width, height: 900 });
     await page.goto('/demo/hearings');
     const caseId = new URL(page.url()).pathname.split('/')[2];
-    const ended = await page.request.post(`/api/cases/${caseId}/hearings/h3/end`, {
-      headers: { origin: new URL(page.url()).origin }, data: {},
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { value: async () => {
+        const count = Number(sessionStorage.getItem('microphone-prompts') || 0) + 1;
+        sessionStorage.setItem('microphone-prompts', String(count));
+        throw new DOMException('Declined', 'NotAllowedError');
+      } });
     });
-    expect(ended.ok(), await ended.text()).toBeTruthy();
     await page.reload();
+    expect(await page.evaluate(() => sessionStorage.getItem('microphone-prompts'))).toBeNull();
     await page.getByRole('button', { name: en ? 'New hearing' : 'Sidang baru', exact: true }).click();
     const form = page.getByRole('dialog');
-    await form.getByRole('button', { name: en ? /Record live/ : /Rekam langsung/ }).click();
+    await form.getByRole('button', { name: en ? /Practice live testimony/ : /Latihan kesaksian langsung/ }).click();
     await form.getByRole('textbox', { name: en ? 'Hearing title' : 'Judul sidang' }).fill('Pemeriksaan dengan izin');
     const closed = form.getByRole('checkbox', { name: en ? 'Closed hearing' : 'Sidang tertutup', exact: true });
-    const permitted = form.getByRole('checkbox', { name: en ? /The presiding judge/ : /Hakim ketua/ });
+    const permitted = form.getByRole('checkbox', { name: en ? /I agree to send my voice/ : /Saya setuju mengirim suara/ });
     const start = form.getByRole('button', { name: en ? 'Start hearing' : 'Mulai sidang', exact: true });
     await expect(closed).not.toBeChecked();
     await expect(permitted).not.toBeChecked();
     await expect(start).toBeDisabled();
+    await expect(form.getByRole('blockquote')).toContainText(en ? 'East Gate' : 'Gerbang Timur');
+    await expect(form.getByRole('link', { name: /20:07:41/ })).toHaveAttribute('href', /\/documents\/[^?]+\?p=.+/);
 
     await permitted.check();
     await expect(start).toBeEnabled();
@@ -51,5 +58,14 @@ for (const { lang, width } of [{ lang: 'id', width: 390 }, { lang: 'en', width: 
     await start.click();
     expect((await submitted).postDataJSON()).toMatchObject({ flow: 'live', recordingPermission: true, closed: false });
     await expect(page).toHaveURL(new RegExp(`/case/${caseId}/hearings/[^/]+$`));
+    await expect(page.getByRole('alert')).toContainText(en ? 'Microphone access is blocked' : 'Akses mikrofon diblokir');
+    await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem('microphone-prompts')))).toBe(1);
+    const connect = page.getByRole('button', { name: en ? 'Connect microphone' : 'Hubungkan mikrofon' });
+    await expect(connect).toHaveClass(/primary/);
+    await page.reload();
+    await expect(connect).toBeVisible();
+    expect(await page.evaluate(() => Number(sessionStorage.getItem('microphone-prompts')))).toBe(1);
+    await connect.click();
+    await expect.poll(() => page.evaluate(() => Number(sessionStorage.getItem('microphone-prompts')))).toBe(2);
   });
 }
