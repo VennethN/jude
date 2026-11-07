@@ -11,6 +11,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from botocore.credentials import Credentials
 from botocore.eventstream import ChecksumMismatch, EventStreamBuffer
+
 from jude_voice import providers
 from jude_voice import transcribe as aws
 
