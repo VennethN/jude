@@ -9,6 +9,7 @@ const messages = {
 	"role.witness": ["Saksi", "Witness"],
 	"lp.whoPu": ["Penuntut umum", "Prosecutor"],
 	"lp.open": ["Buka ruang kerja", "Open workspace"],
+	"lp.login": ["Masuk", "Sign in"],
 	"lp.demo": ["Coba perkara contoh", "Try the example case"],
 	"lp.how": ["Lihat cara kerjanya", "See how it works"],
 	"lp.title1": ["Ikuti setiap keterangan.", "Stay with the testimony."],
