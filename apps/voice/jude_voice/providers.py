@@ -220,7 +220,31 @@ class Realtime:
     async def send(self, value):
         await self.socket.send(json.dumps(value))
 
+    async def _transcript_events(self):
+        """Match early and late transcription events to this buffer's acknowledged item."""
+        item_id = None
+        early = {}
+        while True:
+            event = json.loads(await self.socket.recv())
+            kind = event.get("type", "")
+            if kind == "error":
+                raise ProviderError("Transcription was interrupted.")
+            if kind == "input_audio_buffer.committed" and item_id is None:
+                item_id = event["item_id"]
+                for pending in early.pop(item_id, ()):
+                    yield pending
+                early.clear()
+            elif kind.startswith("conversation.item.input_audio_transcription.") and event.get("item_id"):
+                if item_id is None:
+                    early.setdefault(event["item_id"], []).append(event)
+                elif event["item_id"] == item_id:
+                    yield event
+
     async def transcribe(self, pcm: bytes, partial):
+        if not any(pcm):
+            return ""
+        # A worklet can flush less than 100 ms on stop. Pad only the provider's input.
+        pcm = pcm.ljust(4_800, b"\0")
         async with asyncio.timeout(45):
             for index in range(0, len(pcm), 48000):
                 await self.send(
@@ -231,13 +255,12 @@ class Realtime:
                 )
             await self.send({"type": "input_audio_buffer.commit"})
             preview = ""
-            while True:
-                event = json.loads(await self.socket.recv())
-                kind = event.get("type")
+            async for event in self._transcript_events():
+                kind = event["type"]
                 if kind == "conversation.item.input_audio_transcription.delta":
                     preview += event.get("delta", "")
                     await partial(preview)
                 elif kind == "conversation.item.input_audio_transcription.completed":
                     return str(event.get("transcript", "")).strip()
-                elif kind in ("error", "conversation.item.input_audio_transcription.failed"):
+                elif kind == "conversation.item.input_audio_transcription.failed":
                     raise ProviderError("Transcription was interrupted.")

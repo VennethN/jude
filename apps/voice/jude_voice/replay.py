@@ -7,6 +7,9 @@ from pathlib import Path
 
 from .repository import VoiceError, invalid
 
+WORD_INTERVAL_MS = 140
+FINAL_HOLD_MS = 420
+
 
 @lru_cache(maxsize=1)
 def scripts():
@@ -69,7 +72,7 @@ def _reply(graph, line, previous):
     )
 
 
-def advance(graph, hearing_id, expected):
+def _position(graph, hearing_id, expected):
     if type(expected) is not int or expected < 0:
         invalid()
     hearing = graph.need("hearings", hearing_id)
@@ -79,11 +82,12 @@ def advance(graph, hearing_id, expected):
     lines = [line for line in graph.all("statements") if line["hearingId"] == hearing_id]
     prefix = "replay-" + hearing_id + "-"
     cursor = sum(line["id"].startswith(prefix) for line in lines)
-    if cursor != expected or cursor >= len(script):
-        return {"cursor": cursor, "done": cursor >= len(script)}
-    entry, sid = script[cursor], prefix + str(cursor)
+    return script, cursor, lines
+
+
+def _statement(hearing_id, cursor, entry, lines):
     line = {
-        "id": sid,
+        "id": f"replay-{hearing_id}-{cursor}",
         "hearingId": hearing_id,
         "speakerId": entry["speakerId"],
         "text": entry["text"],
@@ -92,6 +96,26 @@ def advance(graph, hearing_id, expected):
     }
     if "legal" in entry:
         line["legal"] = entry["legal"]
+    return line
+
+
+def preview(graph, hearing_id, expected):
+    script, cursor, lines = _position(graph, hearing_id, expected)
+    if cursor >= len(script):
+        return {"cursor": cursor, "done": True}
+    line = _statement(hearing_id, cursor, script[cursor], lines)
+    turn = {key: line[key] for key in ("id", "speakerId", "text", "t")}
+    turn["durationMs"] = WORD_INTERVAL_MS * len(line["text"].split()) + FINAL_HOLD_MS
+    return {"cursor": cursor, "done": False, "turn": turn}
+
+
+def advance(graph, hearing_id, expected):
+    script, cursor, lines = _position(graph, hearing_id, expected)
+    if cursor != expected or cursor >= len(script):
+        return {"cursor": cursor, "done": cursor >= len(script)}
+    entry = script[cursor]
+    line = _statement(hearing_id, cursor, entry, lines)
+    sid = line["id"]
     if not graph.get("speakers", line["speakerId"]):
         graph.put("speakers", {"id": line["speakerId"], "label": "", "role": "unknown", "confirmed": False})
     graph.put("statements", line)
@@ -114,4 +138,4 @@ def advance(graph, hearing_id, expected):
                 "connections", {**edge, "id": f"c-{sid}-{index}", "from": {"kind": "statement", "id": sid}}
             )
     _reply(graph, line, lines[-1] if lines else None)
-    return {"cursor": cursor + 1, "done": cursor + 1 >= len(script), "pause": entry.get("pause", 3600)}
+    return {"cursor": cursor + 1, "done": cursor + 1 >= len(script), "pause": entry.get("pause", 1700)}

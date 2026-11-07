@@ -1,3 +1,12 @@
+import { invalidate } from '$app/navigation';
+
+export interface LiveTranscriptTurn {
+  id: string;
+  text: string;
+  speakerId?: string;
+  t?: number;
+}
+
 interface CapturedTurn {
   scope: string;
   id: string;
@@ -5,27 +14,52 @@ interface CapturedTurn {
   pcm: ArrayBuffer;
   keep: boolean;
 }
+const sampleRate = 24_000;
+const liveCaptionSamples = 2.4 * sampleRate;
+const queuedTurnSamples = 8 * sampleRate;
+const minimumVoicedWindow = 1.2 * sampleRate;
+const speechEndSilence = 0.55 * sampleRate;
 export interface Recorder {
   stop: () => Promise<void>;
-  paused: (value: boolean) => void;
+  paused: (value: boolean) => Promise<void>;
 }
 export type CaptureState =
-  'connecting' | 'recording' | 'offline' | 'paused' | 'draining' | 'stopped' | 'error';
+  | 'connecting'
+  | 'recording'
+  | 'offline'
+  | 'paused'
+  | 'draining'
+  | 'stopped'
+  | 'error';
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('jude-voice', 1);
+    const req = indexedDB.open('jude-voice', 2);
     req.onupgradeneeded = () => {
-      const store = req.result.createObjectStore('turns', { keyPath: 'id' });
-      store.createIndex('scope', 'scope');
+      const store = req.result.objectStoreNames.contains('turns')
+        ? req.transaction!.objectStore('turns')
+        : req.result.createObjectStore('turns', { keyPath: 'id' });
+      if (!store.indexNames.contains('scope')) store.createIndex('scope', 'scope');
+      store.createIndex('timeInScope', ['scope', 't']);
     };
-    req.onsuccess = () => resolve(req.result);
+    req.onsuccess = () => {
+      req.result.onversionchange = () => req.result.close();
+      resolve(req.result);
+    };
     req.onerror = () => reject(req.error);
   });
 }
-async function pending(db: IDBDatabase, scope: string): Promise<CapturedTurn[]> {
+async function oldestTurn(db: IDBDatabase, scope: string): Promise<CapturedTurn | undefined> {
   return new Promise((resolve, reject) => {
-    const r = db.transaction('turns').objectStore('turns').index('scope').getAll(scope);
-    r.onsuccess = () => resolve((r.result as CapturedTurn[]).sort((a, b) => a.t - b.t));
+    const range = IDBKeyRange.bound([scope, 0], [scope, Number.MAX_SAFE_INTEGER]);
+    const r = db.transaction('turns').objectStore('turns').index('timeInScope').openCursor(range);
+    r.onsuccess = () => resolve(r.result?.value);
+    r.onerror = () => reject(r.error);
+  });
+}
+async function queuedCount(db: IDBDatabase, scope: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const r = db.transaction('turns').objectStore('turns').index('scope').count(scope);
+    r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });
 }
@@ -53,17 +87,22 @@ export async function capture(
   keep: boolean,
   startedAt: string | undefined,
   state: (status: CaptureState) => void,
-  partial: (text: string) => void,
+  partial: (turn?: LiveTranscriptTurn) => void,
   language: 'id' | 'en' = 'id',
 ): Promise<Recorder> {
   if (!navigator.mediaDevices?.getUserMedia || !window.AudioWorkletNode)
     throw new Error('Microphone requires HTTPS and a supported browser.');
   const scope = [userId, caseId, hearingId].join('/'),
     db = await database();
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: { channelCount: 1, noiseSuppression: true, echoCancellation: false },
-  });
-  const context = new AudioContext({ sampleRate: 24000 });
+  const stream = await navigator.mediaDevices
+    .getUserMedia({
+      audio: { channelCount: 1, noiseSuppression: true, echoCancellation: false },
+    })
+    .catch((cause) => {
+      db.close();
+      throw cause;
+    });
+  const context = new AudioContext({ sampleRate });
   try {
     await context.audioWorklet.addModule('/voice-capture.js');
     await context.resume();
@@ -89,8 +128,13 @@ export async function capture(
   let chunks: Int16Array<ArrayBuffer>[] = [],
     samples = 0,
     silent = 0,
+    firstVoicedSample = -1,
     turnStart = 0;
-  const initial = startedAt ? Math.max(0, (Date.now() - Date.parse(startedAt)) / 1000) : 0;
+  let storageError = false;
+  let boundaryNumber = 0;
+  const boundaries = new Map<number, () => void>();
+  const beginning = Date.parse(startedAt ?? '');
+  const initial = Number.isFinite(beginning) ? Math.max(0, (Date.now() - beginning) / 1000) : 0;
   let elapsed = initial;
   const checkUnload = (e: BeforeUnloadEvent) => {
     if (!stopped) {
@@ -107,10 +151,15 @@ export async function capture(
     if (!ready || inFlight || pumpBusy || stopped) return;
     pumpBusy = true;
     try {
-      const [next] = await pending(db, scope);
+      const next = await oldestTurn(db, scope);
       if (!next || !ready || ws?.readyState !== WebSocket.OPEN) return;
       inFlight = next.id;
-      ws.send(JSON.stringify({ id: next.id, t: next.t, keep: next.keep, pcm: base64(next.pcm) }));
+      try {
+        ws.send(JSON.stringify({ id: next.id, t: next.t, keep: next.keep, pcm: base64(next.pcm) }));
+      } catch {
+        inFlight = '';
+        ws.close();
+      }
     } finally {
       pumpBusy = false;
     }
@@ -120,7 +169,7 @@ export async function capture(
     state(draining ? 'draining' : 'connecting');
     ready = false;
     inFlight = '';
-    ws = new WebSocket(
+    const connected = new WebSocket(
       (location.protocol === 'https:' ? 'wss://' : 'ws://') +
         location.host +
         '/api/live/' +
@@ -130,25 +179,42 @@ export async function capture(
         '/socket?lang=' +
         language,
     );
-    ws.onmessage = async (e) => {
+    ws = connected;
+    connected.onmessage = async (e) => {
+      if (stopped || connected !== ws) return;
       try {
         const m = JSON.parse(e.data);
         if (m.type === 'ready') {
           ready = true;
           state(draining ? 'draining' : paused ? 'paused' : 'recording');
           await pump();
-        } else if (m.type === 'partial') partial(m.text);
-        else if (m.type === 'ack' && m.id === inFlight) {
+        } else if (m.type === 'partial' && inFlight && typeof m.text === 'string') {
+          partial({
+            id: m.statementId ?? m.id ?? 'mic-' + hearingId + '-' + inFlight,
+            text: m.text,
+            speakerId: typeof m.speakerId === 'string' ? m.speakerId : undefined,
+            t: typeof m.t === 'number' ? m.t : undefined,
+          });
+        } else if (m.type === 'ack' && m.id === inFlight) {
           await storeTurn(db, m.id);
+          let refreshed = false;
+          try {
+            await invalidate('jude:case');
+            refreshed = true;
+          } catch {
+            // The server already committed the turn. A later refresh can reconcile its preview.
+          }
+          if (stopped || connected !== ws || inFlight !== m.id) return;
+          if (refreshed) partial();
           inFlight = '';
-          partial('');
           await pump();
         }
       } catch {
         state('error');
       }
     };
-    ws.onclose = () => {
+    connected.onclose = () => {
+      if (connected !== ws) return;
       ready = false;
       inFlight = '';
       if (!stopped) {
@@ -169,31 +235,66 @@ export async function capture(
     chunks = [];
     samples = 0;
     silent = 0;
+    firstVoicedSample = -1;
     saveChain = saveChain
       .then(() => storeTurn(db, turn))
       .then(() => pump())
       .catch(() => {
+        storageError = true;
         state('error');
         paused = true;
+        node.port.postMessage({ type: 'pause' });
       });
   }
-  node.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
-    if (paused || draining || stopped) return;
+  // Worklet messages are ordered. Its boundary follows all captured blocks, including its final
+  // partial block, so a pause or stop cannot truncate the last word at a 100 ms block boundary.
+  function closeWindow() {
+    const boundary = ++boundaryNumber;
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        clearTimeout(timer);
+        boundaries.delete(boundary);
+        flush();
+        resolve();
+      };
+      // A suspended/removed device can stop responding. Already delivered audio still drains.
+      const timer = setTimeout(done, 350);
+      boundaries.set(boundary, done);
+      node.port.postMessage({ type: 'pause', boundary });
+    });
+  }
+  node.port.onmessage = (e: MessageEvent<ArrayBuffer | { boundary: number }>) => {
+    if (!(e.data instanceof ArrayBuffer)) {
+      boundaries.get(e.data.boundary)?.();
+      return;
+    }
+    if (stopped || storageError) return;
     const a = new Int16Array(e.data);
     if (!samples) turnStart = elapsed;
-    chunks.push(a);
-    samples += a.length;
-    elapsed += a.length / 24000;
     let peak = 0;
     for (let i = 0; i < a.length; i += 8) peak = Math.max(peak, Math.abs(a[i]));
+    if (peak >= 280 && firstVoicedSample < 0) firstVoicedSample = samples;
+    chunks.push(a);
+    samples += a.length;
+    elapsed += a.length / sampleRate;
     silent = peak < 280 ? silent + a.length : 0;
-    if (samples >= 24000 * 8 || (samples >= 24000 * 2 && silent >= 24000 * 0.55)) flush();
+    if (firstVoicedSample < 0) {
+      if (samples >= queuedTurnSamples) flush();
+      return;
+    }
+    const voicedWindow = samples - firstVoicedSample;
+    const limit = ready && !inFlight && !pumpBusy ? liveCaptionSamples : queuedTurnSamples;
+    if (
+      voicedWindow >= limit ||
+      (voicedWindow >= minimumVoicedWindow && (silent >= speechEndSilence || samples >= queuedTurnSamples))
+    )
+      flush();
   };
   connect();
   async function finish() {
     paused = true;
     draining = true;
-    flush();
+    await closeWindow();
     stream.getTracks().forEach((t) => t.stop());
     source.disconnect();
     node.disconnect();
@@ -202,24 +303,30 @@ export async function capture(
     await lock?.release();
     state('draining');
     const deadline = Date.now() + 10000;
-    while (Date.now() < deadline && (await pending(db, scope)).length) {
+    while (Date.now() < deadline && (await queuedCount(db, scope))) {
       await new Promise((r) => setTimeout(r, 160));
     }
-    const remaining = (await pending(db, scope)).length;
+    const remaining = await queuedCount(db, scope);
     stopped = true;
     clearTimeout(retry);
     ws?.close();
     db.close();
     window.removeEventListener('beforeunload', checkUnload);
-    state(remaining ? 'offline' : 'stopped');
+    state(storageError ? 'error' : remaining ? 'offline' : 'stopped');
+    if (storageError) throw new Error('audio_storage_failed');
     if (remaining) throw new Error('audio_pending');
   }
+  let finishing: Promise<void> | undefined;
   return {
-    stop: finish,
-    paused(value) {
-      if (value) flush();
+    stop: () => (finishing ??= finish()),
+    async paused(value) {
+      if (stopped || draining || storageError || value === paused) return;
       paused = value;
       state(value ? 'paused' : ready ? 'recording' : 'offline');
+      if (value) {
+        await closeWindow();
+        await saveChain;
+      } else node.port.postMessage({ type: 'resume' });
     },
   };
 }

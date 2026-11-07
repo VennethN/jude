@@ -24,7 +24,7 @@ from fastapi.responses import (
 from .diarization import DiarizationError, diarization_available
 from .limits import MAX_UPLOAD, UploadLimit
 from .providers import ProviderError, Realtime, transcribe_file, wav_header
-from .repository import Repository, VoiceError
+from .repository import Repository, VoiceError, statement_id
 from .speakers import SpeakerWindow, run_worker
 
 AUDIO_FORMATS = {".mp3", ".wav", ".mp4", ".m4a", ".mpeg", ".mpga", ".webm"}
@@ -97,6 +97,19 @@ async def health():
 
 async def user(conn):
     return await asyncio.to_thread(repo.session, conn.cookies.get("jude_session"))
+
+
+@app.get("/api/live/{case_id}/{hearing_id}/replay")
+async def replay_preview(case_id: str, hearing_id: str, request: Request):
+    session = await user(request)
+    raw = request.query_params.get("cursor", "")
+    try:
+        if not re.fullmatch(r"[0-9]+", raw):
+            raise ValueError()
+        cursor = int(raw)
+    except ValueError:
+        return failure(422, "validation", "A replay cursor is required.")
+    return await asyncio.to_thread(repo.replay_preview, session, case_id, hearing_id, cursor)
 
 
 @app.post("/api/live/{case_id}/{hearing_id}/replay")
@@ -263,7 +276,7 @@ def decode_turn(turn):
     if not isinstance(raw, str) or len(raw) > 2_000_000:
         raise ValueError()
     pcm = base64.b64decode(raw, validate=True)
-    if len(pcm) < 48 or len(pcm) % 2:
+    if not pcm or len(pcm) % 2:
         raise ValueError()
     return turn["id"], float(t), pcm, turn["keep"]
 
@@ -331,9 +344,11 @@ async def receive_turns(ws, session, case_id, hearing_id, lease):
             await ws.send_json({"type": "ready"})
             while True:
                 turn_id, start, pcm, keep = decode_turn(await ws.receive_json())
-                if not await asyncio.to_thread(repo.turn_exists, session, case_id, hearing_id, turn_id):
+                receipt = await asyncio.to_thread(repo.committed_turn, session, case_id, hearing_id, turn_id)
+                if receipt is None:
+                    caption = {"type": "partial", "id": statement_id(hearing_id, turn_id), "t": start}
                     text = await recognizer.transcribe(
-                        pcm, lambda s: ws.send_json({"type": "partial", "text": s})
+                        pcm, lambda words, frame=caption: ws.send_json({**frame, "text": words})
                     )
                     # Kept recordings get a full hearing pass when the lawyer ends the hearing.
                     # Transcript-only sessions can use brief acoustic context until disconnect.
@@ -341,7 +356,7 @@ async def receive_turns(ws, session, case_id, hearing_id, lease):
                     if text and not keep:
                         labels = await asyncio.to_thread(speakers.label, [(turn_id, pcm)])
                         speaker = labels.get(turn_id)
-                    await asyncio.to_thread(
+                    receipt = await asyncio.to_thread(
                         repo.store_turn,
                         session,
                         case_id,
@@ -354,7 +369,10 @@ async def receive_turns(ws, session, case_id, hearing_id, lease):
                         text=text,
                         speaker=speaker,
                     )
-                await ws.send_json({"type": "ack", "id": turn_id})
+                ack = {"type": "ack", "id": turn_id}
+                if receipt["statementId"] is not None:
+                    ack["statementId"] = receipt["statementId"]
+                await ws.send_json(ack)
     except WebSocketDisconnect:
         pass
     except (ValueError, binascii.Error, KeyError):

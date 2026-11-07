@@ -4,8 +4,6 @@
     ArrowDown,
     ArrowUpRight,
     Bookmark,
-    BookOpen,
-    ChevronRight,
     MessageSquareReply,
     Play,
     Search,
@@ -14,9 +12,13 @@
   } from '@lucide/svelte';
   import type { Finding, Lang, Reply, Speaker, Statement, Workspace } from '@jude/core/domain';
   import { write } from '$lib/client';
-  import { apiPath, casePath, statuses } from '$lib/evidence/records';
+  import { needsReview } from '@jude/core/domain';
+  import FindingLink from '$lib/evidence/FindingLink.svelte';
+  import { apiPath, casePath } from '$lib/evidence/records';
   import Match from '$lib/evidence/Match.svelte';
   import { timecode } from '../format';
+  import type { LiveTranscriptTurn } from '../microphone';
+  import { initials } from '../format';
   import { roles, voice } from './people';
   let {
     workspace: w,
@@ -26,6 +28,8 @@
     replies,
     live,
     partial,
+    speaking,
+    partialStatus,
     selected,
     audio,
     textSize = 16,
@@ -43,7 +47,9 @@
     findings: Finding[];
     replies: Reply[];
     live: boolean;
-    partial: string;
+    partial?: LiveTranscriptTurn;
+    speaking: boolean;
+    partialStatus: string;
     selected: string;
     audio: boolean;
     textSize?: number;
@@ -57,12 +63,14 @@
   } = $props();
   let en = $derived(lang === 'en'),
     searching = $state(false),
+    dismissed = $state(false),
     query = $state(''),
     saved = $state(false),
     follow = $state(true),
     pending = $state(0),
     notice = $state(''),
     bookBusy = $state<string[]>([]);
+  let panel = $state<HTMLElement>();
   let pane = $state<HTMLElement>(),
     input = $state<HTMLInputElement>(),
     searchButton = $state<HTMLButtonElement>();
@@ -75,6 +83,42 @@
         (!q || (s.text + ' ' + voice(w.speakers, s.speakerId, lang).name).toLocaleLowerCase().includes(q))
     )
   );
+  const draft = $derived(live && !q && !saved && partial?.text && !lines.some(line => line.id === partial.id) ? partial : undefined);
+  const log = $derived<Statement[]>(draft ? [...shown, {id:draft.id, hearingId:lines[0]?.hearingId ?? '',
+    text:draft.text, speakerId:draft.speakerId ?? '', t:draft.t ?? 0}] : shown);
+  let announced = $state('');
+  $effect(() => {
+    if (!draft?.text) return;
+    untrack(() => {
+      if (follow && !anchored) void tick().then(() => { if (pane) pane.scrollTop = pane.scrollHeight; });
+    });
+  });
+  $effect(() => {
+    if (!live || !panel) return;
+    const node = panel;
+    let frame = 0;
+    const fit = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const bottom = matchMedia('(max-width:719px)').matches ? 92 : 28;
+        const top = node.getBoundingClientRect().top;
+        if (top >= 0) node.style.setProperty('--log-height', Math.max(260, innerHeight - top - bottom) + 'px');
+      });
+    };
+    const resizes = new ResizeObserver(fit);
+    const watch = () => {
+      const detail = node.closest('.hearing-detail');
+      detail?.querySelectorAll('.back,.hearing-heading,.turn,[data-tour="live-attention"]').forEach(el => resizes.observe(el));
+      fit();
+    };
+    const changes = new MutationObserver(watch);
+    if (node.parentElement) changes.observe(node.parentElement, {childList:true});
+    if (node.closest('.hearing-detail')) changes.observe(node.closest('.hearing-detail')!, {childList:true});
+    watch();
+    window.addEventListener('resize', fit);
+    return () => { cancelAnimationFrame(frame); resizes.disconnect(); changes.disconnect(); window.removeEventListener('resize', fit); };
+  });
+  const remaining = $derived(findings.filter(needsReview).length);
   let ourSide = $derived(w.speakers.filter((p) => !p.alias && p.role === 'counsel'));
   let knownCount = 0;
   $effect(() => {
@@ -88,6 +132,10 @@
     knownCount = count;
     if (diff <= 0) return;
     untrack(() => {
+      if (!initial && lines.at(-1)) {
+        const last = lines.at(-1)!;
+        announced = voice(w.speakers, last.speakerId, lang).name + ' · ' + last.text;
+      }
       if (!anchored && !saved && !q && follow) {
         void tick().then(() => {
           if (pane) pane.scrollTop = pane.scrollHeight;
@@ -102,7 +150,9 @@
     follow = false;
     void tick().then(() => {
       const node = document.getElementById('line-' + id);
-      if (node && pane) {
+      if (node && !live) {
+        node.scrollIntoView({ block:'center', behavior:'instant' });
+      } else if (node && pane) {
         const top = node.getBoundingClientRect().top - pane.getBoundingClientRect().top + pane.scrollTop;
         pane.scrollTop = Math.max(0, top - pane.clientHeight * 0.25);
       }
@@ -110,13 +160,15 @@
   }
   export async function openSearch() {
     searching = true;
+    dismissed = false;
     await tick();
     input?.focus();
   }
   function closeSearch() {
     searching = false;
+    dismissed = true;
     query = '';
-    searchButton?.focus();
+    void tick().then(() => searchButton?.focus({preventScroll:true}));
   }
   function latest() {
     saved = false;
@@ -150,23 +202,36 @@
       bookBusy = bookBusy.filter((id) => id !== s.id);
     }
   }
-  function peek(e: MouseEvent, id: string) {
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
-    e.preventDefault();
-    showFinding(id);
-  }
 </script>
 
 <section
-  class="transcript-panel"
+  class="transcript-panel" class:review={!live} bind:this={panel}
   aria-labelledby="transcript-title"
   data-tour="hearing transcript"
   style:--live-size={textSize + 'px'}
 >
-  <header class="panel-head">
+  {#if !live}
+    <header class="review-tools">
+      <h2 id="transcript-title" class="sr-only">{en ? 'Transcript' : 'Transkrip'}</h2>
+      <div class="review-search">
+        <button class="icon-button" bind:this={searchButton} aria-label={en ? 'Search transcript' : 'Cari transkrip'} onclick={openSearch}><Search size={16}/></button>
+        {#if !dismissed}<input type="search" bind:this={input} bind:value={query} aria-label={en ? 'Search words or speakers' : 'Cari kata atau pembicara'}
+          placeholder={en ? 'Search words in this hearing…' : 'Cari kata dalam sidang ini…'}
+          onkeydown={(event) => { if (event.key === 'Escape') { event.stopPropagation(); closeSearch(); } }} />{/if}
+      </div>
+      {#if kept || saved}<button class="index-filter" aria-pressed={saved}
+        aria-label={en ? 'Show bookmarked statements only' : 'Tampilkan pernyataan ditandai saja'}
+        onclick={() => (saved = !saved)}><Bookmark size={14}/>{kept}</button>{/if}
+      {#if remaining}
+        <a class="review-count" href={casePath(w) + '/findings?hearing=' + encodeURIComponent(lines[0]?.hearingId ?? '')}>
+          {remaining} {en ? 'to review' : 'perlu dicek'}
+        </a>
+      {/if}
+    </header>
+  {:else}<header class="panel-head">
     <div>
       <h2 id="transcript-title">{en ? 'Transcript' : 'Transkrip'}</h2>
-      <span class="count">{lines.length} {en ? 'statements' : 'pernyataan'}</span>
+      <span class="count">{lines.length} {en ? (lines.length === 1 ? 'statement' : 'statements') : 'pernyataan'}</span>
     </div>
     <div>
       <button
@@ -177,7 +242,9 @@
             ? 'Who are you in this hearing?'
             : 'Siapa Anda di sidang ini?'}
         title={en ? 'Counsel perspective' : 'Sudut pandang kuasa hukum'}
-        onclick={chooseCounsel}><UserRoundPen size={16} /></button
+        onclick={chooseCounsel}>
+        {#if ourSide[0]}<span class="counsel-avatar">{initials(ourSide[0].label)}</span><span class="you-label">{en ? 'You' : 'Anda'}</span>
+        {:else}<UserRoundPen size={16} />{/if}</button
       >
       {#if kept || saved}<button
           class="icon-button"
@@ -199,7 +266,8 @@
       >
     </div>
   </header>
-  {#if searching}<div class="searchline" id="transcript-search">
+  {/if}
+  {#if live && searching}<div class="searchline" id="transcript-search">
       <Search size={15} /><input
         bind:this={input}
         bind:value={query}
@@ -223,19 +291,23 @@
     class="lines"
     role="region"
     aria-label={en ? 'Transcript entries' : 'Daftar ucapan'}
-    tabindex="0"
+    tabindex={live ? 0 : undefined}
     bind:this={pane}
     onscroll={scrolled}
   >
-    {#each shown as s (s.id)}
+    {#each log as s (s.id)}
+      {@const typing = draft?.id === s.id}
       {@const person = voice(w.speakers, s.speakerId, lang)}{@const related = findings.filter(
         (f) => f.statementId === s.id
       )}{@const response = replies.find((r) => r.statementId === s.id)}
-      <article id={'line-' + s.id} data-sid={s.id} data-tone={person.role} class:chosen={s.id === selected}>
+      <article id={'line-' + s.id} data-sid={typing ? undefined : s.id} data-partial-id={typing ? s.id : undefined} class:typing class:speaking={typing && speaking} data-tone={person.role} class:chosen={s.id === selected}>
         <div class="disc" aria-hidden="true">{person.letters}</div>
         <div class="spoken">
           <div class="meta">
-            <button
+            {#if typing}<span class="name">{s.speakerId ? person.name : (en ? 'Current speaker' : 'Pembicara saat ini')}</span>
+              {#if person.role === 'counsel'}<small class="ours">{en ? 'You' : 'Anda'}</small>{/if}
+              <span class="listening-label">{speaking ? (en ? 'speaking…' : 'berbicara…') : partialStatus}</span>
+            {:else}<button
               class="name"
               title={en ? 'Change speaker label' : 'Ubah label pembicara'}
               onclick={() => person.raw && editVoice(person.raw)}>{person.name}</button
@@ -258,15 +330,12 @@
               onclick={() => (audio ? jump(s, true) : inspect('statement', s.id))}
               >{#if audio}<Play size={9} />{/if}{timecode(s.t)}</button
             >
+            {/if}
           </div>
-          <p class="words"><Match text={s.text} term={q || related[0]?.said} /></p>
+          <p class="words">{#if typing}{#each s.text.match(/\S+\s*/gu) ?? [] as word,index (index)}<span class="word">{word}</span>{/each}<i class="caret" aria-hidden="true"></i>{:else}<Match text={s.text} term={q || related[0]?.said} />{/if}</p>
           {#if related.length || response || s.legal?.length}<div class="sources">
-              {#each related as f (f.id)}<a
-                  href={casePath(w) + '/findings/' + encodeURIComponent(f.id)}
-                  onclick={(e) => peek(e, f.id)}
-                  title={f.title[lang]}
-                  ><BookOpen size={12} />{statuses[f.status][lang]}<ChevronRight size={12} /></a
-                >{/each}
+              {#each related as f (f.id)}<FindingLink workspace={w} finding={f} {lang} variant="pill"
+                onPreview={(finding) => showFinding(finding.id)} />{/each}
               {#if response}<button onclick={() => showReply(response.id)}
                   ><MessageSquareReply size={12} />{en ? 'Response' : 'Tanggapan'} · {response.suggestions
                     .length}</button
@@ -276,14 +345,14 @@
                   >{/if}{/each}
             </div>{/if}
         </div>
-        <button
+        {#if !typing}<button
           class="flag icon-button"
           aria-pressed={!!s.flagged}
           aria-label={(en ? 'Bookmark statement at ' : 'Tandai pernyataan pada ') + timecode(s.t)}
           disabled={bookBusy.includes(s.id)}
           onclick={() => bookmark(s)}
           ><Bookmark size={16} fill={s.flagged ? 'currentColor' : 'none'} /></button
-        >
+        >{/if}
       </article>
     {:else}<div class="empty">
         <h3>
@@ -303,7 +372,6 @@
             }}>{en ? 'Clear filters' : 'Hapus filter'}</button
           >{/if}
       </div>{/each}
-    {#if partial && !q && !saved}<p class="partial">{partial}<span>…</span></p>{/if}
   </div>
   {#if live && !follow}<div class="latest">
       <button class="button" onclick={latest}
@@ -317,9 +385,18 @@
       >
     </div>{/if}
   <span class="ev-only" role="status">{notice}</span>
+  {#if live}<span class="ev-only" aria-live="polite" aria-atomic="true">{announced}</span>{/if}
 </section>
 
 <style>
+  .review-tools { display:flex; align-items:center; gap:10px; padding:12px; border-bottom:1px solid var(--line); flex-wrap:wrap; }
+  .review-search { flex:1 1 240px; display:flex; align-items:center; min-width:0; min-height:36px; background:var(--surface); border:1px solid var(--line); border-radius:6px; }
+  .review-search:focus-within { outline:2px solid var(--focus,var(--accent)); outline-offset:2px; }
+  .review-search input { min-height:32px; flex:1; min-width:0; border:0; padding:4px 8px 4px 0; background:none; color:var(--ink); font:400 13.5px/1.45 var(--sans); outline:none; }
+  .review-search button { min-height:32px; width:34px; min-width:34px; }
+  .review-count,.index-filter { display:inline-flex; align-items:center; min-height:32px; gap:4px; padding:4px 8px; background:var(--st-inconsistency-bg,var(--wash)); color:var(--st-inconsistency-ink,var(--ink)); border:0; border-radius:6px; font:600 12px var(--sans); text-decoration:none; }
+  .index-filter { background:var(--wash); color:var(--ink); }
+  .index-filter[aria-pressed=true] { background:var(--forest); color:var(--on-forest); }
   .transcript-panel {
     min-width: 0;
     position: relative;
@@ -333,7 +410,6 @@
   .meta,
   .searchline,
   .sources,
-  .sources a,
   .sources button,
   .when,
   .latest {
@@ -469,8 +545,7 @@
     gap: 0.25rem 0.65rem;
     margin-top: 0.35rem;
   }
-  .sources button,
-  .sources a {
+  .sources button {
     gap: 0.3rem;
     min-height: 28px;
     border: 0;
@@ -481,8 +556,7 @@
     font: 650 0.75rem/1.35 var(--sans);
     text-decoration: none;
   }
-  .sources button:hover,
-  .sources a:hover {
+  .sources button:hover {
     text-decoration: underline;
   }
   .empty {
@@ -501,13 +575,6 @@
   .latest button {
     pointer-events: auto;
     min-height: 36px;
-  }
-  .partial {
-    margin: 1rem;
-    color: var(--muted);
-  }
-  .partial span {
-    color: var(--accent);
   }
   @media (max-width: 640px) {
     .panel-head {
@@ -537,4 +604,36 @@
       font-size: max(14px, var(--live-size) - 1px);
     }
   }
+
+  .review .lines { max-height:none; overflow:visible; scrollbar-gutter:auto; }
+  .lines article { grid-template-columns:20px 32px minmax(0,1fr); grid-template-rows:auto; align-items:start; gap:9px; padding:10px 0; border-bottom:0; }
+  .lines .flag { grid-column:1; grid-row:1; justify-self:center; width:22px; min-width:22px; min-height:28px; height:28px; padding:2px; color:var(--muted); }
+  .lines .flag[aria-pressed=true] { color:var(--st-inconsistency-ink,var(--accent)); }
+  .lines .disc { grid-column:2; grid-row:1; width:32px; height:32px; background:var(--tone); color:white; font:600 10px var(--sans); }
+  .lines article > :nth-child(2) { grid-column:3; grid-row:1; min-width:0; }
+  .review .words { font:400 13.3px/1.5 var(--sans); text-wrap:pretty; }
+  .review .name { font:600 12.5px/1.5 var(--sans); }
+  .review .when { font:400 11.5px/1.5 var(--sans); font-variant-numeric:tabular-nums; min-height:24px; }
+  @media(max-width:719px) { .review-search { min-height:44px; } .lines article { grid-template-columns:20px 32px minmax(0,1fr); } }
+  .typing .name { cursor:default; }
+  .typing .listening-label { color:var(--alert,var(--accent)); font:600 11.5px/1.5 var(--sans); }
+  .typing .words { color:var(--muted); }
+  .typing.speaking .disc { outline:2px solid color-mix(in srgb,var(--tone) 55%,transparent); outline-offset:2px; }
+  .caret { display:inline-block; width:1.5px; height:1em; margin-left:2px; vertical-align:-.1em; background:var(--tone); }
+  @media(prefers-reduced-motion:no-preference) {
+    .typing .word { animation:word-in 140ms ease-out; }
+    .typing.speaking .caret { animation:blink 1s steps(2,start) infinite; }
+    .lines .words,.lines .disc { transition:color 170ms ease-out,background-color 170ms ease-out; }
+    @keyframes word-in { from { opacity:.35; } to { opacity:1; } }
+    @keyframes blink { 50% { opacity:.2; } }
+  }
+  .transcript-panel:not(.review) { display:flex; flex-direction:column; height:var(--log-height,calc(100dvh - 270px)); border-radius:12px; }
+  .transcript-panel:not(.review) .lines { flex:1; min-height:0; max-height:none; }
+  .panel-head { flex:none; min-height:52px; padding:6px 12px 6px 16px; }
+  .panel-head h2 { font:600 15px/1.55 var(--sans); }
+  .panel-head .count { margin-left:5px; color:var(--muted); font:400 12px/1.5 var(--sans); }
+  .panel-head .icon-button { width:auto; min-width:32px; padding-inline:4px; background:none; gap:5px; }
+  .counsel-avatar { display:inline-grid; place-items:center; width:23px; height:23px; border-radius:50%; color:white; background:var(--role-counsel); font:600 9px var(--sans); }
+  .you-label { font:600 12px var(--sans); }
+  @media(max-width:719px) { .you-label { display:none; } }
 </style>

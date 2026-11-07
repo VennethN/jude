@@ -27,11 +27,6 @@
   class:primary={plan.id === 'pro'}
   class:compact={placement === 'table' || placement === 'bar'}
   class:light={placement === 'hero'}
-  aria-label={placement === 'table' && plan.contract && !active
-    ? lang === 'id'
-      ? 'Bahas paket Mitra'
-      : 'Discuss the Partner plan'
-    : undefined}
   href={active ? '/billing?plan=' + plan.id + '&cycle=' + cycle : actionHref(plan, cycle, signedIn)}
   onclick={(event) => {
     if (plan.contract && !active && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
@@ -40,7 +35,11 @@
     }
   }}
 >
-  {actionLabel(plan, lang, current)}{#if placement !== 'table'}<Icon
+  {placement === 'table' && plan.contract && !active
+    ? lang === 'id'
+      ? 'Bahas paket Mitra'
+      : 'Discuss the Partner plan'
+    : actionLabel(plan, lang, current)}{#if placement !== 'table'}<Icon
       name="arrow"
       size={placement === 'hero' ? 20 : 16}
     />{/if}
