@@ -53,7 +53,7 @@ The other values are optional single-line strings.
 | `OPENAI_API_KEY` | Enables configured OpenAI models. Live and uploaded speech also require the pyannote image and Community-1 weights. |
 | `OPENAI_PROJECT_ID` | Selects the OpenAI project used for requests. |
 | `JUDE_PASAL_TOKEN` | Enables server-side regulation discovery in private cases. The token stays in the web runtime. |
-| `OPENAI_MODEL`, `OPENAI_ASSISTANT_MODEL`, `OPENAI_ANALYSIS_MODEL`, `OPENAI_REVIEW_MODEL`, `OPENAI_NOTES_MODEL`, `OPENAI_TRANSCRIPTION_MODEL` | Override individual model routes. The default text model is `gpt-6.1-terra`. |
+| `OPENAI_MODEL`, `OPENAI_ASSISTANT_MODEL`, `OPENAI_ANALYSIS_MODEL`, `OPENAI_REVIEW_MODEL`, `OPENAI_NOTES_MODEL`, `OPENAI_TRANSCRIPTION_MODEL` | Override individual model routes. The default text model is `gpt-6.1-sol`. |
 | `OPENAI_EMBEDDING_MODEL`, `JUDE_SEMANTIC_SEARCH` | Private evidence uses `text-embedding-3-small` on PostgreSQL. Set the search flag to `false` to opt out. RDS supports native cosine search. A database administrator can optionally enable pgvector with `CREATE EXTENSION IF NOT EXISTS vector`. |
 | `JUDE_MAIL_FROM` | Verified SES sender for invitations and resets. Set the matching `app_mail_identity_arn` Terraform variable. |
 | `JUDE_DIARIZATION_MODEL`, `JUDE_DIARIZATION_TIMEOUT_MS` | Optional local speaker diarization. Publish the pyannote target and provision the model as described in the voice guide. |
