@@ -105,17 +105,17 @@ jobs:
       contents: read
       id-token: write
     env:
-      AWS_REGION: ${{ vars.AWS_REGION || 'ap-southeast-3' }}
-      ECR_REPOSITORY: ${{ vars.ECR_REPOSITORY || 'jude-dev/app' }}
-      DEPLOY_ROLE: ${{ vars.AWS_DEPLOY_ROLE_ARN || 'arn:aws:iam::920373022608:role/jude-dev-github-deploy' }}
-      DEPLOY_OPS_BUCKET: ${{ vars.DEPLOY_OPS_BUCKET || 'jude-dev-files-a1fcde189ff83e95a8c10fffaf' }}
-      DEPLOY_INSTANCE_ID: ${{ vars.DEPLOY_INSTANCE_ID || 'i-0672e6767a6df3686' }}
-      APP_URL: ${{ vars.APP_URL || 'https://d1df1cfxwhv67y.cloudfront.net' }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
+      ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
+      DEPLOY_ROLE: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+      DEPLOY_OPS_BUCKET: ${{ secrets.DEPLOY_OPS_BUCKET }}
+      DEPLOY_INSTANCE_ID: ${{ secrets.DEPLOY_INSTANCE_ID }}
+      APP_URL: ${{ secrets.APP_URL }}
     steps:
       - uses: actions/checkout@v4
       - name: Validate deployment settings
         run: |
-          for name in DEPLOY_ROLE DEPLOY_OPS_BUCKET DEPLOY_INSTANCE_ID APP_URL; do
+          for name in AWS_REGION ECR_REPOSITORY DEPLOY_ROLE DEPLOY_OPS_BUCKET DEPLOY_INSTANCE_ID APP_URL; do
             test -n "${!name}" || { echo "Missing GitHub setting: $name"; exit 1; }
           done
       - uses: aws-actions/configure-aws-credentials@v4
