@@ -65,6 +65,11 @@ async function holdResponse(page: Page) {
     };
   });
 }
+async function openWorkspace(page: Page, path: string) {
+  const hydrated = page.waitForRequest(request => new URL(request.url()).pathname.endsWith('/events'));
+  await page.goto(path);
+  await hydrated;
+}
 const release = (page: Page, stage: Stage) => page.evaluate(stage => window.answerGate.release(stage), stage);
 
 for (const { name, width, height, drawer } of [
@@ -74,7 +79,7 @@ for (const { name, width, height, drawer } of [
   test(name + ' shows the question and checked citations before the final answer arrives', async ({ page }, info) => {
     await page.setViewportSize({ width, height });
     await holdResponse(page);
-    await page.goto(drawer ? '/demo/documents' : '/demo/assistant/new');
+    await openWorkspace(page, drawer ? '/demo/documents' : '/demo/assistant/new');
     if (drawer) await page.getByRole('button', { name: 'Buka asisten perkara' }).click();
     const root = drawer ? page.getByRole('dialog', { name: 'Asisten perkara' }) : page.locator('.assistant-page');
     const log = root.getByRole('log');
@@ -130,7 +135,7 @@ for (const { name, width, height, drawer } of [
 
 test('an interrupted delivery can be retried from a reopened drawer without a second saved question', async ({ page }) => {
   await holdResponse(page);
-  await page.goto('/demo/documents');
+  await openWorkspace(page, '/demo/documents');
   const open = page.getByRole('button', { name: 'Buka asisten perkara' });
   await open.click();
   const dialog = page.getByRole('dialog', { name: 'Asisten perkara' });
