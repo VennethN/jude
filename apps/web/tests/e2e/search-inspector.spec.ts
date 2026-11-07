@@ -72,14 +72,25 @@ test('phone sheets follow the finger and dismiss only after a full pull', async 
     for (const { trigger, title } of sheets) {
       await trigger.tap();
       const sheet = page.getByRole('dialog', { name: title });
+      await expect(sheet).toBeVisible();
+      const handle = sheet.locator('.grabber');
+      await expect(handle).toBeVisible();
       const initial = await rect(sheet);
-      const x = 195, y = initial[1] + 9;
       for (const [distance, end] of [[80, 'touchCancel'], [70, 'touchEnd'], [145, 'touchEnd']] as const) {
-        await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-        await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + distance }] });
-        await expect.poll(() => rect(sheet)).toEqual([initial[0], initial[1] + distance, ...initial.slice(2)]);
-        await touch.send('Input.dispatchTouchEvent', { type: end, touchPoints: [] });
-        if (distance < 120) await expect.poll(() => rect(sheet)).toEqual(initial);
+        await test.step(`${title}: ${distance}px pull, ${end}`, async () => {
+          const box = await handle.boundingBox();
+          expect(box).not.toBeNull();
+          const x = box!.x + box!.width / 2, y = box!.y + box!.height / 2;
+          try {
+            await touch.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y, id: 1 }] });
+            await touch.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + distance, id: 1 }] });
+            await expect.poll(() => rect(sheet)).toEqual([initial[0], initial[1] + distance, ...initial.slice(2)]);
+          } finally {
+            // Release even when an assertion fails so cleanup cannot mask that failure.
+            await touch.send('Input.dispatchTouchEvent', { type: end, touchPoints: [] });
+          }
+          if (distance < 120) await expect.poll(() => rect(sheet)).toEqual(initial);
+        });
       }
       await expect(sheet).toHaveCount(0);
     }

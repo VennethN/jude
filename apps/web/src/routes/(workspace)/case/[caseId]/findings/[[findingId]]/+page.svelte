@@ -499,7 +499,7 @@
       padding-inline: 3px;
     }
     .queue-tabs a {
-      padding-inline: 2px;
+      padding-inline: 1px;
       font-size: 11px;
       gap: 1px;
     }

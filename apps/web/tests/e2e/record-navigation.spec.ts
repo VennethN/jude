@@ -8,7 +8,7 @@ test('a filed document opens its cited findings and clears its filter', async ({
   await expect(page).toHaveURL(/\/findings\?doc=d1/);
   await expect(page.locator('.queue .ev-pick').first()).toBeVisible();
   await page.getByRole('link', { name: 'Hapus filter dokumen' }).click();
-  expect(new URL(page.url()).searchParams.has('doc')).toBe(false);
+  await expect(page).not.toHaveURL(/[?&]doc=/);
 });
 
 test('the phone finding sheet follows a filtered queue and returns to its record', async ({ page }) => {
