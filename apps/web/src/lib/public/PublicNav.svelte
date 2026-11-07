@@ -277,4 +277,8 @@
       font-size: 3.15rem;
     }
   }
+  @media (max-width: 420px) {
+    .cover .pub-nav:has(.entry[href$='/cases']) { column-gap: 8px; }
+    .cover .entry[href$='/cases'] { padding-inline: 9px; }
+  }
 </style>

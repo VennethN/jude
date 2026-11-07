@@ -58,7 +58,7 @@
 <div class="billing-page" data-theme={theme}>
   <a class="pub-skip" href="#billing-main">{isId ? 'Lewati ke isi' : 'Skip to content'}</a>
   <header class="bar-top">
-    <Wordmark home="/cases"/>
+    <Wordmark home="/cases" monochrome={theme === 'night'}/>
     <a class="back" href={returnTo}><ArrowLeft size={16}/>{isId ? 'Kembali' : 'Back'}</a>
     <span class="billing-tag">{simulated ? (isId ? 'Tagihan simulasi' : 'Simulated billing') : (isId ? 'Tagihan organisasi' : 'Organisation billing')}</span>
   </header>

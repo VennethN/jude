@@ -1,4 +1,5 @@
 <script lang="ts">
+  import BrandLockup from '$lib/BrandLockup.svelte';
   import { page } from '$app/state';
   import { watchWorkspace, workspaceAccessLost } from '$lib/workspace/tab-cache';
   import { workspaceScope } from '$lib/workspace/scope';
@@ -364,9 +365,7 @@
 >
   <a class="skip" href="#case-main">{en ? 'Skip to content' : 'Ke isi utama'}</a>
   <aside class="rail" id="workspace-rail">
-    <a class="brand" href="/cases" aria-label="Jude"
-      ><span class="full-brand">jude.</span><span class="mini-brand">j.</span></a
-    >
+    <a class="brand" href="/cases" aria-label="Jude"><BrandLockup monochrome/></a>
     {#if w}
       <a
         class="switch-case"
@@ -792,7 +791,8 @@
     overflow: auto;
   }
   .rail .brand {
-    display: block;
+    display: flex;
+    align-items: center;
     padding: 0 6px 12px;
     margin: 0 0 4px;
     font:
@@ -801,9 +801,6 @@
       serif;
     color: var(--nav-ink);
     letter-spacing: -0.045em;
-  }
-  .mini-brand {
-    display: none;
   }
   .switch-case {
     display: flex;
@@ -1279,13 +1276,12 @@
   .collapsed .rail-link > span,
   .collapsed .account-label,
   .collapsed .case-identity,
-  .collapsed .full-brand,
   .collapsed .billing-label,
   .collapsed .rail-count {
     display: none;
   }
-  .collapsed .mini-brand {
-    display: block;
+  .collapsed .brand {
+    --jude-name-display: none;
   }
   .collapsed .rail {
     padding-inline: 9px;
@@ -1344,14 +1340,13 @@
     .rail-link > span,
     .account-label,
     .case-identity,
-    .full-brand,
     .billing-label,
     .rail-count,
     .collapse-control {
       display: none;
     }
-    .mini-brand {
-      display: block;
+    .rail .brand {
+      --jude-name-display: none;
     }
     .account-block {
       border-color: transparent;
