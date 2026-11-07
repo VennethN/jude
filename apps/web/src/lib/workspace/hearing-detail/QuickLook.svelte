@@ -192,6 +192,7 @@
   .question,.comparison { display:grid; gap:6px; align-content:start; }
   .question { padding:14px 16px 12px; background:var(--selected,var(--wash)); border-radius:12px; }
   .question h3,.comparison h3,.note { margin:0; color:var(--muted); font:600 11.5px/1.5 var(--sans); letter-spacing:.01em; }
+  .question h3 { color:color-mix(in srgb,var(--muted) 65%,var(--ink-strong)); font-size:12px; }
   .question p { margin:0; color:var(--ink-strong,var(--ink)); font:400 18.5px/1.38 var(--display); text-wrap:pretty; }
   .text-action { justify-self:start; gap:5px; min-height:28px; border:0; padding:1px 0; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; color:var(--ink-strong,var(--ink)); background:transparent; font:600 12px/1.45 var(--sans); }
   .text-action:hover,.written a:hover { text-decoration-color:currentColor; }
@@ -203,11 +204,12 @@
   .comparison p { margin:0; overflow-wrap:anywhere; color:var(--ink-strong,var(--ink)); font:400 15px/1.5 var(--sans); }
   .written p { font-family:var(--mono); }
   .written a { color:var(--muted); text-decoration:underline; text-decoration-color:transparent; text-underline-offset:3px; }
-  .speaker-dot { flex:none; display:grid; place-items:center; width:18px; height:18px; border-radius:50%; background:var(--tone,var(--role-unknown)); color:white; font:600 8px var(--sans); }
-  .speaker-dot[data-tone=witness] { background:var(--role-witness); }
-  .speaker-dot[data-tone=counsel] { background:var(--role-counsel); }
-  .speaker-dot[data-tone=judge],.speaker-dot[data-tone=judge_member] { background:var(--role-judge); }
-  .speaker-dot[data-tone=opposing] { background:var(--role-opposing); }
+  .speaker-dot { flex:none; display:grid; place-items:center; width:20px; height:20px; border-radius:50%; background:var(--speaker-paper,var(--role-unknown-soft)); color:var(--speaker-ink,var(--role-unknown-ink)); font:600 10px/1 var(--sans); }
+  .speaker-dot[data-tone=witness] { --speaker-paper:var(--role-witness-soft); --speaker-ink:var(--role-witness-ink); }
+  .speaker-dot[data-tone=counsel] { --speaker-paper:var(--role-counsel-soft); --speaker-ink:var(--role-counsel-ink); }
+  .speaker-dot[data-tone=judge], .speaker-dot[data-tone=judge_member] { --speaker-paper:var(--role-judge-soft); --speaker-ink:var(--role-judge-ink); }
+  .speaker-dot[data-tone=opposing] { --speaker-paper:var(--role-opposing-soft); --speaker-ink:var(--role-opposing-ink); }
+  .speaker-dot[data-tone=party] { --speaker-paper:var(--role-party-soft); --speaker-ink:var(--role-party-ink); }
   .detail-link { min-height:42px; font-size:13px; }
   .trigger,.suggestions li { padding:10px 0; border-top:1px solid var(--line); }
   .trigger,.suggestions p { margin:0; line-height:1.5; }
