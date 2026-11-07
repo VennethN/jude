@@ -1,0 +1,24 @@
+{
+  "name": "@jude/core",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./domain": "./src/domain.ts",
+    "./plans": "./src/plans.ts",
+    "./server/*": "./src/server/*.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1164.0",
+    "@aws-sdk/client-sesv2": "^3.1164.0",
+    "@aws-sdk/s3-request-presigner": "^3.1164.0",
+    "@node-rs/argon2": "^2.2.2",
+    "fflate": "^0.8.2",
+    "openai": "^6.0.0",
+    "pdfjs-dist": "^6.5.438",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1",
+    "@sveltejs/kit": "^2.70.4"
+  }
+}

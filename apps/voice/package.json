@@ -1,0 +1,24 @@
+{
+  "name": "@jude/voice",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./http/*": "./src/http/*.ts",
+    "./transport": "./src/transport.ts"
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "start": "node dist/server.mjs"
+  },
+  "dependencies": {
+    "@jude/core": "workspace:*",
+    "openai": "^6.0.0",
+    "ws": "^8.22.1",
+    "@sveltejs/kit": "^2.70.4"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2",
+    "esbuild": "^0.28.2"
+  }
+}

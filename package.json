@@ -8,40 +8,29 @@
     "node": ">=22.13.0"
   },
   "scripts": {
-    "dev": "vite dev",
-    "build": "vite build && node scripts/build-server.mjs",
-    "start": "node build/server.mjs",
-    "preview": "vite preview",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "dev": "pnpm --filter @jude/web dev",
+    "build": "pnpm --filter @jude/web build && pnpm --filter @jude/voice build",
+    "start": "node apps/voice/dist/server.mjs",
+    "check": "pnpm --filter @jude/web check && pnpm --filter @jude/voice check",
     "test": "vitest run",
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1164.0",
-    "@aws-sdk/client-sesv2": "^3.1164.0",
-    "@aws-sdk/s3-request-presigner": "^3.1164.0",
-    "@fontsource/courier-prime": "^5.3.0",
-    "@lucide/svelte": "^1.64.0",
-    "fflate": "^0.8.2",
-    "pdfjs-dist": "^6.5.438",
-    "pg": "^8.23.1",
-    "ws": "^8.22.1",
-    "openai": "^6.0.0"
+    "@jude/core": "workspace:*",
+    "@jude/voice": "workspace:*",
+    "@jude/web": "workspace:*"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.65.0",
-    "@sveltejs/adapter-node": "^5.5.8",
-    "@sveltejs/kit": "^2.70.4",
-    "@sveltejs/vite-plugin-svelte": "^7.3.1",
     "@types/node": "^24.19.2",
     "@types/pg": "^8.23.1",
-    "@types/ws": "^8.18.2",
-    "esbuild": "^0.28.2",
-    "svelte": "^5.57.3",
-    "svelte-check": "^4.7.8",
     "typescript": "^6.0.3",
     "vite": "^8.3.6",
     "vitest": "^4.1.12"
-  }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ]
 }

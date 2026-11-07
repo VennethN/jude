@@ -8,36 +8,15 @@ importers:
 
   .:
     dependencies:
-      '@aws-sdk/client-s3':
-        specifier: ^3.1164.0
-        version: 3.1164.0
-      '@aws-sdk/client-sesv2':
-        specifier: ^3.1164.0
-        version: 3.1164.0
-      '@aws-sdk/s3-request-presigner':
-        specifier: ^3.1164.0
-        version: 3.1164.0
-      '@fontsource/courier-prime':
-        specifier: ^5.3.0
-        version: 5.3.0
-      '@lucide/svelte':
-        specifier: ^1.64.0
-        version: 1.70.0(svelte@5.57.3)
-      fflate:
-        specifier: ^0.8.2
-        version: 0.8.3
-      openai:
-        specifier: ^6.0.0
-        version: 6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.22.1)
-      pdfjs-dist:
-        specifier: ^6.5.438
-        version: 6.5.438
-      pg:
-        specifier: ^8.23.1
-        version: 8.23.1
-      ws:
-        specifier: ^8.22.1
-        version: 8.22.1
+      '@jude/core':
+        specifier: workspace:*
+        version: link:packages/core
+      '@jude/voice':
+        specifier: workspace:*
+        version: link:apps/voice
+      '@jude/web':
+        specifier: workspace:*
+        version: link:apps/web
     devDependencies:
       '@axe-core/playwright':
         specifier: ^4.14.0
@@ -45,6 +24,62 @@ importers:
       '@playwright/test':
         specifier: ^1.65.0
         version: 1.65.0
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
+      vite:
+        specifier: ^8.3.6
+        version: 8.3.6(@types/node@24.19.2)(esbuild@0.28.2)
+      vitest:
+        specifier: ^4.1.12
+        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2))
+
+  apps/voice:
+    dependencies:
+      '@jude/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@sveltejs/kit':
+        specifier: ^2.70.4
+        version: 2.70.4(@opentelemetry/api@1.10.0)(@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)))(svelte@5.57.3)(typescript@6.0.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2))
+      openai:
+        specifier: ^6.0.0
+        version: 6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.22.1)
+      ws:
+        specifier: ^8.22.1
+        version: 8.22.1
+    devDependencies:
+      '@types/ws':
+        specifier: ^8.18.2
+        version: 8.18.2
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+
+  apps/web:
+    dependencies:
+      '@fontsource/courier-prime':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@jude/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@jude/voice':
+        specifier: workspace:*
+        version: link:../voice
+      '@lucide/svelte':
+        specifier: ^1.64.0
+        version: 1.70.0(svelte@5.57.3)
+      pdfjs-dist:
+        specifier: ^6.5.438
+        version: 6.5.438
+    devDependencies:
       '@sveltejs/adapter-node':
         specifier: ^5.5.8
         version: 5.5.8(@sveltejs/kit@2.70.4(@opentelemetry/api@1.10.0)(@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)))(svelte@5.57.3)(typescript@6.0.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)))
@@ -57,15 +92,6 @@ importers:
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
-      '@types/pg':
-        specifier: ^8.23.1
-        version: 8.23.1
-      '@types/ws':
-        specifier: ^8.18.2
-        version: 8.18.2
-      esbuild:
-        specifier: ^0.28.2
-        version: 0.28.2
       svelte:
         specifier: ^5.57.3
         version: 5.57.3
@@ -78,9 +104,40 @@ importers:
       vite:
         specifier: ^8.3.6
         version: 8.3.6(@types/node@24.19.2)(esbuild@0.28.2)
-      vitest:
-        specifier: ^4.1.12
-        version: 4.1.12(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2))
+
+  packages/core:
+    dependencies:
+      '@aws-sdk/client-s3':
+        specifier: ^3.1164.0
+        version: 3.1164.0
+      '@aws-sdk/client-sesv2':
+        specifier: ^3.1164.0
+        version: 3.1164.0
+      '@aws-sdk/s3-request-presigner':
+        specifier: ^3.1164.0
+        version: 3.1164.0
+      '@node-rs/argon2':
+        specifier: ^2.2.2
+        version: 2.2.2
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.3
+      openai:
+        specifier: ^6.0.0
+        version: 6.49.0(@aws-sdk/credential-provider-node@3.972.94)(@smithy/signature-v4@5.7.5)(ws@8.22.1)
+      pdfjs-dist:
+        specifier: ^6.5.438
+        version: 6.5.438
+      pg:
+        specifier: ^8.23.1
+        version: 8.23.1
+    devDependencies:
+      '@sveltejs/kit':
+        specifier: ^2.70.4
+        version: 2.70.4(@opentelemetry/api@1.10.0)(@sveltejs/vite-plugin-svelte@7.3.1(svelte@5.57.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)))(svelte@5.57.3)(typescript@6.0.3)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2))
+      '@types/pg':
+        specifier: ^8.23.1
+        version: 8.23.1
 
 packages:
 
@@ -423,6 +480,92 @@ packages:
 
   '@napi-rs/canvas@1.1.0':
     resolution: {integrity: sha512-k+ph/D8H9GS8ZZ48okvHrKeJynkqAA1kMUZRuzRWNlQUDHXngq7oRaWMZBdmSfd9ZhVy9bwNKei/7wMboI/uMg==}
+    engines: {node: '>= 10'}
+
+  '@node-rs/argon2-android-arm-eabi@2.2.2':
+    resolution: {integrity: sha512-c11BOrPLBWNC1cDyzGB+Bil+flmxfZbB2hv8EhcobmAsFKMyqkHPNhUY4qhcjv1U+4+Vmw4G8H+l224iO2g/Dw==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [android]
+
+  '@node-rs/argon2-android-arm64@2.2.2':
+    resolution: {integrity: sha512-dpMYIoxhN/wY6hFH+3MM5kQErcH3luMekkszbkDF3NKqhB1kFRntkOLDpFY87oItBSHJrsoYkXC3vBRhjYoCjQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [android]
+
+  '@node-rs/argon2-darwin-arm64@2.2.2':
+    resolution: {integrity: sha512-vxVAXcIG0iiHizkCuImmzVhOFsRnU4Z79xiOxdISLyI+QhOAWbbTaVSXw0PNfThB3zAdkzzDJ/WWu52Hs/qHGg==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@node-rs/argon2-darwin-x64@2.2.2':
+    resolution: {integrity: sha512-r7GbSFpFZZ9EAV9cvIm9prUjOupK7QQXTyP+FJ6bWSMq0h+qRDBlUOXQXduDIIrLEGoBVelixKUtf4ksZ0ljoQ==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [darwin]
+
+  '@node-rs/argon2-freebsd-x64@2.2.2':
+    resolution: {integrity: sha512-AmWxDSmQgprilD6NX3jmxCgcDvWAW7kGJnnWQo+0qav6nfMXdPZYgSezK/skmw1GBWipr4yZMIUzpeNHnVpMxg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [freebsd]
+
+  '@node-rs/argon2-linux-arm-gnueabihf@2.2.2':
+    resolution: {integrity: sha512-M1gnPBTr9GFeEUWkQ53qCJeTsX03C3kcUeHnDbN7dU2xkI58wMP4Z1sEBN7WmKJ/fTHYEgti4truz7r4A82DLg==}
+    engines: {node: '>= 10'}
+    cpu: [arm]
+    os: [linux]
+
+  '@node-rs/argon2-linux-arm64-gnu@2.2.2':
+    resolution: {integrity: sha512-4CYDlIdITlLSVcAXYUtEoGUahRaayPXM+4Rcfg3BZx9WGi6UB8HUycs6GNMTPYXV5kVXCpyE2u1HmYUpgmIzOQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@node-rs/argon2-linux-arm64-musl@2.2.2':
+    resolution: {integrity: sha512-FYlfj3XgQ1xrx6HzQbKbUcKiYMG/3iSi/X81KyhHaItTJ7vZlMwrbVLl9yqDmvotKUF6VjrhrlZ8KRbbzchseA==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@node-rs/argon2-linux-x64-gnu@2.2.2':
+    resolution: {integrity: sha512-ULXLs8UFYZANlwiROM7AeccxZndr2Xk3IstADq3jAUhnwV2W75mxMBTABUZ+7AdKRhPLOrxU77OgnMWlDkYJQg==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@node-rs/argon2-linux-x64-musl@2.2.2':
+    resolution: {integrity: sha512-zgjIwc9TyGodn62vGc+36DGwFqVV5e7L8Ptd2FQWuBxe5aFrcFxvtDGn1/qfYwoHLv09utgtR+RBAPCXepWG3Q==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@node-rs/argon2-win32-arm64-msvc@2.2.2':
+    resolution: {integrity: sha512-3nLhvLie/ec5xfxUBXXqGMb7oGeqF+YXrcGckqaTaGkPtOBozho0Kh2IuP/zi9BcOriirTG2LW3gtIOfpuh+mQ==}
+    engines: {node: '>= 10'}
+    cpu: [arm64]
+    os: [win32]
+
+  '@node-rs/argon2-win32-ia32-msvc@2.2.2':
+    resolution: {integrity: sha512-6RJKD6cFl7UeiYJLjRsXPywVXSFSaSDdr6xGpztNDV31QHCEecWnsnNmKxzi4gVpln2F9XeWEtIgM4Nqw1hLbA==}
+    engines: {node: '>= 10'}
+    cpu: [ia32]
+    os: [win32]
+
+  '@node-rs/argon2-win32-x64-msvc@2.2.2':
+    resolution: {integrity: sha512-dQOO9S4QKBaVul0Uyk/2quJc/OBeHNZRJP+GZZTy1A5kYIaAfIJGHUYLY6oFoAlcuLIkdFouLaHX3fCl8tZm/w==}
+    engines: {node: '>= 10'}
+    cpu: [x64]
+    os: [win32]
+
+  '@node-rs/argon2@2.2.2':
+    resolution: {integrity: sha512-NtdlPPWtR5U4BxX5EGJYza+UklNaoWORmkaKCMqf/nyKeXWKVwNt8KfQoRpNT7OB1DcEwmePafO4wZyW+sbfCQ==}
     engines: {node: '>= 10'}
 
   '@opentelemetry/api@1.10.0':
@@ -1728,6 +1871,61 @@ snapshots:
       '@napi-rs/canvas-win32-arm64-msvc': 1.1.0
       '@napi-rs/canvas-win32-x64-msvc': 1.1.0
     optional: true
+
+  '@node-rs/argon2-android-arm-eabi@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-android-arm64@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-darwin-arm64@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-darwin-x64@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-freebsd-x64@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-linux-arm-gnueabihf@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-linux-arm64-gnu@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-linux-arm64-musl@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-linux-x64-gnu@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-linux-x64-musl@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-win32-arm64-msvc@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-win32-ia32-msvc@2.2.2':
+    optional: true
+
+  '@node-rs/argon2-win32-x64-msvc@2.2.2':
+    optional: true
+
+  '@node-rs/argon2@2.2.2':
+    optionalDependencies:
+      '@node-rs/argon2-android-arm-eabi': 2.2.2
+      '@node-rs/argon2-android-arm64': 2.2.2
+      '@node-rs/argon2-darwin-arm64': 2.2.2
+      '@node-rs/argon2-darwin-x64': 2.2.2
+      '@node-rs/argon2-freebsd-x64': 2.2.2
+      '@node-rs/argon2-linux-arm-gnueabihf': 2.2.2
+      '@node-rs/argon2-linux-arm64-gnu': 2.2.2
+      '@node-rs/argon2-linux-arm64-musl': 2.2.2
+      '@node-rs/argon2-linux-x64-gnu': 2.2.2
+      '@node-rs/argon2-linux-x64-musl': 2.2.2
+      '@node-rs/argon2-win32-arm64-msvc': 2.2.2
+      '@node-rs/argon2-win32-ia32-msvc': 2.2.2
+      '@node-rs/argon2-win32-x64-msvc': 2.2.2
 
   '@opentelemetry/api@1.10.0':
     optional: true

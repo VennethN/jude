@@ -9,6 +9,12 @@ colors:
   muted: "#59675c"
   accent: "#864857"
   line: "#d7d9cc"
+  conflicts: "#aa4b29"
+  context: "#72549e"
+  supports: "#186e59"
+  night-conflicts: "#ef9b72"
+  night-context: "#b49cde"
+  night-supports: "#75bc9d"
 typography:
   display: { fontFamily: "Caslon Display", fontWeight: 400 }
   body: { fontFamily: "Manrope", fontWeight: 400 }

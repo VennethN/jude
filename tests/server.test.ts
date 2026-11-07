@@ -4,12 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Board, CaseDocument, CaseRecord, SessionInfo, Thread, Workspace } from '../src/lib/domain';
-import { endpoint } from '../src/lib/server/api';
-import { sessionFromToken } from '../src/lib/server/auth';
-import { transaction } from '../src/lib/server/db';
-import { mutateWorkspace } from '../src/lib/server/cases';
-import { runAnalysisWorker } from '../src/lib/server/jobs';
+import type { Board, CaseDocument, CaseRecord, SessionInfo, Thread, Workspace } from '../packages/core/src/domain';
+import { endpoint } from '../packages/core/src/server/api';
+import { sessionFromToken } from '../packages/core/src/server/auth';
+import { transaction } from '../packages/core/src/server/db';
+import { mutateWorkspace } from '../packages/core/src/server/cases';
+import { runAnalysisWorker } from '../packages/core/src/server/jobs';
 
 let temporary: string;
 beforeAll(async () => {

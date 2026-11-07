@@ -1,7 +1,7 @@
 ---
 version: 1
 slug: public
-primary_target: src/routes/(public)/+page.svelte
+primary_target: apps/web/src/routes/(public)/+page.svelte
 ---
 # The closed case file
 

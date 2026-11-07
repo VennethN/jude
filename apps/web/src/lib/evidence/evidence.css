@@ -1,0 +1,335 @@
+:root {
+  --ev-conflicts: #aa4b29;
+  --ev-context: #72549e;
+  --ev-supports: #186e59;
+  --ev-highlight: #bd9556;
+}
+[data-theme='night'] {
+  --ev-conflicts: #ef9b72;
+  --ev-context: #b49cde;
+  --ev-supports: #75bc9d;
+  --ev-highlight: #ad8556;
+}
+.ev-page {
+  max-width: 86rem;
+  width: 100%;
+  margin-inline: auto;
+  color: var(--ink);
+  font-family: var(--sans);
+  container-type: inline-size;
+}
+.ev-page *,
+.ev-panel * {
+  box-sizing: border-box;
+}
+.ev-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+  margin: 0 0 1.8rem;
+}
+.ev-head h1,
+.ev-panel h1 {
+  margin: 0;
+  font: 400 3rem/1.03 var(--display);
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.ev-head p,
+.ev-sub {
+  color: var(--muted);
+  margin: 0.55rem 0 0;
+  max-width: 64ch;
+  font-size: 0.94rem;
+  line-height: 1.55;
+}
+.ev-title {
+  font: 400 1.8rem/1.15 var(--display);
+  letter-spacing: -0.018em;
+  margin: 0;
+}
+.ev-actions,
+.ev-inline,
+.ev-tools {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.ev-tools {
+  padding-block: 0.8rem;
+  border-block: 1px solid var(--line);
+  justify-content: space-between;
+  margin-block: 1rem;
+}
+.ev-button,
+.ev-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.48rem;
+  min-height: 44px;
+  max-width: 100%;
+  background: var(--surface);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 0.55rem;
+  padding: 0.5rem 0.9rem;
+  font: 600 0.84rem/1.3 var(--sans);
+  text-decoration: none;
+  cursor: pointer;
+}
+.ev-icon {
+  width: 44px;
+  padding: 0.5rem;
+}
+.ev-button:hover,
+.ev-icon:hover,
+.ev-pick:hover {
+  background: color-mix(in srgb, var(--surface) 92%, var(--forest));
+}
+.ev-button.primary {
+  background: var(--forest);
+  color: var(--on-forest, #fffaf0);
+  border-color: var(--forest);
+}
+.ev-button:disabled,
+.ev-icon:disabled {
+  opacity: 0.58;
+  cursor: default;
+}
+.ev-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 44px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  font: 600 0.85rem/1.4 var(--sans);
+}
+.ev-search {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--surface);
+  padding-inline: 0.85rem;
+  color: var(--muted);
+  max-width: 100%;
+}
+.ev-search input {
+  outline: none;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  padding: 0.7rem 0;
+  min-height: 44px;
+  color: var(--ink);
+  font: inherit;
+}
+.ev-search:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.ev-search input:focus-visible {
+  outline: 0;
+}
+.ev-field,
+.ev-textarea,
+.ev-select {
+  font: inherit;
+  min-height: 44px;
+  color: var(--ink);
+  padding: 0.55rem 0.65rem;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  max-width: 100%;
+}
+.ev-textarea {
+  width: 100%;
+  resize: vertical;
+  line-height: 1.55;
+}
+.ev-field-label {
+  display: grid;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 1rem 0;
+}
+.ev-muted {
+  color: var(--muted);
+}
+.ev-meta {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.ev-record {
+  font: 400 0.99rem/1.55 var(--mono);
+}
+.ev-mark {
+  background: color-mix(in srgb, var(--ev-highlight) 50%, var(--surface));
+  color: var(--ink);
+  padding-inline: 0.04em;
+}
+.ev-empty,
+.ev-notice {
+  border: 1px solid var(--line);
+  border-radius: 0.65rem;
+  padding: 1.3rem 1.4rem;
+  background: var(--surface);
+  line-height: 1.55;
+}
+.ev-empty p,
+.ev-notice p {
+  margin: 0.4rem 0;
+  max-width: 62ch;
+}
+.ev-error {
+  color: var(--accent);
+  font-weight: 600;
+  margin: 0.65rem 0;
+}
+.ev-list,
+.ev-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ev-list > li + li {
+  border-top: 1px solid var(--line);
+}
+.ev-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  width: 100%;
+  padding: 1rem 0.45rem;
+  text-align: start;
+}
+.ev-row strong,
+.ev-pick strong {
+  color: var(--ink);
+}
+.ev-row a {
+  color: inherit;
+}
+.ev-pick {
+  display: block;
+  width: 100%;
+  padding: 0.9rem;
+  text-align: start;
+  border-radius: 0.45rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  text-decoration: none;
+  cursor: pointer;
+  font: inherit;
+}
+.ev-pick[aria-current='true'],
+.ev-pick[aria-current='page'] {
+  background: color-mix(in srgb, var(--forest) 9%, var(--surface));
+}
+.ev-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1rem;
+}
+.ev-tabs a,
+.ev-tabs button {
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0.7rem 0.15rem;
+  min-height: 44px;
+  text-decoration: none;
+  color: var(--muted);
+  font: 600 0.87rem/1.35 var(--sans);
+  cursor: pointer;
+}
+.ev-tabs [aria-current='page'],
+.ev-tabs [aria-pressed='true'] {
+  border-bottom-color: var(--accent);
+  color: var(--ink);
+}
+.ev-pane {
+  min-width: 0;
+}
+.ev-page a:focus-visible,
+.ev-page button:focus-visible,
+.ev-panel a:focus-visible,
+.ev-panel button:focus-visible,
+.ev-textarea:focus-visible,
+.ev-select:focus-visible,
+.ev-field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.ev-panel {
+  color: var(--ink);
+  font-family: var(--sans);
+}
+.ev-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+.ev-stack {
+  display: grid;
+  gap: 0.85rem;
+}
+.ev-scroller {
+  overflow: auto;
+}
+.ev-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  border: 0;
+}
+.ev-page svg,
+.ev-panel svg {
+  flex-shrink: 0;
+}
+@container (max-width:650px) {
+  .ev-head {
+    align-items: flex-start;
+    margin-bottom: 1.1rem;
+  }
+  .ev-head h1 {
+    font-size: 2.35rem;
+  }
+  .ev-head .ev-actions {
+    justify-content: flex-start;
+  }
+  .ev-head .ev-tools {
+    width: 100%;
+  }
+  .ev-title {
+    font-size: 1.55rem;
+  }
+  .ev-inline {
+    gap: 0.35rem;
+  }
+  .ev-empty,
+  .ev-notice {
+    padding: 1rem;
+  }
+}

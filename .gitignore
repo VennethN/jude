@@ -29,3 +29,4 @@ test-results/
 .impeccable/questions/
 .impeccable/live/
 .impeccable/hook.cache.json
+apps/voice/dist/

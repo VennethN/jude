@@ -1,0 +1,23 @@
+<script lang="ts">
+ import { goto, invalidateAll } from '$app/navigation';
+ import { ArrowUpRight, CalendarDays, Folder, Plus, Search, Upload } from '@lucide/svelte';
+ import { api } from '$lib/client';
+ import type { CaseRecord } from '@jude/core/domain';
+ import CaseForm from '$lib/workspace/CaseForm.svelte';
+ import {formatDate} from '$lib/workspace/format';
+ let {data}=$props();const en=$derived(data.lang==='en');let newCase=$state(false),query=$state(''),message=$state(''),busy=$state(false);
+ const items=$derived(data.cases.filter(c=>[c.title,c.reference,c.court,c.client].join(' ').toLowerCase().includes(query.trim().toLowerCase())));
+ let file:HTMLInputElement;
+ async function upload(){const f=file.files?.[0];if(!f)return;busy=true;message='';try{const body=new FormData();body.append('file',f);const saved=await api<CaseRecord>('/api/cases/import','POST',body);await invalidateAll();await goto('/case/'+saved.id)}catch(e){message=e instanceof Error?e.message:(en?'Could not import the case.':'Impor perkara gagal.')}finally{busy=false;file.value=''}}
+</script>
+<svelte:head><title>{en?'Cases':'Daftar perkara'} · Jude</title></svelte:head>
+<header class="index-head"><div><h1>{en?'Case files':'Berkas perkara'}</h1><p>{en?'Your hearings, documents and review notes, filed by case.':'Sidang, dokumen, dan catatan pemeriksaan Anda dalam satu berkas perkara.'}</p></div>
+<div class="actions"><button class="button" onclick={()=>file.click()} disabled={busy}><Upload size={17}/>{en?'Import':'Impor'}</button><input class="sr-only" bind:this={file} type="file" accept=".jude" aria-label={en?'Case archive':'Arsip perkara'} onchange={upload}/><button class="button primary" onclick={()=>newCase=true}><Plus size={17}/>{en?'New case':'Perkara baru'}</button></div></header>
+{#if message}<p role="alert" class="error-text">{message}</p>{/if}
+<div class="index-filter"><h2>{en?'Case register':'Daftar perkara'} <span>{items.length}</span></h2><label><Search size={17}/><input bind:value={query} aria-label={en?'Search cases':'Cari perkara'} placeholder={en?'Search cases':'Cari perkara'}/></label></div>
+<div class="case-list">{#each items as c (c.id)}<a href={'/case/'+c.id} class="case-row">
+ <span class="folder"><Folder size={27} strokeWidth={1.4}/></span><div class="record"><small>{c.reference||c.court||'—'}{#if c.label==='synthetic'}<span>{en?'Synthetic example':'Contoh sintetis'}</span>{/if}</small><h2>{c.title}</h2><p>{c.counts.hearings} {en?'hearings':'sidang'} · {c.counts.documents} {en?'documents':'dokumen'}{#if c.counts.needsLook} · {c.counts.needsLook} {en?'to review':'perlu dicek'}{/if}</p></div>
+ <div class="date"><CalendarDays size={15}/>{formatDate(c.updated,data.lang,true)}</div><ArrowUpRight size={20}/></a>
+ {:else}<div class="empty"><h2>{query?(en?'No matching cases':'Tidak ada perkara yang cocok'):(en?'Open your first case':'Buka perkara pertama Anda')}</h2><button class="button" onclick={()=>query?query='':newCase=true}>{query?(en?'Clear search':'Hapus pencarian'):(en?'Create a case':'Buat perkara')}</button></div>{/each}</div>
+{#if newCase}<CaseForm lang={data.lang} close={()=>newCase=false}/>{/if}
+<style>.index-head{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:20px;margin-bottom:clamp(36px,6vw,76px)}.index-head p{margin-top:12px;color:var(--muted);max-width:49ch}.index-filter{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--ink)}.index-filter h2{font-size:1.8rem}.index-filter h2 span{font:500 .85rem var(--sans);margin-left:6px;color:var(--muted)}.index-filter label{display:flex;align-items:center;gap:8px}.index-filter input{border:0;background:transparent;min-height:44px;width:10em}.case-row{display:flex;align-items:center;min-height:125px;padding:var(--space-row) 2px;gap:20px;border-bottom:1px solid var(--line);text-decoration:none}.case-row:hover .record h2{text-decoration:underline;text-decoration-thickness:1px}.folder{width:56px;height:68px;background:var(--wash);display:grid;place-items:center;border-radius:3px 10px 8px 3px;color:var(--forest)}.record{flex:1;min-width:0}.record small,.record p,.date{font-size:.81rem;color:var(--muted)}.record small span{display:inline-block;margin-left:12px;color:var(--accent)}.record h2{font-size:clamp(1.55rem,2.3vw,2.2rem);margin:5px 0}.date{display:flex;align-items:center;gap:6px}.empty{padding:40px 0}.empty h2{margin-bottom:18px}@media(max-width:760px){.folder,.date{display:none}.case-row{gap:7px}.record small span{margin-left:7px}.index-head{margin-bottom:32px}}</style>
