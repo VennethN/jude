@@ -103,6 +103,18 @@ async function caseThread(synthetic = false) {
   return { client, base, messages, send, workspace, session, caseId };
 }
 
+test('current Discovery fields retain the requested article and canonical link', async () => {
+  const c = await caseThread();
+  const url = rootHref + '/pasal-188';
+  network((request) => request.pathname === '/api/v1/search'
+    ? Response.json({ results: [{ work, url: rootHref, matching_pasals: [{ pasal: '188', url }], best_passage: { pasal: '189', url: rootHref + '/pasal-189' } }] })
+    : Response.json({ work }));
+  const thread = await c.send('Pasal 188 KUHAP');
+  expect(thread.messages.at(-1)?.legalStatus).toBe('found');
+  expect((await c.workspace()).legal).toEqual([expect.objectContaining({ article: 'Pasal 188', sourceUrl: 'https://pasal.id' + url })]);
+  await transaction(db => db.query('DELETE FROM pasal_metadata_cache'));
+});
+
 test('private messages resolve public identifiers only and save immutable, case-local law references', async () => {
   const c = await caseThread();
   await c.client.ok(c.base + '/hearings/import', 'POST', {
@@ -162,7 +174,7 @@ test('private messages resolve public identifiers only and save immutable, case-
   const ours = cached.filter((row) => row.metadata.includes(uri));
   expect(ours).toHaveLength(2);
   for (const row of ours) {
-    expect(row.cache_key).toMatch(/^(search|work):[a-f0-9]{64}$/);
+    expect(row.cache_key).toMatch(/^(search:v2|work):[a-f0-9]{64}$/);
     expect(Number(row.expires_at) - Date.now()).toBeGreaterThan(ttl - 10000);
     expect(Number(row.expires_at) - Date.now()).toBeLessThanOrEqual(ttl);
     expect(row.metadata).not.toContain(excludedContent);

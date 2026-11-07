@@ -387,6 +387,7 @@ function parseWorkspace(raw: unknown) {
           contexts,
           legal: ids(m.legal),
           mode: m.mode ? choice(m.mode, ['ai', 'sources-only'], 'mode') : undefined,
+          legalStatus: m.legalStatus ? choice(m.legalStatus, ['found', 'no_matches', 'no_query', 'not_configured', 'unavailable', 'sample'], 'legalStatus') : undefined,
         };
       }),
     };

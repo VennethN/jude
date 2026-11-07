@@ -211,6 +211,8 @@ export type ContextRef =
   | { kind: "documents" }
   | { kind: "hearing" | "finding" | "document" | "passage" | "statement" | "connection" | "board"; id: string; unavailable?: true; snapshot?: string };
 
+export type LegalSearchStatus = 'found' | 'no_matches' | 'no_query' | 'not_configured' | 'unavailable' | 'sample';
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant";
@@ -218,6 +220,7 @@ export interface ChatMessage {
   citations?: Citation[];
   legal?: string[];
   mode?: "ai" | "sources-only";
+  legalStatus?: LegalSearchStatus;
   /** On a question: every context it was asked with, kept so the history shows them. */
   contexts?: ContextRef[];
 }

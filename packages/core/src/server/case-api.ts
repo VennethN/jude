@@ -310,7 +310,7 @@ async function postMessage(
     );
     if (answer.mode === 'sources-only') publish(answer);
     const discovered = withLegal
-      ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])])
+      ? await discoverLegal(workspace, text, [...contexts, ...(answer.citations ?? [])], { status: status => { answer.legalStatus = status; } })
       : [];
     return transaction((db) =>
       idempotent(db, org, scope, key, async () => {

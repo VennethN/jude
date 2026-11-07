@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { Citation, ContextRef, LegalRef, Workspace } from '../../domain';
+import type { Citation, ContextRef, LegalRef, LegalSearchStatus, Workspace } from '../../domain';
 import { pasalSourceUrl } from '../../legal';
 import { transaction } from '../db';
 import { legal as samples } from '../seed';
@@ -128,8 +128,17 @@ function hitOf(raw: unknown, query: Search): Hit | undefined {
     if (!names[query.code]?.test(work.title)) return;
   }
   const passage = record(item.best_passage);
-  const proven = passage.version === 1 ? field(passage.pasal_number, 5).toUpperCase() : '';
-  const numbers = Array.isArray(item.matching_pasals) ? item.matching_pasals.map(String) : [];
+  // Discovery v2 uses pasal/url and object matches; retain support for v1 caches/providers.
+  const articleNumber = (value: unknown) => {
+    const number = (typeof value === 'number' ? String(value) : field(value, 20))
+      .replace(/^Pasal\s+/i, '').toUpperCase();
+    return /^\d{1,4}[A-Z]?$/.test(number) ? number : '';
+  };
+  const proven = articleNumber(passage.pasal ?? (passage.version === 1 ? passage.pasal_number : undefined));
+  const matches = Array.isArray(item.matching_pasals) ? item.matching_pasals : [];
+  const numbers = matches.map((value) => articleNumber(
+    typeof value === 'object' ? record(value).pasal ?? record(value).pasal_number : value,
+  ));
   if (
     query.article &&
     proven !== query.article &&
@@ -138,11 +147,20 @@ function hitOf(raw: unknown, query: Search): Hit | undefined {
     return;
   const article =
     query.article || (!query.numbered && !query.code && /^\d{1,4}[A-Z]?$/.test(proven) ? proven : '');
+  const matched = record(matches[numbers.indexOf(article)]);
+  const articleSource = (raw: unknown) => {
+    const url = source(raw);
+    if (!url) return;
+    const locator = /(?:\/|#)pasal-(\d{1,4}[a-z]?)(?:[/?#]|$)/i.exec(url);
+    return locator && locator[1].toUpperCase() !== article ? undefined : url;
+  };
   const url =
-    (proven && proven === article ? source(passage.href) : undefined) ??
-    source(passage.work_href) ??
-    source(item.work_href) ??
-    source(record(item.work).href);
+    (proven && proven === article ? articleSource(passage.url ?? passage.href) : undefined) ??
+    (article ? articleSource(matched.url ?? matched.href) : undefined) ??
+    articleSource(passage.work_href) ??
+    articleSource(item.url) ??
+    articleSource(item.work_href) ??
+    articleSource(record(item.work).href);
   return { work, article, url };
 }
 function metadataRef(hit: Hit): LegalRef {
@@ -170,11 +188,11 @@ function metadataRef(hit: Hit): LegalRef {
   };
 }
 
-async function readJson(path: string, key: string): Promise<unknown> {
+async function readJson(path: string, key: string, signal?: AbortSignal): Promise<unknown> {
   const response = await fetch(origin + '/api/v1/' + path, {
     headers: { accept: 'application/json', authorization: 'Bearer ' + key },
     redirect: 'error',
-    signal: AbortSignal.timeout(2500),
+    signal: AbortSignal.any([AbortSignal.timeout(2500), ...(signal ? [signal] : [])]),
   });
   if (!response.ok || !response.body || Number(response.headers.get('content-length')) > maxBytes) {
     await response.body?.cancel();
@@ -226,19 +244,19 @@ async function cached<T>(cacheKey: string, load: () => Promise<T>): Promise<T> {
 }
 
 /** The detail response can contain an article tree. Only the public work identity is retained. */
-export async function getPasalWork(uri: string, key: string) {
+export async function getPasalWork(uri: string, key: string, signal?: AbortSignal) {
   if (!validUri(uri)) return undefined;
   const work = await cached('work:' + digest(uri), async () => {
-    const result = record(await readJson('laws' + uri, key));
+    const result = record(await readJson('laws' + uri, key, signal));
     const found = workOf(result.work);
     return found?.uri === uri ? found : null;
   });
   return work ?? undefined;
 }
 
-async function searchPasal(query: Search, key: string): Promise<LegalRef[]> {
-  const hits = await cached('search:' + digest(query.q), async () => {
-    const result = record(await readJson('search?' + new URLSearchParams({ q: query.q, limit: '3' }), key));
+async function searchPasal(query: Search, key: string, signal?: AbortSignal): Promise<LegalRef[]> {
+  const hits = await cached('search:v2:' + digest(query.q), async () => {
+    const result = record(await readJson('search?' + new URLSearchParams({ q: query.q, limit: '3' }), key, signal));
     if (!Array.isArray(result.results)) throw new Error('invalid_pasal_results');
     const seen = new Set<string>();
     return result.results.slice(0, 3).flatMap((item) => {
@@ -253,8 +271,9 @@ async function searchPasal(query: Search, key: string): Promise<LegalRef[]> {
   // Search already supplies a usable identity. Detail can verify the status without retaining its content.
   let verified: Work | undefined;
   try {
-    verified = await getPasalWork(primary.work.uri, key);
+    verified = await getPasalWork(primary.work.uri, key, signal);
   } catch {
+    signal?.throwIfAborted();
     /* Keep the search result's own metadata. */
   }
   return hits.map((hit, index) => metadataRef(index === 0 && verified ? { ...hit, work: verified } : hit));
@@ -284,13 +303,22 @@ function contextLaws(w: Workspace, refs: (Citation | ContextRef)[]) {
   return { ids, text };
 }
 
-async function privateLookup(w: Workspace, query?: Search): Promise<LegalRef[]> {
+interface DiscoveryOptions { signal?: AbortSignal; status?: (status: LegalSearchStatus) => void }
+async function privateLookup(w: Workspace, query?: Search, options: DiscoveryOptions = {}): Promise<LegalRef[]> {
   const key = token();
-  if (!key || !query || legalDiscoveryMode(w) !== 'available') return [];
+  options.signal?.throwIfAborted();
+  if (!key || !query || legalDiscoveryMode(w) !== 'available') {
+    options.status?.(!key ? 'not_configured' : !query ? 'no_query' : 'unavailable');
+    return [];
+  }
   try {
-    return await searchPasal(query, key);
+    const refs = await searchPasal(query, key, options.signal);
+    options.status?.(refs.length ? 'found' : 'no_matches');
+    return refs;
   } catch {
+    options.signal?.throwIfAborted();
     interrupted = { fingerprint: digest(key), until: Date.now() + 60000 };
+    options.status?.('unavailable');
     return [];
   }
 }
@@ -307,10 +335,12 @@ export async function discoverLegal(
   w: Workspace,
   text: string,
   refs: (Citation | ContextRef)[],
+  options: DiscoveryOptions = {},
 ): Promise<LegalRef[]> {
   const related = contextLaws(w, refs),
     query = searchTerms(text);
   if (w.caseRecord.label === 'synthetic') {
+    options.status?.('sample');
     const words = ' ' + (text.toLowerCase().match(/[\p{L}\d]+/gu) ?? []).join(' ') + ' ';
     const rank = samples.map((sample) => {
       const seen = w.legal.find(
@@ -336,7 +366,7 @@ export async function discoverLegal(
   }
   const saved = w.legal.filter((row) => row.provider === 'pasal' && related.ids.has(row.id));
   const safeQuery = query ?? related.text.map((line) => searchTerms(line, true)).find(Boolean);
-  return [...saved, ...(await privateLookup(w, safeQuery))].slice(0, 6);
+  return [...saved, ...(await privateLookup(w, safeQuery, options))].slice(0, 6);
 }
 
 export function retainLegal(w: Workspace, discoveries: LegalRef[]) {
