@@ -32,7 +32,7 @@
 		return value.size ? '?' + value.toString() : '';
 	});
 </script>
-<svelte:head><title>{current.title[lang]} · Jude</title><meta name="robots" content="noindex"/><meta name="referrer" content="no-referrer"/></svelte:head>
+<svelte:head><title>{current.title[lang]} · Jude</title><meta name="robots" content="noindex"/><meta name="referrer" content="strict-origin"/></svelte:head>
 <section class="account">
 	<div class="sheet">
 		<h1>{current.title[lang]}</h1>
