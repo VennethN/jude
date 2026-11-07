@@ -11,6 +11,7 @@ import { basename, join } from 'node:path';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import type { CaseDocument, Workspace } from '../domain';
 import { pasalSourceUrl } from '../legal';
+import { numberGroupedVoices } from '../speakers';
 import { workspaceFromManifest } from './manifest-case';
 import { billing, checkQuota } from './billing';
 import { emptyWorkspace, insertWorkspace, makeCase, readWorkspace } from './cases';
@@ -130,6 +131,11 @@ function list(value: unknown, field: string, max = 12000): unknown[] {
 function rowText(value: unknown, key: string, max = 4000) {
   return string(value, key, max, true);
 }
+function archiveVoiceNumber(value: unknown) {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value)) invalid('voiceNumber');
+  return number(value, 'voiceNumber', 1, 1_000_000);
+}
 function parseWorkspace(raw: unknown) {
   const data = object(raw),
     record = object(data.caseRecord);
@@ -156,8 +162,9 @@ function parseWorkspace(raw: unknown) {
   for (const kind of collections) for (const row of rows(kind)) assignId(row.id);
   // Names and quoted text are preserved verbatim. Only typed references are rewritten.
   w.speakers = rows('speakers').map((r) => ({
-    id: ref(r.id),
+    id: archiveId(r.id),
     label: rowText(r.label, 'label', 180),
+    voiceNumber: archiveVoiceNumber(r.voiceNumber),
     role: choice(
       r.role,
       ['judge', 'judge_member', 'counsel', 'opposing', 'witness', 'party', 'unknown'],
@@ -166,6 +173,8 @@ function parseWorkspace(raw: unknown) {
     confirmed: bool(r.confirmed, 'confirmed'),
     alias: optionalRef(r.alias),
   }));
+  numberGroupedVoices(w.speakers);
+  for (const speaker of w.speakers) speaker.id = ref(speaker.id);
   w.hearings = rows('hearings').map((r) => ({
     id: ref(r.id),
     caseId: w.caseRecord.id,

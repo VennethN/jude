@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { CaseRecord, CaseSummary, Thread, Workspace } from '../domain';
 import { needsReview } from '../domain';
+import { numberGroupedVoices } from '../speakers';
 import { queueStatementIn } from './queue';
 import { syncSemanticIndexIn } from './semantic-index';
 import { preserveHidden, retainedMarker, withoutRemoved, type RemovedSource } from './retained-evidence';
@@ -232,6 +233,7 @@ async function storedWorkspace(
     [caseId],
   );
   for (const entry of data) (w[entry.kind] as { id: string }[]).push(JSON.parse(entry.body));
+  numberGroupedVoices(w.speakers);
   return w;
 }
 async function removedSources(db: Database, caseId: string) {

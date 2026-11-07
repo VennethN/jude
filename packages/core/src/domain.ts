@@ -32,6 +32,8 @@ export interface Speaker {
   id: string;
   label: string;
   role: Role;
+  /** A display number for a grouped voice that has not yet been named. */
+  voiceNumber?: number;
   /** Voice matches are suggestions until a person confirms the name. */
   confirmed: boolean;
   /** An unidentified voice the user assigned to a participant. */
